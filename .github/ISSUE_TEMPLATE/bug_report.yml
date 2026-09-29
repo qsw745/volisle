@@ -1,0 +1,69 @@
+name: 问题反馈 / Bug report
+description: 盘屿无法读写、无法开启读写、崩溃或结果不对 / Volisle cannot read or write, cannot enable writing, crashes or behaves wrongly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请不要贴出卷名、文件路径、序列号等个人信息。 / Please do not post volume names, file paths, serial numbers or other personal information.
+  - type: input
+    id: volisle-version
+    attributes:
+      label: 盘屿版本 / Volisle version
+      description: 设置与诊断… → 支持 / Settings & Diagnostics… → Support
+      placeholder: "0.3.3"
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS 版本 / macOS version
+      description: 苹果菜单 → 关于本机 / Apple menu → About This Mac
+      placeholder: "26.6"
+    validations:
+      required: true
+  - type: dropdown
+    id: extension
+    attributes:
+      label: “盘屿 NTFS”文件系统扩展是否已打开 / Is the "Volisle NTFS" file system extension turned on?
+      description: 系统设置 → 通用 → 登录项与扩展 → 文件系统扩展 / System Settings → General → Login Items & Extensions → File System Extensions
+      options:
+        - 已打开 / On
+        - 已关闭 / Off
+        - 列表里没有盘屿 / Volisle is not in the list
+        - 不确定 / Not sure
+    validations:
+      required: true
+  - type: input
+    id: disk
+    attributes:
+      label: 磁盘 / Disk
+      description: 品牌型号、容量、连接方式 / Brand and model, capacity, connection
+      placeholder: "WD Elements 2 TB, USB"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么 / What happened
+      description: 盘屿界面上显示的提示原文或截图，以及你期望的结果 / The exact message Volisle shows (or a screenshot), and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1. 插入磁盘 / Connect the disk
+        2. …
+  - type: dropdown
+    id: restart
+    attributes:
+      label: 重启 Mac 后是否仍然这样 / Does it still happen after restarting the Mac?
+      options:
+        - 是 / Yes
+        - 否 / No
+        - 还没试 / Not tried yet
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断报告 / Diagnostics report
+      description: 设置与诊断… → 支持 → 导出诊断…，贴出内容或拖入文件 / Settings & Diagnostics… → Support → Export Diagnostics…; paste it or drop the file here

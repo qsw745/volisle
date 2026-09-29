@@ -1,0 +1,19 @@
+name: 功能建议 / Feature request
+description: 希望盘屿增加或改进的功能 / Something you would like Volisle to add or improve
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: 想解决的问题 / What problem should it solve
+      description: 你在什么场景下需要它 / When would you need it
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 希望的做法 / How you would like it to work
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS 版本 / macOS version
