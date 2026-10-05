@@ -1,0 +1,8 @@
+{
+  "team_id": "6N5T3G6H33",
+  "bundle_id": "top.qisw.volisle",
+  "extension_bundle_id": "top.qisw.volisle.filesystem",
+  "distribution": "developer-id-test",
+  "write_mode": "read-only",
+  "automatically_claim_ntfs": false
+}

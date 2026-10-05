@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-10-05T10:06:09.770854+00:00",
+  "checks": [
+    {
+      "name": "XTS-AES 128/256 与 AES-CBC 128/256：用密码解锁后只读挂载，中文路径文件与 3 MiB 文件的 SHA-256 与 Windows 一致",
+      "passed": true
+    },
+    {
+      "name": "四块盘都能用 48 位恢复密钥解锁并读出一致的内容",
+      "passed": true
+    },
+    {
+      "name": "密码与恢复密钥导出同一把卷主密钥；用主密钥可只读挂载且内容一致；错一位拒绝访问，格式不对参数无效",
+      "passed": true
+    },
+    {
+      "name": "错误密码、校验不通过或组数不对的恢复密钥都返回“拒绝访问”，未知方式返回“参数无效”，全程零写入",
+      "passed": true
+    },
+    {
+      "name": "普通 NTFS 盘不被识别为 BitLocker，解锁请求被拒绝",
+      "passed": true
+    },
+    {
+      "name": "四块加密镜像在全部测试前后逐字节不变",
+      "passed": true
+    }
+  ],
+  "fixtures": {
+    "xts128": "XtsAes128",
+    "xts256": "XtsAes256",
+    "cbc128": "Aes128",
+    "cbc256": "Aes256"
+  },
+  "scope": "Windows 11 专业版生成的 BitLocker 镜像（160 MB，完全加密）；只读；不涉及 FSKit 或实盘"
+}

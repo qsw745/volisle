@@ -1,0 +1,38 @@
+import type { Metadata } from 'next';
+import { alternates } from '@/lib/i18n';
+import { ArticlePage } from '@/components/ArticlePage';
+import { Faq } from '@/components/Faq';
+export const metadata: Metadata = { title: 'Help', alternates: alternates('en', '/help/') };
+export default function Page() { return <ArticlePage locale="en" title="Connect, then get going." lead="After the first setup, all that’s left is plugging in and ejecting.">
+<h2>Getting started</h2><ol className="timeline">
+<li><strong>Follow the setup guide</strong><span>The first time you open Volisle, a setup guide walks you through three steps: allow Volisle in the background, turn on its file system extension (“Volisle NTFS” in the File System Extensions list), and allow it to read disks (Full Disk Access). Each step’s button opens the right page in System Settings; turn on the switch as described and the guide ticks it off automatically. If you close the guide, you can finish under Setup in Settings.</span></li>
+<li><strong>Connect a disk</strong><span>Connect an NTFS external drive or USB flash drive. Volisle checks it in the background and turns on write access when it passes; the sidebar shows “Read-write”.</span></li>
+<li><strong>Use it as usual</strong><span>Create, edit, save, move, or delete files in Finder and your other apps.</span></li>
+<li><strong>Eject</strong><span>Eject the disk in Volisle or Finder before unplugging it. If you’re told the disk is in use, quit the app using it first.</span></li></ol>
+<h2>If a disk is read-only</h2><p>Check the message at the bottom of the window and follow it:</p><ul>
+<li><strong>The top of the window says one step is left and the file system extension is off</strong>: open System Settings → General → Login Items &amp; Extensions → File System Extensions and turn on “Volisle NTFS”. You can ignore the “FSKit Modules” switch under Volisle on the By App page, even if it won’t turn on. No restart is needed—reconnect the disk or click Refresh in Volisle.</li>
+<li><strong>It wasn’t ejected safely from Windows last time</strong>: connect the disk to Windows, open it once, eject it with “Safely Remove Hardware” in the taskbar, then reconnect it to your Mac.</li>
+<li><strong>Windows is hibernated or using Fast Startup</strong>: fully shut down that Windows PC, then reconnect the disk to your Mac.</li>
+<li><strong>The disk needs a check</strong>: in Windows, open the disk’s Properties → Tools → Check, then eject it safely when it’s done. Without a Windows PC, choose “Check on This Mac…” next to the message: Volisle reads every file and folder record and clears the mark and turns on write access only if nothing is wrong. It isn’t the same as a full disk check in Windows; for important data without a backup, check it in Windows first.</li></ul>
+<p>Two other messages:</p><ul>
+<li><strong>Couldn’t mount with write access</strong>: restart your Mac and connect the disk again. If it keeps happening, export diagnostics in Settings → Support and tell us through the feedback page below.</li>
+<li><strong>The file system extension didn’t turn on writing</strong>: check the write-protect switch on the disk or card reader. If the disk was unplugged while writing last time, connect it to Windows, open it once, eject it safely, and connect it again.</li></ul>
+<p>If the disk disconnected unexpectedly while writing on your Mac, Volisle recovers it automatically the next time it connects—there’s nothing to do.</p>
+<h2 id="erase">Erasing as NTFS</h2><p>From the More menu at the top right, choose “Erase Disk…”, pick an external USB disk, then erase the whole disk (GUID or MBR partition map) or a single Windows data partition, enter a name, and confirm. Erasing deletes all data and can’t be undone; internal disks, the startup disk, and disks with a mounted Mac volume aren’t offered. Afterward the disk can be read and written on Windows and Mac.</p>
+<h2 id="bitlocker">BitLocker-encrypted disks</h2><p>When connected, the disk appears in the sidebar as “BitLocker · Locked”. Select it, enter the password—or switch to Recovery Key and enter the 48 digits—then click Unlock. Finder opens, and you can copy, change and delete files as on any disk. When you’re done, click Lock or eject it in Finder before unplugging; if it’s unplugged anyway, the next unlock first rolls back the last few seconds of writes. A disk that needs a check, comes from a hibernated Windows, or wasn’t ejected safely last time opens read-only, with the reason shown. Recovery keys are usually saved in your Microsoft account (aka.ms/myrecoverykey), on a printout, or in the file you saved when you turned on BitLocker. The password is used only for that unlock and isn’t saved. If Windows is still encrypting or decrypting the disk, wait until it finishes and try again.</p>
+<h2>FAQ</h2><Faq locale="en"/>
+<h2>Exporting diagnostics</h2><p>In Settings → Support, choose “Export Diagnostics…”. The report contains only system and component status, the number of disks, and file system types—no volume names, full paths, disk identifiers, or file contents.</p>
+<h2 id="feedback">Reporting a problem</h2><p>To report a problem or suggest something, use the <a className="inline-link" href="https://github.com/qsw745/volisle-feedback/issues/new/choose">feedback page on GitHub</a> (a GitHub account is required). Include your macOS version, your Volisle version, and the message shown in the window; an exported diagnostics report helps most. Please check it before posting and leave out personal information such as volume names and file paths.</p>
+<h2>Updates</h2><p>Volisle checks for updates automatically, and you can also check manually in Settings. Before installing an update, it safely ends disk writes, and it waits while a disk is in use.</p>
+<h2 id="uninstall">Uninstall</h2><ol className="timeline">
+<li><strong>Eject disks</strong><span>Eject all NTFS disks in Volisle or Finder.</span></li>
+<li><strong>Turn off open at login</strong><span>Open Settings (⌘,) and, under General, turn off “Open Volisle at login”.</span></li>
+<li><strong>Remove the component</strong><span>In Settings → Support, expand “NTFS Engine” and click “Remove Component”. Background Component should then show “Not set up”.</span></li>
+<li><strong>Delete the app</strong><span>Quit Volisle (⌘Q) and drag Volisle from Applications to the Trash.</span></li></ol>
+<p>After these steps, Volisle no longer runs in the background and its file system extension disappears from System Settings. Files on your disks aren’t affected, and macOS can still open NTFS disks read-only.</p>
+<h3>Remove everything (optional)</h3>
+<p>macOS keeps a few small settings and cache files (under 1 MB in total), which don’t affect anything. To delete them too, first make sure every NTFS disk was ejected normally the last time it was used: the recovery records for interrupted writes live here, and once they’re deleted, automatic recovery is no longer possible. Then press ⇧⌘G in Finder and go to and delete each of these:</p>
+<ul><li><code>~/Library/Containers/top.qisw.volisle.filesystem</code></li><li><code>~/Library/Application Scripts/top.qisw.volisle.filesystem</code></li><li><code>~/Library/Preferences/top.qisw.volisle.plist</code></li><li><code>~/Library/Caches/top.qisw.volisle</code></li><li><code>~/Library/HTTPStorages/top.qisw.volisle</code></li></ul>
+<p>The background component also leaves an empty lock file in a system folder. To remove it, run this command in Terminal (you’ll be asked for an administrator password):</p>
+<p><code>sudo rm -r /private/var/db/volisle</code></p>
+</ArticlePage>; }

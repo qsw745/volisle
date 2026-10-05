@@ -1,0 +1,50 @@
+{
+  "engine": "NTFS-3G 2026.7.7",
+  "scope": "离线可丢弃镜像；不是 Finder 挂载验证",
+  "checks": [
+    {
+      "name": "创建 64 MiB NTFS 普通文件镜像",
+      "passed": true
+    },
+    {
+      "name": "/hello.txt",
+      "bytes": 28,
+      "sha256": "7e457be74b6762a2e5c3df04bbded13086b0616f4056ae7f133c78f9224823f3",
+      "passed": true
+    },
+    {
+      "name": "/中文 空格 💽.txt",
+      "bytes": 25,
+      "sha256": "a0edd530ef8862eabe8344ec0db1d5fe95d47dbff335ef75617952409627c6a4",
+      "passed": true
+    },
+    {
+      "name": "/长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长.txt",
+      "bytes": 13,
+      "sha256": "9aeabafafef7b3e7d7df4340f343c2c8d7b97df84d6ed569fbf2cb4deac32724",
+      "passed": true
+    },
+    {
+      "name": "/batch.bin",
+      "bytes": 4194304,
+      "sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e",
+      "passed": true
+    },
+    {
+      "name": "NTFS 根目录枚举",
+      "passed": true
+    }
+  ],
+  "not_covered": [
+    "Finder 挂载",
+    "重命名",
+    "移动",
+    "删除",
+    "卸载重挂",
+    "Windows 交叉读取和 chkdsk",
+    "异常断电",
+    "休眠/dirty 风险检测"
+  ],
+  "temporary_image_removed": true,
+  "executed_at": "2026-09-19 22:20:04 +0800"
+}

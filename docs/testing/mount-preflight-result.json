@@ -1,0 +1,56 @@
+{
+  "verified_at": "2026-09-21T02:59:49.225994+00:00",
+  "scope": "本地测试与编译；未安装、未挂载、未访问原始设备",
+  "core_tests": 56,
+  "core_suites": 6,
+  "policy_cases": 20,
+  "bridge_checks": 22,
+  "ordinary_bridge_images_removed": true,
+  "readonly_extension_build": {
+    "target": "arm64-apple-macos26.4",
+    "experimental_writes": false,
+    "experimental_replacement": false,
+    "entry_point": "_NSExtensionMain",
+    "built_at": "2026-09-21T02:56:42.966382+00:00",
+    "binary_sha256": "669318a01925d55fcb72fe92c66fa6e239727bc644605f31235110ac3fd6a7f1"
+  },
+  "experimental_extension_build": {
+    "target": "arm64-apple-macos26.4",
+    "experimental_writes": true,
+    "experimental_replacement": true,
+    "entry_point": "_NSExtensionMain",
+    "built_at": "2026-09-21T02:55:09.625659+00:00",
+    "binary_sha256": "339dfc3f7fd8660f464b989412d053f224db95d3fdd029cd4423dcbc5c81da94",
+    "fixture": {
+      "serial_hex": "909f667dfc8c2745",
+      "size": 67108864,
+      "image_sha256": "b1262498b3ec81403b640c09ac38046e1d043bbdb1c3be208630f594959168e3"
+    }
+  },
+  "app_build": true,
+  "installed_readonly_candidate_unchanged": true,
+  "system_mount_tests_run": false,
+  "updated_interruption_test_run": false,
+  "raw_device_accessed": false,
+  "notarized": false,
+  "published": false,
+  "source_sha256": {
+    "packages/VolisleCore/Sources/VolisleCore/Engine.swift": "4bf259f9a6656ba4d24311f4b6abdfac670b6ceeb9877bba42a6059d27bd758a",
+    "packages/VolisleCore/Sources/VolisleCore/Volume.swift": "689cf8ce681bfcd5b2b3bdc843b0d94fdf2682fe3b66ea645b4d2f69b658fdea",
+    "packages/VolisleCore/Sources/VolisleCore/ManualMount.swift": "3e2aa878afe6a56647ef2df2cda571720e36f99883b45ea6b64fe621028e3ad2",
+    "packages/VolisleCore/Tests/VolisleCoreTests/MountVerificationTests.swift": "d0c9902ccd1c927cbb219f257a58eb3fdd8eb7cef87ceecba14b9cd87abaf071",
+    "packages/VolisleCore/Tests/VolisleCoreTests/SafetyTests.swift": "1a95b372e978561ee3e973e40fe32bfecce336fb28000321ea1db52fa8ddfdf7",
+    "apps/extension/Sources/WriteMountPolicy.swift": "913440e8dfe13483e535fb148bcae9a6e884f95c5d8dba0212c28c5c757f6c77",
+    "apps/extension/Sources/NTFSVolume.swift": "5efcc47b9f8249af17efbb89a7609547c3f607232461b0b9fe47fddcdde93158",
+    "scripts/test-write-preflight.swift": "c2bc71ec26874313acc75dde855ccda91548c0e771b3eb0ee30b44fcc0e6b7e6",
+    "scripts/test-fskit-interruption.py": "617f09e0cb8fe6e6956b399e76d3b79ec89596ebfc9ba037d206688b742d3d43",
+    "scripts/test-ntfs-bridge.py": "04c431aa63a91c1de6d79086be02dad54465f01cb8230188f9bf00c7833dbb58"
+  },
+  "not_completed": [
+    "主应用真正的写入适配器与权限资源绑定",
+    "新候选系统中断验收",
+    "覆盖保存限制解除",
+    "Windows及实盘验收",
+    "安装更新卸载及公开发布"
+  ]
+}

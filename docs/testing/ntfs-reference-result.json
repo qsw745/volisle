@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "checks": [
+    "old-reference-and-new-path-remain-independent-after-replacement",
+    "cached-sequence-mismatch-and-zero-sequence-rejected-without-writes",
+    "invalid-range-and-directory-reference-rejected-before-mutation",
+    "actual-mft-reuse-does-not-redirect-stale-reference",
+    "independent-content-read-after-clean-close",
+    "read-only-reopen-and-reference-write-denial",
+    "reference-write-failure-and-short-write-lock-session-and-retain-dirty"
+  ],
+  "verified_at": "2026-09-28T02:47:11.784719+00:00"
+}

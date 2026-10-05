@@ -1,0 +1,113 @@
+{
+  "success": true,
+  "verified_at": "2026-09-23T14:15:28.737043+00:00",
+  "cases": [
+    {
+      "mode": "sustained",
+      "valid": true,
+      "records": 650,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-crash-created",
+      "valid": false,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-failure-created",
+      "valid": false,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-crash-written",
+      "valid": false,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-failure-written",
+      "valid": false,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-crash-synced",
+      "valid": false,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-failure-synced",
+      "valid": false,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-crash-renamed",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-failure-renamed",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-crash-committed",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-failure-committed",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-crash-pruned-1",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-failure-pruned-1",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-crash-pruned-128",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-failure-pruned-128",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-crash-prune-committed",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    },
+    {
+      "mode": "checkpoint-failure-prune-committed",
+      "valid": true,
+      "records": 129,
+      "data_verified": true
+    }
+  ],
+  "not_covered": [
+    "hardware power loss",
+    "torn sectors",
+    "restart cleanup"
+  ]
+}

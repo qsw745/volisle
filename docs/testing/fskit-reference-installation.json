@@ -1,0 +1,27 @@
+{
+  "verified_at": "2026-09-20T11:05:48.527847+00:00",
+  "candidate": "apps/macos/build/signed-reference-readonly",
+  "installed_path": "~/Applications/Volisle Test.app",
+  "write_mode": "read-only",
+  "experimental_writes": false,
+  "codesign_verified": true,
+  "enabled_unique_module": true,
+  "installed_hashes": {
+    "Contents/MacOS/Volisle": "f5a5ae957e3979ddb5e0f2e698c1a87ee7731738dff7454e2e63db54fc439e5a",
+    "Contents/Extensions/VolisleFS.appex/Contents/MacOS/VolisleFS": "5eb23a7aef7703149a7bf08fb1df67a8659e6c2a644041ccf21d260dda39ad78"
+  },
+  "readonly_smoke": {
+    "mountpoint": "/private/tmp/volisle-fskit-mount-hx_a7yo0",
+    "mount_verified": true,
+    "read_verified": true,
+    "write_denied": true,
+    "detached": true,
+    "mountpoint_removed": true,
+    "image_unchanged": true
+  },
+  "test_images_detached": true,
+  "user_disk_readonly": true,
+  "real_disk_written": false,
+  "notarized": false,
+  "published": false
+}

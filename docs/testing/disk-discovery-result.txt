@@ -1,0 +1,12 @@
+盘屿 Volisle 0.1.0-dev
+系统：Version 27.2 (Build 26B5086k)
+磁盘服务：已连接
+外接卷数量：2
+文件系统：apfs, msdos
+NTFS 读写引擎：未接入
+风险检测：未实现，不代表安全
+未导出卷名、路径、UUID 或文件内容。
+
+物理设备分组：1
+卷：apfs，状态：readWrite，稳定身份：true，容量已知：true
+卷：msdos，状态：unmounted，稳定身份：true，容量已知：true

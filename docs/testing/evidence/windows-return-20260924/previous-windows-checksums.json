@@ -1,0 +1,158 @@
+﻿{
+    "created_at":  "2026-09-24T03:11:15.9550128Z",
+    "drive":  "G:\\",
+    "label":  "qsw",
+    "file_system":  "NTFS",
+    "volume_bytes":  2000396320768,
+    "test_directory":  "Volisle-Acceptance-20260923-a66957f52b614133896f2088379c5f94",
+    "file_checks":  {
+                        "schema_version":  1,
+                        "success":  true,
+                        "expected_count":  17,
+                        "checked_count":  17,
+                        "passed_count":  17,
+                        "files":  [
+                                      {
+                                          "path":  "子目录/64MiB 中文 🌊.bin",
+                                          "expected_sha256":  "2dc741a3fae43bc408fd17e1d90087b4335cef0a44611dc412880362d2266d4d",
+                                          "actual_sha256":  "2dc741a3fae43bc408fd17e1d90087b4335cef0a44611dc412880362d2266d4d",
+                                          "bytes":  67108864,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-00.txt",
+                                          "expected_sha256":  "398fd5d4c7a6ff3fed6323fdba05f72083f9a5156df28c7cd5c93f65d25de1d6",
+                                          "actual_sha256":  "398fd5d4c7a6ff3fed6323fdba05f72083f9a5156df28c7cd5c93f65d25de1d6",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-01.txt",
+                                          "expected_sha256":  "cc6220ed7cc8b277c5f5bf63fd0699e877cf74efe2d2d715e77bef1ea3850c39",
+                                          "actual_sha256":  "cc6220ed7cc8b277c5f5bf63fd0699e877cf74efe2d2d715e77bef1ea3850c39",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-02.txt",
+                                          "expected_sha256":  "6f9d1fee848abab961e100dab13d2ce7d0067d46d8e09bb03591329a7b32d76b",
+                                          "actual_sha256":  "6f9d1fee848abab961e100dab13d2ce7d0067d46d8e09bb03591329a7b32d76b",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-03.txt",
+                                          "expected_sha256":  "53f2d8c989988b45afe5d3f502fe45b0918ed2e8f584de3ff3f6b932d542c324",
+                                          "actual_sha256":  "53f2d8c989988b45afe5d3f502fe45b0918ed2e8f584de3ff3f6b932d542c324",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-04.txt",
+                                          "expected_sha256":  "7955f2ca2a5b995dc133b5e27ad323616374a84fd2a98d0276191e4d6fce46c9",
+                                          "actual_sha256":  "7955f2ca2a5b995dc133b5e27ad323616374a84fd2a98d0276191e4d6fce46c9",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-05.txt",
+                                          "expected_sha256":  "4f24c81ad92c03e39ac9c1eb4dddb33f0ee074c4eca1970a59ddb1e2321b8b45",
+                                          "actual_sha256":  "4f24c81ad92c03e39ac9c1eb4dddb33f0ee074c4eca1970a59ddb1e2321b8b45",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-06.txt",
+                                          "expected_sha256":  "d9cd507e534323d667c24ee385b33b6ea515b958f693cc824e48d066b1b68623",
+                                          "actual_sha256":  "d9cd507e534323d667c24ee385b33b6ea515b958f693cc824e48d066b1b68623",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-07.txt",
+                                          "expected_sha256":  "c7f33691eeab7d5ad8636e3bd07417369d6c98d25655502b884e57f7ad6e06fc",
+                                          "actual_sha256":  "c7f33691eeab7d5ad8636e3bd07417369d6c98d25655502b884e57f7ad6e06fc",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-08.txt",
+                                          "expected_sha256":  "e48dfa517cc0bb50d1d03686a5bf2c424015b718cd0d5d660a27c5938ab8d8c0",
+                                          "actual_sha256":  "e48dfa517cc0bb50d1d03686a5bf2c424015b718cd0d5d660a27c5938ab8d8c0",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-09.txt",
+                                          "expected_sha256":  "2923ced75b2a2bf302648b24057b7ed011c9846cac17d0af23913565ead9014e",
+                                          "actual_sha256":  "2923ced75b2a2bf302648b24057b7ed011c9846cac17d0af23913565ead9014e",
+                                          "bytes":  21,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-10.txt",
+                                          "expected_sha256":  "48944bf0444cc6fddb77a17a6a1acbd11a50b74d098c3a87b3a2ac2e5bfb5bab",
+                                          "actual_sha256":  "48944bf0444cc6fddb77a17a6a1acbd11a50b74d098c3a87b3a2ac2e5bfb5bab",
+                                          "bytes":  22,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-11.txt",
+                                          "expected_sha256":  "d3023a4c5801f09527d113d543b380637d14121ab677a2e30b556f1e815ea4dc",
+                                          "actual_sha256":  "d3023a4c5801f09527d113d543b380637d14121ab677a2e30b556f1e815ea4dc",
+                                          "bytes":  22,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-12.txt",
+                                          "expected_sha256":  "2c37ddb05ebd3e9eba4ba388030cd74484ca28eeb1db11199af1b04a073fbb09",
+                                          "actual_sha256":  "2c37ddb05ebd3e9eba4ba388030cd74484ca28eeb1db11199af1b04a073fbb09",
+                                          "bytes":  22,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-13.txt",
+                                          "expected_sha256":  "65368fb93f9b729498c5282af6c622a7ed44b87f1092f2a5e9fe30fd629bbc70",
+                                          "actual_sha256":  "65368fb93f9b729498c5282af6c622a7ed44b87f1092f2a5e9fe30fd629bbc70",
+                                          "bytes":  22,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-14.txt",
+                                          "expected_sha256":  "bb4e0a8fa169b3e9118cf46e64a5efc0fb4a5460fcad72fb07e48d16f6a7e4a9",
+                                          "actual_sha256":  "bb4e0a8fa169b3e9118cf46e64a5efc0fb4a5460fcad72fb07e48d16f6a7e4a9",
+                                          "bytes":  22,
+                                          "status":  "pass",
+                                          "error":  null
+                                      },
+                                      {
+                                          "path":  "文件-15.txt",
+                                          "expected_sha256":  "f3e65dfb20f12ca41cb471e5b82ab40afc496a72c7c398c15df821fb3f8dbeb5",
+                                          "actual_sha256":  "f3e65dfb20f12ca41cb471e5b82ab40afc496a72c7c398c15df821fb3f8dbeb5",
+                                          "bytes":  22,
+                                          "status":  "pass",
+                                          "error":  null
+                                      }
+                                  ]
+                    },
+    "windows_version":  "Microsoft Windows NT 10.0.26200.0",
+    "powershell_version":  "5.1.26100.9444",
+    "chkdsk_verified":  false,
+    "windows_to_mac_verified":  false,
+    "acl_preservation_verified":  false
+}

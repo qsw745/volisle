@@ -1,0 +1,69 @@
+--- a/ntfsprogs/mkntfs.c
++++ b/ntfsprogs/mkntfs.c
+@@ -3459,8 +3459,28 @@
+ 		free(p);
+ 		p = q;
+ 	}
++	/* Volisle: the host may format again in the same process; leave no
++	 * dangling list, leaked buffer or stale size/count behind. */
++	g_allocation = NULL;
++	free(g_upcaseinfo);	g_upcaseinfo	= NULL;
++	g_num_bad_blocks = 0;
++	g_dynamic_buf_size = 0;
++	g_mft_bitmap_byte_size = 0;
++	g_lcn_bitmap_byte_size = 0;
++	g_mft_size = 0;
++	g_mft_lcn = g_mftmirr_lcn = g_logfile_lcn = 0;
++	g_logfile_size = 0;
++	g_mft_zone_end = 0;
+ }
+ 
++
++/*
++ * Volisle: the FSKit host formats through its block resource (the sandbox
++ * cannot open /dev). When set, this device is used instead of opening
++ * opts.dev_name; mkntfs takes ownership once it is attached to the volume.
++ */
++struct ntfs_device *nk_mkntfs_external_dev = NULL;
++int nk_mkntfs_dev_consumed = 0;
+ 
+ /**
+  * mkntfs_open_partition -
+@@ -3476,7 +3496,11 @@
+ 	 * Allocate and initialize an ntfs device structure and attach it to
+ 	 * the volume.
+ 	 */
+-	vol->dev = ntfs_device_alloc(opts.dev_name, 0, &ntfs_device_default_io_ops, NULL);
++	if (nk_mkntfs_external_dev) {
++		vol->dev = nk_mkntfs_external_dev;
++		nk_mkntfs_dev_consumed = 1;
++	} else
++		vol->dev = ntfs_device_alloc(opts.dev_name, 0, &ntfs_device_default_io_ops, NULL);
+ 	if (!vol->dev) {
+ 		ntfs_log_perror("Could not create device");
+ 		goto done;
+@@ -4712,8 +4736,9 @@
+ 			bs->clusters_per_index_record,
+ 			bs->clusters_per_index_record);
+ 	/* Generate a 64-bit random number for the serial number. */
+-	bs->volume_serial_number = cpu_to_le64(((u64)random() << 32) |
+-			((u64)random() & 0xffffffff));
++	/* Volisle: a time-seeded random() repeats within one second. */
++	bs->volume_serial_number = cpu_to_le64(((u64)arc4random() << 32) |
++			(u64)arc4random());
+ 	/*
+ 	 * Leave zero for now as NT4 leaves it zero, too. If want it later, see
+ 	 * ../libntfs/bootsect.c for how to calculate it.
+@@ -5186,10 +5211,11 @@
+  * Return:  0  Success, the program worked
+  *	    1  Error, something went wrong
+  */
+-int main(int argc, char *argv[])
++int nk_mkntfs_main(int argc, char *argv[])
+ {
+ 	int result = 1;
+ 
++	mkntfs_cleanup();	/* Volisle: drop any state an earlier run left */
+ 	ntfs_log_set_handler(ntfs_log_handler_outerr);
+ 	utils_set_locale();
+ 

@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-24",
+  "evidence": "user-supplied Windows screenshots; not agent-executed Windows commands",
+  "volume": {
+    "drive": "G:",
+    "label": "qsw",
+    "filesystem": "NTFS"
+  },
+  "mac_to_windows": {
+    "passed_files": 17,
+    "expected_files": 17,
+    "exit_code": 0,
+    "result": "content hashes match"
+  },
+  "chkdsk": {
+    "command": "chkdsk G:",
+    "readonly": true,
+    "completed": true,
+    "reported_no_problems": true,
+    "file_records_processed": 110,
+    "index_entries_processed": 146,
+    "bad_file_records": 0,
+    "exit_code": null,
+    "raw_log_received": false
+  },
+  "windows_to_mac": "pending",
+  "windows_custom_acl": "pending",
+  "evidence_sha256": {
+    "checksums.png": "102dff9f67b9a7327a2bb5d500c88d2d8f74170f0a37bd86ebc488ad2a1a1ba3",
+    "chkdsk.png": "25044eae2664ee1fadb5a1c28744f762360e6410381fc17feaee367661dfa315"
+  }
+}

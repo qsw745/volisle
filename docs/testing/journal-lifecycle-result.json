@@ -1,0 +1,301 @@
+{
+  "success": true,
+  "verified_at": "2026-09-23T14:15:17.294966+00:00",
+  "cases": [
+    {
+      "generation": 1,
+      "boundary": "normal",
+      "action": "normal",
+      "valid": true,
+      "records": 131
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-created",
+      "action": "crash",
+      "valid": false,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-created",
+      "action": "failure",
+      "valid": false,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-written",
+      "action": "crash",
+      "valid": false,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-written",
+      "action": "failure",
+      "valid": false,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-synced",
+      "action": "crash",
+      "valid": false,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-synced",
+      "action": "failure",
+      "valid": false,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-renamed",
+      "action": "crash",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-renamed",
+      "action": "failure",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-committed",
+      "action": "crash",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-committed",
+      "action": "failure",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-pruned-1",
+      "action": "crash",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-pruned-1",
+      "action": "failure",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-pruned-64",
+      "action": "crash",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-pruned-64",
+      "action": "failure",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-pruned-128",
+      "action": "crash",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-pruned-128",
+      "action": "failure",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-prune-committed",
+      "action": "crash",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 1,
+      "boundary": "checkpoint-prune-committed",
+      "action": "failure",
+      "valid": true,
+      "records": 129
+    },
+    {
+      "generation": 2,
+      "boundary": "normal",
+      "action": "normal",
+      "valid": true,
+      "records": 259
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-created",
+      "action": "crash",
+      "valid": false,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-created",
+      "action": "failure",
+      "valid": false,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-written",
+      "action": "crash",
+      "valid": false,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-written",
+      "action": "failure",
+      "valid": false,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-synced",
+      "action": "crash",
+      "valid": false,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-synced",
+      "action": "failure",
+      "valid": false,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-renamed",
+      "action": "crash",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-renamed",
+      "action": "failure",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-committed",
+      "action": "crash",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-committed",
+      "action": "failure",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-pruned-1",
+      "action": "crash",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-pruned-1",
+      "action": "failure",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-pruned-64",
+      "action": "crash",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-pruned-64",
+      "action": "failure",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-pruned-128",
+      "action": "crash",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-pruned-128",
+      "action": "failure",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-prune-committed",
+      "action": "crash",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "generation": 2,
+      "boundary": "checkpoint-prune-committed",
+      "action": "failure",
+      "valid": true,
+      "records": 257
+    },
+    {
+      "corruption": "truncated",
+      "refused": true
+    },
+    {
+      "corruption": "symlink",
+      "refused": true
+    },
+    {
+      "corruption": "hardlink",
+      "refused": true
+    },
+    {
+      "corruption": "tampered",
+      "refused": true
+    },
+    {
+      "corruption": "missing-tail",
+      "refused": true
+    },
+    {
+      "corruption": "unknown-file",
+      "refused": true
+    }
+  ],
+  "not_covered": [
+    "hardware power loss",
+    "torn sectors",
+    "NTFS writes at checkpoint boundaries"
+  ]
+}

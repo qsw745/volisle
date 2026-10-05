@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "original_result_preserved": ".workbench/fskit-readonly-r484kgxl/replacement-result.json",
+  "original_failure": "测试错误地假定 Finder 拷贝替换必经 rename-over；实际只有直接覆盖产生一条恢复记录。",
+  "checks": [
+    "replace-closed-target",
+    "unsupported-cross-directory-and-large-source-preserved",
+    "replace-open-old-descriptor-isolated",
+    "new-descriptor-write-truncate-isolated",
+    "private-backup-not-enumerated",
+    "new-data-survives-old-close",
+    "finder-overwrite-content-verified",
+    "offline-clean-readonly-remount-no-backup",
+    "sandbox-journal-replayed-by-new-readonly-process"
+  ],
+  "native_publications": 1,
+  "journal_audit": "恢复记录只读复核：卷=c071c1611f2ca331 已完成=1 未完成=0；未执行磁盘修复或删除",
+  "publication_process": 15776,
+  "replay_process": 15913,
+  "allocation_check": {
+    "success": true,
+    "image_sha256": "130e25233a245865da2db6480e195e9de9648f2198dc5b659674e58c566884e7",
+    "records_checked": 26,
+    "owned_clusters_checked": 672,
+    "errors": [],
+    "scope": "run overlap and allocated-run bitmap consistency; not full filesystem validation"
+  },
+  "final_image_sha256": "130e25233a245865da2db6480e195e9de9648f2198dc5b659674e58c566884e7",
+  "gui_preview": "快速查看显示 Finder 新版本内容",
+  "real_disk_written": false
+}

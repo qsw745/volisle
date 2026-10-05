@@ -1,0 +1,102 @@
+{
+  "checks": [
+    "no-op-collision-and-directory-cycle-zero-writes",
+    "normal-rename-independent-read",
+    "each-write-failure-reported-and-content-retained",
+    "each-sync-failure-reported-and-content-retained",
+    "process-exit-after-each-complete-write-content-retained"
+  ],
+  "failure_points": [
+    {
+      "write": 1,
+      "source_readable": true,
+      "destination_readable": false
+    },
+    {
+      "write": 2,
+      "source_readable": true,
+      "destination_readable": true
+    },
+    {
+      "write": 3,
+      "source_readable": true,
+      "destination_readable": true
+    },
+    {
+      "write": 4,
+      "source_readable": false,
+      "destination_readable": true
+    },
+    {
+      "write": 5,
+      "source_readable": false,
+      "destination_readable": true
+    },
+    {
+      "write": 6,
+      "source_readable": false,
+      "destination_readable": true
+    },
+    {
+      "write": 7,
+      "source_readable": false,
+      "destination_readable": true
+    }
+  ],
+  "sync_failure_points": [
+    {
+      "sync": 1,
+      "source_readable": true,
+      "destination_readable": true
+    },
+    {
+      "sync": 2,
+      "source_readable": false,
+      "destination_readable": true
+    }
+  ],
+  "crash_points": [
+    {
+      "after_write": 1,
+      "source_readable": true,
+      "destination_readable": true
+    },
+    {
+      "after_write": 2,
+      "source_readable": true,
+      "destination_readable": true
+    },
+    {
+      "after_write": 3,
+      "source_readable": false,
+      "destination_readable": true
+    },
+    {
+      "after_write": 4,
+      "source_readable": false,
+      "destination_readable": true
+    },
+    {
+      "after_write": 5,
+      "source_readable": false,
+      "destination_readable": true
+    },
+    {
+      "after_write": 6,
+      "source_readable": false,
+      "destination_readable": true
+    },
+    {
+      "after_write": 7,
+      "source_readable": false,
+      "destination_readable": true
+    }
+  ],
+  "success": true,
+  "not_covered": [
+    "torn-sector writes",
+    "physical power loss",
+    "replacement rename",
+    "Windows recovery"
+  ]
+}

@@ -1,0 +1,4 @@
+/* App name in Finder, Dock, Launchpad and the menu bar */
+"CFBundleDisplayName" = "Volisle";
+"CFBundleName" = "Volisle";
+"NSRemovableVolumesUsageDescription" = "Volisle needs access to the external disk you choose to check its status and provide the file system. It writes only after you turn on write access and the check passes.";

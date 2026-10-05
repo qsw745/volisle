@@ -1,0 +1,107 @@
+{
+  "success": true,
+  "verified_at": "2026-09-23T14:15:23.339816+00:00",
+  "cases": [
+    {
+      "case": "300-legacy-completed-plus-unfinished-and-corrupt",
+      "retained_completed": 64,
+      "unfinished_unchanged": true,
+      "writes_blocked": true
+    },
+    {
+      "boundary": "archive-renamed",
+      "action": "crash",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "archive-renamed",
+      "action": "failure",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "archive-committed",
+      "action": "crash",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "archive-committed",
+      "action": "failure",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-renamed",
+      "action": "crash",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-renamed",
+      "action": "failure",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-committed",
+      "action": "crash",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-committed",
+      "action": "failure",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-pruned-1",
+      "action": "crash",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-pruned-1",
+      "action": "failure",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-pruned-6",
+      "action": "crash",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-pruned-6",
+      "action": "failure",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-removed",
+      "action": "crash",
+      "recovered_in_new_process": true
+    },
+    {
+      "boundary": "retired-removed",
+      "action": "failure",
+      "recovered_in_new_process": true
+    },
+    {
+      "case": "symlink",
+      "preserved_and_blocked": true
+    },
+    {
+      "case": "unknown",
+      "preserved_and_blocked": true
+    },
+    {
+      "case": "corrupt-completed",
+      "preserved_and_blocked": true
+    },
+    {
+      "case": "unfinished-completed",
+      "preserved_and_blocked": true
+    },
+    {
+      "case": "archive-collision",
+      "refused_without_overwrite": true
+    },
+    {
+      "case": "archive-root-symlink",
+      "refused_without_overwrite": true
+    }
+  ],
+  "scope": "host application recovery metadata only; no NTFS operations"
+}

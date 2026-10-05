@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-24",
+  "execution": "UU Remote GUI on DESKTOP-834F7VL",
+  "root": "G:\\Volisle-Windows-Return-20260924-b837c48a54894a969690fd83efa5ccb4",
+  "windows_prepare_exit_code": 0,
+  "windows_hash_exit_code": 0,
+  "notepad_saved_and_reopened": true,
+  "notepad_appended_text": "20260924",
+  "baseline_report_received": true,
+  "baseline_matches_pinned_manifest": 17,
+  "transferred_text_hash_matches": true,
+  "physical_mac_remount_verified": false,
+  "safe_ejection_verified": false,
+  "ejection_blocker": "UU remote desktop clicks stopped taking effect after report transfer; no force dismount attempted",
+  "chkdsk_exit_code": null,
+  "custom_windows_acl_verified": false
+}

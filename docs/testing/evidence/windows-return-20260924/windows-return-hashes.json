@@ -1,0 +1,20 @@
+﻿{
+    "scope":  "Windows native write and copy; GUI observation recorded separately",
+    "volumeLabel":  "qsw",
+    "files":  [
+                  {
+                      "path":  "Windows写入.txt",
+                      "sha256":  "66dba308096ad30a5bf770551ea9da11b26328903ec55273ceb74f4019aa7025",
+                      "length":  122
+                  },
+                  {
+                      "path":  "64MiB 中文 🌊.bin",
+                      "sha256":  "2dc741a3fae43bc408fd17e1d90087b4335cef0a44611dc412880362d2266d4d",
+                      "length":  67108864
+                  }
+              ],
+    "completedUtc":  "2026-09-24T03:46:59.2380126Z",
+    "root":  "G:\\Volisle-Windows-Return-20260924-b837c48a54894a969690fd83efa5ccb4",
+    "sourceUnchanged":  true,
+    "fileSystem":  "NTFS"
+}

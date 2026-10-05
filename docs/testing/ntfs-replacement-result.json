@@ -1,0 +1,291 @@
+{
+  "success": true,
+  "checks": [
+    "default-compiled-bridge-refuses-replacement-with-zero-mutation",
+    "replacement-publishes-new-retains-old-independent-read",
+    "bad-plan-hash-identity-path-and-existing-output-rejected",
+    "resident-empty-and-unicode-content-export",
+    "invalid-input-collision-directory-and-alias-zero-writes",
+    "read-only-denial",
+    "all-complete-write-prefixes-and-failures-retain-both-versions",
+    "read-only-export-both-versions-after-every-failure-and-crash"
+  ],
+  "write_failures": [
+    {
+      "point": 1,
+      "names": {
+        "/draft": "new",
+        "/document": "old",
+        "/.saved-old": "absent"
+      }
+    },
+    {
+      "point": 2,
+      "names": {
+        "/draft": "new",
+        "/document": "old",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 3,
+      "names": {
+        "/draft": "new",
+        "/document": "old",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 4,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 5,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 6,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 7,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 8,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 9,
+      "names": {
+        "/draft": "new",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 10,
+      "names": {
+        "/draft": "new",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 11,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 12,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 13,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 14,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    }
+  ],
+  "sync_failures": [
+    {
+      "point": 1,
+      "names": {
+        "/draft": "new",
+        "/document": "old",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 2,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 3,
+      "names": {
+        "/draft": "new",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 4,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    }
+  ],
+  "crashes": [
+    {
+      "point": 1,
+      "names": {
+        "/draft": "new",
+        "/document": "old",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 2,
+      "names": {
+        "/draft": "new",
+        "/document": "old",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 3,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 4,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 5,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 6,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 7,
+      "names": {
+        "/draft": "new",
+        "/document": "absent",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 8,
+      "names": {
+        "/draft": "new",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 9,
+      "names": {
+        "/draft": "new",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 10,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 11,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 12,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 13,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    },
+    {
+      "point": 14,
+      "names": {
+        "/draft": "absent",
+        "/document": "new",
+        "/.saved-old": "old"
+      }
+    }
+  ],
+  "allocation_check": {
+    "success": true,
+    "image_sha256": "a9bfbb7af65a98d0b95f9e0b6eab18aa3661162d59a9c4dba78244d98531e154",
+    "records_checked": 23,
+    "owned_clusters_checked": 765,
+    "errors": [],
+    "scope": "run overlap and allocated-run bitmap consistency; not full filesystem validation"
+  },
+  "not_covered": [
+    "POSIX atomic replacement",
+    "FSKit open target handles",
+    "torn-sector writes",
+    "physical power loss",
+    "Windows recovery"
+  ],
+  "verified_at": "2026-09-24T15:42:18.854806+00:00"
+}

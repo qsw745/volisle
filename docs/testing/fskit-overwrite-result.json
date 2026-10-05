@@ -1,0 +1,47 @@
+{
+  "sessions": [
+    {
+      "readonly": false,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    },
+    {
+      "readonly": true,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    }
+  ],
+  "checks": [
+    "replace-closed-target",
+    "unsupported-cross-directory-and-large-source-preserved",
+    "replace-open-old-descriptor-isolated",
+    "new-descriptor-write-truncate-isolated",
+    "private-backup-not-enumerated",
+    "new-data-survives-old-close",
+    "offline-clean-readonly-remount-no-backup",
+    "sandbox-journal-replayed-by-new-readonly-process"
+  ],
+  "success": true,
+  "fixture": {
+    "serial_hex": "1f2a516b87dcf34b",
+    "size": 67108864,
+    "image_sha256": "a6e235fc3b153fade8e25f56ca71b502e811ec240a33258d586b26909cf95f8a"
+  },
+  "allocation_check": {
+    "success": true,
+    "image_sha256": "2896474dcc1da88f92787b4940345768005f0c245ef1e58ef5866ffe0837d26a",
+    "records_checked": 22,
+    "owned_clusters_checked": 672,
+    "errors": [],
+    "scope": "run overlap and allocated-run bitmap consistency; not full filesystem validation"
+  },
+  "journal_audit": [
+    {
+      "processID": 16479,
+      "eventMessage": "恢复记录只读复核：卷=1f2a516b87dcf34b 已完成=1 未完成=0；未执行磁盘修复或删除"
+    }
+  ],
+  "final_image_sha256": "2896474dcc1da88f92787b4940345768005f0c245ef1e58ef5866ffe0837d26a"
+}

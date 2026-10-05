@@ -1,35 +1,94 @@
-# 盘屿 Volisle · 问题反馈
+# 盘屿 Volisle
 
-这个仓库只用来收集 [盘屿](https://qisw.top/volisle/) 的问题反馈和功能建议，不包含源代码。每个版本对应的源代码包可在官网下载页获取。
+**让硬盘，在 Mac 上自在读写。** 免费开源的 Mac NTFS 读写工具，基于 macOS 26 的 FSKit 用户态文件系统，不装内核扩展、不改安全设置。
 
-## 提交问题前
+官网与下载：<https://qisw.top/volisle/> · English: <https://qisw.top/volisle/en/>
 
-1. 确认使用的是[官网](https://qisw.top/volisle/)下载的最新版本。
-2. 打开“系统设置 → 通用 → 登录项与扩展 → 文件系统扩展”，确认“盘屿 NTFS”已打开。
-3. 重启一次 Mac 再试。
-4. 看看[帮助页](https://qisw.top/volisle/help/)里有没有对应说明。
+![盘屿主界面](apps/web/public/screenshots/app-light.webp)
 
-## 提交问题
+## 功能
 
-点 [New issue](../../issues/new/choose)，选择“问题反馈”或“功能建议”，按表格填写。
+- 插上 Windows 的 NTFS 硬盘或 U 盘，检查通过后自动开启读写，直接在访达里拷贝、修改、删除。
+- 拔线保护：每次写入都有恢复记录，意外拔线后插回会先回滚到一致状态，再开启读写。
+- BitLocker 加密盘：输入密码或 48 位恢复密钥解锁后读写。
+- 盘需要检查、来自休眠或“快速启动”的 Windows、上次没有安全弹出时，保持只读并说明原因；也可以在 Mac 上检查并清除“需要检查”标记。
+- 抹掉为 NTFS；自动更新；中英文界面。
+- 没有账号、统计或遥测，文件不离开你的电脑。
 
-**附上诊断报告最有帮助**：在盘屿中打开“设置与诊断… → 支持 → 导出诊断…”。报告只包含系统与组件状态、磁盘数量和文件系统类型，不含卷名、完整路径、磁盘标识或文件内容。提交前请再检查一遍，不要贴出个人信息。
+## 系统要求
+
+Apple 芯片 Mac，macOS 26.4 或更高版本。完整验证在 macOS 27.2 上完成，详见[兼容性](https://qisw.top/volisle/compatibility/)。
+
+## 反馈
+
+在本仓库 [提交 issue](../../issues/new/choose)。附上诊断报告最有帮助：盘屿“设置与诊断… → 支持 → 导出诊断…”，报告不含卷名、路径、磁盘标识和文件内容。安全问题请看 [SECURITY.md](SECURITY.md)，不要公开提交。
+
+## 从源码构建
+
+需要 Apple 芯片 Mac、macOS 26.4 或更高版本、Xcode 27、Python 3、pnpm（官网）。
+
+```bash
+# 核心库单元测试
+swift test --package-path packages/VolisleCore
+
+# NTFS 引擎（下载并核对固定版本的 NTFS-3G 源码，编译桥接库，跑镜像测试）
+python3 scripts/prepare-ntfs-probe.py
+zsh scripts/build-ntfs-bridge.sh
+python3 scripts/test-ntfs-bridge.py
+
+# 未签名的应用包（会下载并核对 NTFS-3G 与 Sparkle 源码）
+python3 scripts/prepare-extension-bundle.py --bundle-id <你的 Bundle ID> --daily-write --output-dir apps/macos/build/review
+```
+
+**签名限制**：macOS 只加载带 FSKit 模块权限签名的文件系统扩展。要在自己的 Mac 上真正挂载磁盘，需要 Apple 开发者账号、带 `com.apple.developer.fskit.fsmodule` 的描述文件，以及自己的 Bundle ID；签名与发布流程见 [docs/release/自己发布新版本.md](docs/release/自己发布新版本.md)，个人配置放在 `config/release.local.env`（参考 `config/release.local.env.example`）。
+
+每个正式版本的完整源码包（含构建脚本与第三方许可声明，可离线重新构建）都在[官网下载页](https://qisw.top/volisle/download/)，与安装包一一对应。
+
+## 目录
+
+| 目录 | 内容 |
+|---|---|
+| `apps/macos` | 主应用、后台组件（root launchd 服务） |
+| `apps/extension` | FSKit 文件系统扩展、写入日志与拔线恢复 |
+| `apps/web` | 官网（Next.js 静态导出） |
+| `packages/VolisleCore` | 磁盘发现、挂载流程、后台通信等核心逻辑与单元测试 |
+| `packages/VolisleNTFS` | NTFS-3G 桥接层、BitLocker 解密层 |
+| `scripts` | 构建、签名、测试与发布脚本 |
+| `docs/testing` | 每项功能的测试记录 |
+
+## 许可
+
+源码按 [GNU GPL v2](LICENSE) 发布；第三方代码保留各自许可，详见 [LICENSE_SCOPE.md](LICENSE_SCOPE.md)、`packages/VolisleNTFS/UPSTREAM.md`。“盘屿”“Volisle”名称和图标不随 GPL 授权：修改后的版本请使用别的名称和图标发布。
 
 ---
 
-# Volisle · Feedback
+# Volisle
 
-This repository only collects bug reports and feature requests for [Volisle](https://qisw.top/volisle/en/). It contains no source code; the source package for each release is on the website's download page.
+**Your drives, read-write on Mac.** A free, open-source NTFS read-write tool for Mac, built on macOS 26's FSKit user-space file systems: no kernel extension, no lowered security settings.
 
-## Before you report
+Website and download: <https://qisw.top/volisle/en/>
 
-1. Make sure you are on the latest version from the [website](https://qisw.top/volisle/en/).
-2. In System Settings → General → Login Items & Extensions → File System Extensions, make sure "Volisle NTFS" is turned on.
-3. Restart your Mac and try again.
-4. Check the [help page](https://qisw.top/volisle/en/help/).
+## Features
 
-## Report an issue
+- Connect a Windows NTFS drive or USB flash drive; once it passes the check, write access turns on automatically and you use it in Finder.
+- Unplug protection: every write is journaled; after an accidental unplug the disk is rolled back to a consistent state before writing resumes.
+- BitLocker: unlock with the password or 48-digit recovery key, then read and write.
+- Disks that need a check, come from a hibernated Windows (or Fast Startup), or weren't ejected safely stay read-only, with the reason shown.
+- Erase as NTFS; automatic updates; Chinese and English interface.
+- No account, analytics or telemetry; your files never leave your Mac.
 
-Click [New issue](../../issues/new/choose), choose "Bug report" or "Feature request" and fill in the form.
+## Requirements
 
-**A diagnostics report helps most**: in Volisle, open Settings & Diagnostics… → Support → Export Diagnostics…. It only contains system and component status, the number of disks and their file system types — no volume names, full paths, disk identifiers or file contents. Please check it before posting and leave out personal information.
+A Mac with Apple silicon, macOS 26.4 or later.
+
+## Feedback
+
+[Open an issue](../../issues/new/choose) here; a diagnostics report (Settings & Diagnostics… → Support → Export Diagnostics…) helps most. For security issues see [SECURITY.md](SECURITY.md).
+
+## Building from source
+
+See the commands above. macOS loads a file system extension only when it is signed with the FSKit module entitlement, so actually mounting disks needs an Apple developer account, a provisioning profile with `com.apple.developer.fskit.fsmodule` and your own bundle identifier. The complete source package of every release is on the [download page](https://qisw.top/volisle/en/download/).
+
+## License
+
+GNU GPL v2 ([LICENSE](LICENSE)); third-party code keeps its own licenses ([LICENSE_SCOPE.md](LICENSE_SCOPE.md)). The names “盘屿” and “Volisle” and the icon are not licensed under the GPL: please ship modified versions under a different name and icon.

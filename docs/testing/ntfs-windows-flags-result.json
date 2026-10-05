@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-10-05T10:05:44.228786+00:00",
+  "checks": [
+    {
+      "name": "Windows 11 格式化的卷（标志 0x0080）：写入期间为 0x0081，卸载成功并恢复原值，卷是干净的",
+      "passed": true
+    },
+    {
+      "name": "中断的会话留下的标记，恢复流程按原值释放后，标志与 Windows 写的完全一致",
+      "passed": true
+    },
+    {
+      "name": "“在 Mac 上检查…”只清除需要检查这一位，Windows 的其他标志保留",
+      "passed": true
+    },
+    {
+      "name": "0.5.7 及更早版本留下的标记（未知位被抹掉）也能识别并释放，Windows 的 0x0080 写回",
+      "passed": true
+    },
+    {
+      "name": "其他标志组合一律拒绝释放，磁盘零写入",
+      "passed": true
+    }
+  ],
+  "initial_flags": "0x0080",
+  "scope": "Windows 11 专业版格式化的 64 MB 普通 NTFS 镜像副本；引擎直接读写；不涉及 FSKit 或实盘"
+}

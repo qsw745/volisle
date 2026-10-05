@@ -1,0 +1,40 @@
+{
+  "success": true,
+  "fixture": {
+    "serial_hex": "90326e1f441ec64e",
+    "size": 67108864,
+    "image_sha256": "d05f68a6b1687bea586c2bce6264ff3aee81deb60b2acc1ae14e0627d54a743e"
+  },
+  "sessions": [
+    {
+      "readonly": false,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    },
+    {
+      "readonly": true,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    },
+    {
+      "readonly": false,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    }
+  ],
+  "checks": [
+    "owned-fixture-process-interrupted-after-fsync",
+    "durable-content-preserved-independent-reader",
+    "dirty-readonly-remount-preserves-image-and-seed",
+    "repeated-write-refusal-keeps-reading-available",
+    "dirty-write-refused-with-zero-image-change"
+  ],
+  "real_disk_written": false,
+  "killed_owned_pid": 24680,
+  "dirty_status": 1,
+  "write_refusal_errno": 5,
+  "final_image_sha256": "c446aeac27b53060bfdb13846f3baf3a4d3fe5e9a0f8f735d5740b6bf424ccf3"
+}

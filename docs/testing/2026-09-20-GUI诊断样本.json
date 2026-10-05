@@ -1,0 +1,18 @@
+{
+  "appVersion" : "0.1.0-dev",
+  "diskServiceRunning" : true,
+  "engineAvailable" : false,
+  "engineSupportsFinderReadWrite" : false,
+  "externalVolumeCount" : 2,
+  "fileSystemCounts" : {
+    "apfs" : 1,
+    "msdos" : 1
+  },
+  "mountStateCounts" : {
+    "readWrite" : 1,
+    "unmounted" : 1
+  },
+  "safetyCheck" : "not_performed",
+  "schemaVersion" : 1,
+  "systemVersion" : "27.2.0"
+}

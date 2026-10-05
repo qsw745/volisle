@@ -1,0 +1,49 @@
+{
+  "sessions": [
+    {
+      "readonly": false,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    },
+    {
+      "readonly": true,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    }
+  ],
+  "checks": [
+    "create-write-fsync-read",
+    "rename-move",
+    "open-descriptor-rename-parent-move-unlink",
+    "delete-file-directory",
+    "4MiB-write-read",
+    "32-files-enumeration",
+    "partial-write-truncate",
+    "100ns-timestamps-live",
+    "fixed-permissions-noop-and-rejection",
+    "timestamps-xattrs",
+    "replacement-rejected-preserves-both",
+    "64-mixed-allocation-delete-cycles",
+    "independent-ntfscat",
+    "clean-ntfs-after-detach",
+    "100ns-mtime-readonly-remount",
+    "readonly-remount-hashes",
+    "seed-preserved",
+    "readonly-write-denied",
+    "independent-run-overlap-and-bitmap-check"
+  ],
+  "success": true,
+  "allocation_check": {
+    "success": true,
+    "image_sha256": "a2823e14ef0c6afb88d6ab8cab9a221a743c1c57f6dde33aecdc2fbe3874b6e8",
+    "records_checked": 123,
+    "owned_clusters_checked": 1281,
+    "errors": [],
+    "scope": "run overlap and allocated-run bitmap consistency; not full filesystem validation"
+  },
+  "final_image_sha256": "a2823e14ef0c6afb88d6ab8cab9a221a743c1c57f6dde33aecdc2fbe3874b6e8",
+  "expected_file_count": 100,
+  "fixture": "fskit-readonly-rpjj0sqa"
+}

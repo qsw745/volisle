@@ -1,0 +1,28 @@
+{
+  "verified_at": "2026-09-20T12:14:56.974035+00:00",
+  "candidate": "apps/macos/build/signed-fskit-overwrite-readonly",
+  "installed_path": "~/Applications/Volisle Test.app",
+  "write_mode": "read-only",
+  "experimental_writes": false,
+  "experimental_replacement": false,
+  "codesign_verified": true,
+  "enabled_unique_module": true,
+  "installed_hashes": {
+    "Contents/MacOS/Volisle": "8b5c348811dc320923631aea269737de7e52c180746c2fa292ccd27c823276ab",
+    "Contents/Extensions/VolisleFS.appex/Contents/MacOS/VolisleFS": "797aea10996e0f5915d5e38c6f64aca6d6c8dfaed953ce55c47e95c3dfdc720b"
+  },
+  "readonly_smoke": {
+    "mountpoint": "/private/tmp/volisle-fskit-mount-8xesik58",
+    "mount_verified": true,
+    "read_verified": true,
+    "write_denied": true,
+    "detached": true,
+    "mountpoint_removed": true,
+    "image_unchanged": true
+  },
+  "test_images_detached": true,
+  "user_disk_readonly": true,
+  "real_disk_written": false,
+  "notarized": false,
+  "published": false
+}

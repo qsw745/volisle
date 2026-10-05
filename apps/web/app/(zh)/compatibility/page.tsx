@@ -1,0 +1,12 @@
+import type { Metadata } from 'next';
+import { alternates } from '@/lib/i18n';
+import { ArticlePage } from '@/components/ArticlePage';
+import { CompatibilityTable } from '@/components/CompatibilityTable';
+export const metadata: Metadata = { title: '兼容性', alternates: alternates('zh', '/compatibility/') };
+export default function Page() { return <ArticlePage title="验证到哪里，就写到哪里。" lead="更新于 2026 年 10 月 3 日。没有实机验证的环境，不写成支持。"><CompatibilityTable/>
+<h2>怎样验证的</h2><p>在 Apple 芯片 Mac（macOS 27.2）上，用 2 TB USB NTFS 硬盘完成：插入后自动读写、Finder 与“文本编辑”保存、1 GB 大文件与数百个小文件写入；写入过程中强制中断、复制中直接拔线后自动恢复，读写中睡眠唤醒后保持读写；在 Windows 11 中核对全部文件、权限和磁盘检查结果，再回到 Mac 继续编辑。另在一次性磁盘镜像上，对每一个写入步骤逐一模拟失败和中断，共 700 余项检查。在全新的 macOS 26.6 上，用公证后的发布安装包完成安装、首次设置，并在磁盘镜像上完成读写和中断恢复检查。</p>
+<h2>0.5.1 写入提速怎样验证的</h2><p>写入空闲空间时不再先备份原内容。在一次性磁盘镜像上对每个写入步骤逐一模拟失败和中断（720 项），并在已安装的扩展上强制中断，均能回滚到最后一致点、原有数据不变；2 TB USB 硬盘上 1 GB 文件写入约 42 MB/s，内容逐字节一致。新方式下复制中直接拔线的实机测试尚待补做。</p>
+<h2>BitLocker 怎样验证的</h2><p>在 Windows 11 专业版中生成四个 BitLocker 加密卷（XTS-AES 128/256、AES-CBC 128/256），分别用密码和恢复密钥解锁，盘内中文文件名文件与大文件的内容和 Windows 计算的校验值逐字节一致。写入方面，四种加密方式的镜像各经过 26 种中断（任意写入点断电、半写、程序崩溃、硬盘缓存丢失），恢复后卷都是干净的、原有文件完好；没有密钥时恢复流程拒绝且不写入。实盘是 Windows 11 在 2 TB USB 硬盘上新建并加密的 812 MB 分区（XTS-AES 128），在 macOS 27.2 上读写 100 MB 文件（约 31 MB/s）、新建中文文件夹、改写、改名、删除，强杀进程与真实拔线后自动回滚，回到 Windows 用密码解锁、磁盘检查无问题、全部文件校验值一致；盘被标记需要检查时自动以只读打开。</p>
+<h2>还没有覆盖的</h2><ul><li>在 Windows 中直接加密的整块 U 盘或移动硬盘（包括 4K 扇区的硬盘）。</li><li>macOS 26 上的实体 USB 硬盘，以及其他 macOS 版本和 Intel Mac。</li><li>以文件夹形式保存的文稿的覆盖保存。</li><li>同时读写多块普通 NTFS 磁盘（第二块会在第一块推出后自动开启读写）；一块普通 NTFS 盘加一块 BitLocker 盘可以同时读写，已实测。</li><li>压缩、稀疏、加密文件及重解析点的写入。</li></ul>
+<p className="notice">盘屿不删除 Windows 休眠文件、不强制推出，也不修复磁盘；“需要检查”标记只在你选择“在 Mac 上检查”且只读检查没有发现问题时才清除。抹掉磁盘会删除全部数据。请为重要数据保留备份。</p>
+</ArticlePage>; }

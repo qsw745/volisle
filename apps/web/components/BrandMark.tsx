@@ -1,0 +1,4 @@
+// 由 scripts/build-brand.mjs 从 assets/brand/geometry.json 生成。
+export function BrandMark({ width = 32 }: { width?: number }) {
+  return <svg width={width} height={width * 460 / 760} viewBox="0 0 760 460" fill="currentColor" aria-hidden="true" focusable="false"><path d="M56 25C160 25 223 15 279 52C352 101 370 190 408 266C435 317 459 328 478 275C500 214 543 195 581 171C617 149 624 124 604 99C591 81 605 67 628 65C676 60 707 112 718 150C763 293 558 428 423 429C269 435 152 356 112 234C88 161 85 94 50 79C18 67 20 28 56 25Z"/><path d="M461 148C468 131 486 116 507 101C528 81 551 85 564 99C588 131 568 159 545 163C509 170 468 170 459 157C455 154 456 151 461 148Z"/></svg>;
+}

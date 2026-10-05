@@ -1,0 +1,27 @@
+{
+  "verified_at": "2026-09-20T09:58:47.721830+00:00",
+  "candidate": "apps/macos/build/signed-rename-readonly",
+  "installed_path": "~/Applications/Volisle Test.app",
+  "write_mode": "read-only",
+  "experimental_writes": false,
+  "codesign_verified": true,
+  "enabled_unique_module": true,
+  "installed_hashes": {
+    "Contents/MacOS/Volisle": "a3ce812f722856ef3f1fd63e92204dc47675be3aa86b046aefa7f7892284e30b",
+    "Contents/Extensions/VolisleFS.appex/Contents/MacOS/VolisleFS": "58c8eaef30f00cf31f4c0209d3ed2230bd3fbac53ec9c0e2e50f01793c0c813b"
+  },
+  "readonly_smoke": {
+    "mountpoint": "/private/tmp/volisle-fskit-mount-z5pr89u7",
+    "mount_verified": true,
+    "read_verified": true,
+    "write_denied": true,
+    "detached": true,
+    "mountpoint_removed": true,
+    "image_unchanged": true
+  },
+  "test_images_detached": true,
+  "user_disk_readonly": true,
+  "real_disk_written": false,
+  "notarized": false,
+  "published": false
+}

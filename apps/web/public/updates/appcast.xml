@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.6.1</title><pubDate>Mon, 05 Oct 2026 14:15:06 +0000</pubDate><description>盘屿 0.6.1 · Volisle 0.6.1
+
+· 修复：硬盘拔下后马上插回时，偶尔不能自动开启读写，硬盘还可能从访达里消失，要重开盘屿才恢复。现在会先等系统挂好硬盘再开启读写；万一开启失败，硬盘也会以只读方式留在访达里。
+· Fixes a drive that was unplugged and quickly reconnected sometimes not getting write access, and sometimes disappearing from Finder until Volisle was reopened. Volisle now waits for macOS to finish mounting the drive first; if turning on writing still fails, the drive stays available read-only.
+
+对应源码：https://qisw.top/volisle/updates/Volisle-0.6.1-64-source.tar.gz</description><sparkle:version>64</sparkle:version><sparkle:shortVersionString>0.6.1</sparkle:shortVersionString><sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.6.1-64-arm64.zip" length="4004029" type="application/octet-stream" sparkle:edSignature="FKNtQ7raBwvzNX10V0cA6hPq59wsYY4OkbVlvoN1mbiX8xmegek5rWG2mU2eeClAUVQqG9qOhBbu6k59MwpLAg==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
+edSignature: 6QE5IglDG5XVip1+WwXGPdvy8h4FRzxUtyYkg6p3mpMfW+gBcbmmN4pobtJRiS3wYGC5epxm29E8kAMejo69Ag==
+length: 1694
+-->

@@ -1,0 +1,102 @@
+{
+  "executed_at": "2026-10-05T10:05:58.917637+00:00",
+  "engine": "NTFS-3G 2026.7.7 + Volisle callback bridge",
+  "scope": "新建普通文件镜像，未 attach，未访问原始设备",
+  "checks": [
+    {
+      "name": "干净卷预检：零写回调且整镜像 SHA-256 不变",
+      "passed": true
+    },
+    {
+      "name": "无写入和刷新回调的只读描述符可完成真实预检，镜像不变",
+      "passed": true
+    },
+    {
+      "name": "创建、随机覆盖、中文路径、移动改名、截断、同步与关闭",
+      "passed": true
+    },
+    {
+      "name": "新进程 ntfscat 重新读取，内容 SHA-256 一致",
+      "passed": true
+    },
+    {
+      "name": "删除文件与空目录并持久化",
+      "passed": true
+    },
+    {
+      "name": "只读挂载拒绝创建，零写回调且镜像不变",
+      "passed": true
+    },
+    {
+      "name": "dirty 卷拒绝写挂载，不清 dirty，镜像不变",
+      "passed": true
+    },
+    {
+      "name": "休眠卷拒绝写挂载，不删除休眠文件，镜像不变",
+      "passed": true
+    },
+    {
+      "name": "损坏引导区返回未知并拒绝写挂载",
+      "passed": true
+    },
+    {
+      "name": "损坏日志拒绝写挂载，不重置日志，镜像不变",
+      "passed": true
+    },
+    {
+      "name": "拒绝非法文件名和对系统元数据文件的直接写入",
+      "passed": true
+    },
+    {
+      "name": "写回调失败不会冒充文件创建成功",
+      "passed": true
+    },
+    {
+      "name": "I/O 读取失败拒绝写挂载",
+      "passed": true
+    },
+    {
+      "name": "扩展属性新增、替换策略、空值、中文名、大值缩短、删除与独立进程持久化",
+      "passed": true
+    },
+    {
+      "name": "只读扩展属性可读，修改和删除拒绝且整镜像不变",
+      "passed": true
+    },
+    {
+      "name": "写会话先持久化 dirty，同步不清标记，正常关闭后恢复干净",
+      "passed": true
+    },
+    {
+      "name": "独立写进程异常退出后保留 dirty，再次写挂载拒绝且镜像不变",
+      "passed": true
+    },
+    {
+      "name": "短读、短写后会话持续拒绝写入，关闭报错并保留 dirty",
+      "passed": true
+    },
+    {
+      "name": "会话标记同步失败时不返回可写句柄",
+      "passed": true
+    },
+    {
+      "name": "真实镜像写满时返回空间不足，会话不锁定，已有文件仍可写入，卸载后卷干净",
+      "passed": true
+    },
+    {
+      "name": "逐一注入关闭同步点故障，所有故障均向调用方报告失败",
+      "passed": true
+    },
+    {
+      "name": "同步失败锁定会话并保留 dirty 标记",
+      "passed": true
+    }
+  ],
+  "temporary_images_removed": true,
+  "not_covered": [
+    "FSKit 扩展安装与 Finder 挂载",
+    "Windows 与 chkdsk",
+    "真实拔盘、断电、睡眠",
+    "完整特性与兼容性矩阵"
+  ]
+}

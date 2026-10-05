@@ -1,0 +1,16 @@
+{
+  "verified_at": "2026-09-20T10:25:18.841270+00:00",
+  "installed_path": "~/Applications/Volisle Test.app",
+  "installed_candidate": "apps/macos/build/signed-rename-readonly",
+  "installed_build_unchanged": true,
+  "codesign_verified": true,
+  "test_images_detached": true,
+  "no_volisle_mounts": true,
+  "user_disk_readonly": true,
+  "real_disk_written": false,
+  "new_candidate": "apps/macos/build/review-replacement-final",
+  "new_candidate_signed": false,
+  "new_candidate_installed": false,
+  "experimental_writes": false,
+  "published": false
+}

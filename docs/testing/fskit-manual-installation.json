@@ -1,0 +1,34 @@
+{
+  "verified_at": "2026-09-20T12:37:15.837114+00:00",
+  "candidate": "apps/macos/build/signed-manual-safe-readonly",
+  "installed_path": "~/Applications/Volisle Test.app",
+  "write_mode": "read-only",
+  "experimental_writes": false,
+  "experimental_replacement": false,
+  "codesign_verified": true,
+  "installed_hashes": {
+    "Contents/MacOS/Volisle": "0662daf34be476321724f9bedc0680691e5ea0d8043dedc92ef4fc4c1a1bd263",
+    "Contents/Extensions/VolisleFS.appex/Contents/MacOS/VolisleFS": "f9874d8018f24f68bc0d195e8b6ea65cf0d58e1b589e1f4c9f3a7eda6f1b722c"
+  },
+  "enabled_unique_module": true,
+  "readonly_smoke": {
+    "mountpoint": "/private/tmp/volisle-fskit-mount-nkwn1sep",
+    "mount_verified": true,
+    "read_verified": true,
+    "write_denied": true,
+    "detached": true,
+    "mountpoint_removed": true,
+    "image_unchanged": true
+  },
+  "test_images_detached": true,
+  "user_disk_readonly": true,
+  "user_confirmed_complete_backup": false,
+  "real_disk_written": false,
+  "gui_verified": {
+    "selected_ntfs_volume_readonly": true,
+    "enable_write_button_disabled": true,
+    "enabled_extension_reason_visible": true
+  },
+  "notarized": false,
+  "published": false
+}

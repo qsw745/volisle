@@ -1,0 +1,74 @@
+{
+  "fixture": "fskit-readonly-bnqy7syp",
+  "write_checks": [
+    "create-write-fsync-read",
+    "rename-move",
+    "delete-file-directory",
+    "4MiB-write-read",
+    "32-files-enumeration",
+    "partial-write-truncate",
+    "fixed-permissions-noop-and-rejection",
+    "timestamps-xattrs",
+    "replacement-rejected-preserves-both",
+    "64-mixed-allocation-delete-cycles",
+    "finder-copy-hash",
+    "independent-ntfscat",
+    "clean-ntfs-after-detach",
+    "readonly-remount-hashes",
+    "seed-preserved",
+    "readonly-write-denied"
+  ],
+  "write_success": true,
+  "sessions": [
+    {
+      "readonly": false,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    },
+    {
+      "readonly": true,
+      "detached": true,
+      "mountpoint_removed": true,
+      "mounted": true
+    }
+  ],
+  "expected_file_count": 99,
+  "final_image_sha256": "7a44415f1fa5cfe9f08fded3aa1c0c861277b71746d7d00d82f69d29a5efc362",
+  "separate_allocation_check": {
+    "success": true,
+    "image_sha256": "7a44415f1fa5cfe9f08fded3aa1c0c861277b71746d7d00d82f69d29a5efc362",
+    "records_checked": 126,
+    "owned_clusters_checked": 1313,
+    "errors": [],
+    "scope": "run overlap and allocated-run bitmap consistency; not full filesystem validation"
+  },
+  "known_bad_fixture": {
+    "fixture": "fskit-readonly-dv0d1twa",
+    "image_sha256": "8ddbb20128559135e21eafec39910145e146207e0639a8d64e210f828e429b92",
+    "success": false,
+    "error_count": 513,
+    "example_errors": [
+      {
+        "cluster": 12832,
+        "record": 68,
+        "error": "allocated-run-marked-free"
+      },
+      {
+        "cluster": 12833,
+        "record": 68,
+        "error": "allocated-run-marked-free"
+      },
+      {
+        "cluster": 12864,
+        "records": [
+          68,
+          104
+        ],
+        "error": "cross-linked"
+      }
+    ]
+  },
+  "real_disk_write_tested": false,
+  "windows_checked": false
+}
