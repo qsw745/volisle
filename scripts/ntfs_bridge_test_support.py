@@ -29,11 +29,13 @@ class ImageIO:
         self.fd=os.open(path, os.O_RDONLY if readonly else os.O_RDWR)
         self.writes=0;self.syncs=0;self.fail_read=False;self.fail_write=False;self.fail_sync=False;self.short_read=False;self.short_write=False;self.fail_sync_at=None
         self.fail_write_at=None
+        self.reads=0;self.fail_read_from=None
         self.crash_after_write_at=None
         @PREAD
         def read(_,buf,count,offset):
             try:
-                if self.fail_read:return -1
+                self.reads+=1
+                if self.fail_read or (self.fail_read_from is not None and self.reads>=self.fail_read_from):return -1
                 data=os.pread(self.fd,max(0,count-1) if self.short_read else count,offset);C.memmove(buf,data,len(data));return len(data)
             except OSError:return -1
         @PWRITE

@@ -13,6 +13,7 @@ struct VolisleApp: App {
     @State private var manualMount: ManualMountController
     @State private var runtime: BackgroundDiskRuntime
     @State private var helperService: HelperServiceController
+    @State private var copies: CopyQueue
     init() {
         let discovery = DiskDiscovery()
         let actions = DiskActions(backend: SystemDiskActions(discovery: discovery))
@@ -32,6 +33,7 @@ struct VolisleApp: App {
         _engineStatus = State(initialValue: engineStatus)
         let autoMount = AutoMountController(preferences: AutoMountPreferences(defaultAutomatic: DailyWriteAvailability.enabled), engine: engine,
             coordinator: coordinator, helperEnable: { volume in
+                if let refusal = DailyWriteAvailability.refusal(volume) { throw refusal }
                 guard DailyWriteAvailability.allows(volume), !mountCycle.blocksActions else { throw VolumeError.busy }
                 guard await mountCycle.startWrite(volume, resolver: discovery) else { throw AutoMountDeferred() }
                 guard mountCycle.isWritable(volume) else {
@@ -41,17 +43,49 @@ struct VolisleApp: App {
                 // One write volume at a time: while a write operation is mounted or
                 // awaiting recovery (e.g. just unplugged), do not spend another
                 // connection's single automatic attempt; it runs once this ends.
-                !updates.maintenance.blocking && helperService.state == .connected && !mountCycle.blocksActions && !mountCycle.isBusy && !mountCycle.canRecover
+                // Nor before Full Disk Access is granted: the helper could not read
+                // the disk, and the attempt would be gone once the user allows it.
+                !updates.maintenance.blocking && helperService.state == .connected && helperService.fullDiskAccess != false
+                    && !mountCycle.blocksActions && !mountCycle.isBusy && !mountCycle.canRecover
             })
         _autoMount = State(initialValue: autoMount)
-        _runtime = State(initialValue: BackgroundDiskRuntime(discovery: discovery, actions: actions,
-            automatic: autoMount, cycle: mountCycle, engine: engineStatus, helper: helperService, updates: updates.maintenance))
+        // Copies Volisle runs onto a disk it has read-write; they continue after an unplug.
+        let copies = CopyQueue(writableDisk: { uuid in
+            guard let volume = discovery.volumes.first(where: { $0.identity.resumeKey == uuid }), mountCycle.isWritable(volume),
+                  let session = mountCycle.operation?.id,
+                  let root = try? await mountCycle.verifiedWritableURL(for: volume),
+                  mountCycle.operation?.id == session else { return nil }
+            return .init(root: root, session: session)
+        }, diskPresent: { uuid in discovery.volumes.contains { $0.identity.resumeKey == uuid } })
+        copies.load()
+        autoMount.writeRequest = { volume in
+            volume.identity.resumeKey.flatMap { copies.writeRequest(for: $0) }
+        }
+        mountCycle.willEndWriteSession = { reconnecting in
+            let session = mountCycle.operation?.id
+            if !reconnecting {
+                let key = discovery.volumes.first { $0.identity.mediaRegistryID == mountCycle.operation?.disk.registryID }?.identity.resumeKey
+                try copies.revokeWriteRequests(session: session, diskKey: key)
+            }
+            await copies.sessionWillEnd(session: session, reconnecting: reconnecting)
+        }
+        mountCycle.didEndWriteSession = { session, clean in copies.sessionDidEnd(session, cleanly: clean) }
+        mountCycle.operationFinished = { OperationHistory.record($0) }
+        _copies = State(initialValue: copies)
+        let runtime = BackgroundDiskRuntime(discovery: discovery, actions: actions,
+            automatic: autoMount, cycle: mountCycle, engine: engineStatus, helper: helperService, updates: updates.maintenance, copies: copies)
+        _runtime = State(initialValue: runtime)
+        // At launch, not when a window first appears: started at login with no
+        // window open, automatic writing and the update guard must work too.
+        UpdateAppDelegate.registered = updates
+        Task { @MainActor in await updates.start(); runtime.start() }
     }
     @AppStorage("appearance") private var appearance = "system"
     var body: some Scene {
-        WindowGroup("盘屿", id: "main") {
+        // One main window: the menu bar's "Open Volisle" brings it back instead of adding another.
+        Window("盘屿", id: "main") {
             MainView(discovery: discovery, engineStatus: engineStatus, actions: actions, autoMount: autoMount, manualMount: manualMount, mountCycle: mountCycle, helperService: helperService,
-                     refreshRuntime: { await runtime.refresh() })
+                     copies: copies, refreshRuntime: { await runtime.refresh() })
                 .frame(minWidth: 700, minHeight: 430)
                 .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
                 .task { appDelegate.updates = updates; await updates.start(); runtime.start() }
@@ -94,12 +128,14 @@ struct DiskMenu: View {
     @State private var error: String?
     var body: some View {
         Text("盘屿")
-        let volumes = discovery.volumes.filter(\.isNTFS)
+        let volumes = discovery.volumes.filter { $0.isNTFS || $0.foreignDriver != nil }
         if volumes.isEmpty { Text("未连接 NTFS 磁盘") }
         ForEach(volumes) { volume in
             Menu(volume.name) {
+                if let foreign = volume.foreignDriver { Text("由 \(foreign.name) 接管，盘屿未处理") }
                 Button("打开 Finder") {
                     Task {
+                        error = nil
                         do {
                             if mountCycle.isWritable(volume) { NSWorkspace.shared.open(try await mountCycle.verifiedWritableURL(for: volume)) }
                             else { try FinderService.open(volume, discovery: discovery) }
@@ -117,7 +153,7 @@ struct DiskMenu: View {
         Text("本地处理 · 无需账号")
         Button("打开盘屿") { openWindow(id: "main"); NSApplication.shared.activate(ignoringOtherApps: true) }
         SettingsLink { Text("设置…") }
-        Button("退出盘屿") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
+        Button("退出盘屿") { UpdateAppDelegate.closeSheetsAndTerminate() }.keyboardShortcut("q")
     }
     private func confirmEject(_ volume: VolumeSnapshot) {
         // Like Finder: a single-volume device ejects directly.
@@ -133,7 +169,12 @@ struct DiskMenu: View {
     }
     private func eject(_ volume: VolumeSnapshot) {
         Task {
-            do { try await mountCycle.prepareForEject(volume); await actions.perform(.ejectDevice, on: volume.identity) }
+            error = nil
+            do {
+                // Unlocked BitLocker partitions on the same disk are unknown to Disk Arbitration: lock them first.
+                if let disk = volume.bsdName.firstMatch(of: /^disk\d+/) { try UpdateMaintenance.lockBitLockerVolumes(onDisk: String(disk.output)) }
+                try await mountCycle.prepareForEject(volume); await actions.perform(.ejectDevice, on: volume.identity)
+            }
             catch {
                 // Disk operations pause while another disk is read-write; say so instead of "busy".
                 let otherWriting = mountCycle.operation?.phase == .writeMounted && !mountCycle.isWritable(volume)
@@ -144,11 +185,39 @@ struct DiskMenu: View {
 }
 
 @MainActor enum FinderService {
+    static func revealCopy(_ job: CopyQueue.Job, root: URL) throws {
+        guard job.progress.finished, job.confirmed, root.isFileURL else { throw VolumeError.disconnected }
+        let folder = job.plan.destination.isEmpty ? root : root.appendingPathComponent(job.plan.destination)
+        let skipped = Set(job.progress.skipped)
+        let copiedItems = job.plan.items.enumerated().filter { index, item in
+            index < job.progress.next && !skipped.contains(index) && !item.relative.contains("/")
+        }
+        guard !copiedItems.isEmpty else { throw CopyRevealError.noItems }
+        let targets = copiedItems.compactMap { _, item -> URL? in
+            let target = folder.appendingPathComponent(item.relative)
+            guard FileManager.default.fileExists(atPath: target.path)
+                || (try? FileManager.default.destinationOfSymbolicLink(atPath: target.path)) != nil else { return nil }
+            return target
+        }
+        guard !targets.isEmpty else { throw CopyRevealError.missing }
+        NSWorkspace.shared.activateFileViewerSelecting(targets)
+    }
+
     static func open(_ volume: VolumeSnapshot, discovery: DiskDiscovery) throws {
         guard let current = discovery.revalidate(volume.identity), let url = current.mountURL else { throw VolumeError.disconnected }
         guard current.identity == volume.identity, url.isFileURL else { throw VolumeError.identityChanged }
         guard NSWorkspace.shared.open(url) else {
             throw CocoaError(.fileReadNoPermission)
+        }
+    }
+}
+
+private enum CopyRevealError: LocalizedError {
+    case missing, noItems
+    var errorDescription: String? {
+        switch self {
+        case .missing: String(localized: "拷贝的项目已移动或删除，无法在访达中定位。")
+        case .noItems: String(localized: "这次拷贝没有可打开的项目。")
         }
     }
 }

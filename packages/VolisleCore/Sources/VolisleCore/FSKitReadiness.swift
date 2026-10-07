@@ -5,7 +5,7 @@ import FSKit
 /// qualification. This adapter intentionally never grants write capability.
 public enum ExtensionReadiness {
     /// Installed but switched off: the one state the setup guide's own step explains.
-    public static let disabledReason = String(localized: "文件系统扩展还没打开：在“系统设置 → 通用 → 登录项与扩展 → 文件系统扩展”里打开“盘屿 NTFS”。")
+    public static let disabledReason = String(localized: "文件系统扩展还没打开：在“系统设置 → 通用 → 登录项与扩展 → 文件系统扩展”里打开“盘屿 NTFS”（有的系统显示为“Volisle NTFS”）。")
     struct Module: Sendable { let url: URL; let enabled: Bool }
     static func evaluate(expected: URL, modules: [Module]) -> EngineCapability {
         // Run from the disk image, or moved without Finder and therefore app-
@@ -27,6 +27,68 @@ public enum ExtensionReadiness {
             return .init(available: false, finderReadWrite: false, reason: disabledReason)
         }
         return .init(available: true, finderReadWrite: false, reason: String(localized: "扩展已启用；此版本仅开放读取，写入验收尚未完成。"))
+    }
+
+    /// Before macOS 26 FSKit does not list an app's own module to the app
+    /// (macOS 15.6: only Apple's modules come back). There the module is found
+    /// through PluginKit, and mount(8) tells whether FSKit can use it.
+    static let fskitListsOwnModule = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
+
+    /// Paths PluginKit registered for the identifier, from `pluginkit -m -v -i`.
+    /// Lines start with the election mark (`+`, `-`, …) and end with the path.
+    static func registeredPaths(pluginKit output: String, identifier: String) -> [URL] {
+        output.split(separator: "\n").compactMap { line in
+            let fields = line.split(separator: "\t")
+            let name = fields.first?.drop { "+-!=? ".contains($0) } ?? ""
+            guard fields.count >= 2, name.hasPrefix(identifier + "("), let path = fields.last, path.hasPrefix("/") else { return nil }
+            return URL(fileURLWithPath: String(path))
+        }
+    }
+
+    /// mount(8) asked to mount a device that does not exist: FSKit hands the
+    /// request to an enabled module (which reports the missing device), says a
+    /// switched-off one is disabled, and knows nothing of an unknown name.
+    /// True: on; false: off; nil: FSKit does not know the module.
+    static func enabled(mountProbe output: String, identifier: String) -> Bool? {
+        if output.contains("Module \(identifier) is disabled") { return false }
+        if output.contains("Probing resource") { return true }
+        return nil
+    }
+
+    /// The modules as macOS 15 shows them: registered copies, all switched on
+    /// or off together (FSKit enables a module by identifier).
+    static func legacyModules(identifier: String, shortName: String) -> [Module] {
+        guard let listed = run("/usr/bin/pluginkit", ["-m", "-v", "-i", identifier]) else { return [] }
+        let paths = registeredPaths(pluginKit: listed, identifier: identifier)
+        guard !paths.isEmpty else { return [] }
+        let point = FileManager.default.temporaryDirectory.appendingPathComponent("VolisleProbe-" + UUID().uuidString)
+        guard (try? FileManager.default.createDirectory(at: point, withIntermediateDirectories: false)) != nil else { return [] }
+        defer { try? FileManager.default.removeItem(at: point) }
+        // No such device: nothing can be mounted, only FSKit's answer comes back.
+        guard let answer = run("/sbin/mount", ["-F", "-t", shortName, "-o", "rdonly", "/dev/disk999999s1", point.path]),
+              let enabled = enabled(mountProbe: answer, identifier: identifier) else { return [] }
+        return paths.map { Module(url: $0, enabled: enabled) }
+    }
+
+    /// Combined output of a short system tool, or nil if it could not run in time.
+    private static func run(_ tool: String, _ arguments: [String], timeout: TimeInterval = 10) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        process.standardInput = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        let deadline = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: deadline)
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        deadline.cancel()
+        guard process.terminationReason == .exit else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 }
 
@@ -65,8 +127,11 @@ public struct ReadOnlyFSKitEngine: FileSystemAdapter {
                     response.finish((.init(available: false, finderReadWrite: false, reason: String(localized: "无法读取系统扩展状态，请稍后刷新。")), false))
                     return
                 }
-                let matching = (modules ?? []).filter { $0.bundleIdentifier == identifier }
+                var matching = (modules ?? []).filter { $0.bundleIdentifier == identifier }
                     .map { ExtensionReadiness.Module(url: $0.url, enabled: $0.isEnabled) }
+                if matching.isEmpty && !ExtensionReadiness.fskitListsOwnModule {
+                    matching = ExtensionReadiness.legacyModules(identifier: identifier, shortName: "volisle")
+                }
                 let readiness = ExtensionReadiness.evaluate(expected: expected, modules: matching)
                 response.finish((readiness.available && dailyWrites
                     ? .init(available: true, finderReadWrite: true, reason: String(localized: "检查通过后开启读写，之后可直接在 Finder 和其他应用中编辑和保存文件。")) : readiness,

@@ -150,21 +150,37 @@ class Matrix:
         self.case(base, kind, 'checkpoint-crash', 1, env, crash=True)
 
 
-def epoch_groups(data):
-    """[(before offsets, after offsets)] per group frame."""
+def epoch_frames(data):
+    """[(before [(offset, bytes)], after offsets)] per group frame; type 4 also
+    carries each written block's sector hashes."""
     at, groups = 0, []
     while at + 5 <= len(data):
         kind, length = data[at], int.from_bytes(data[at + 1:at + 5], 'big')
         payload = data[at + 5:at + 5 + length]
-        if kind == 2:
+        if kind in (2, 4):
             count, i, before = int.from_bytes(payload[:4], 'big'), 4, []
             for _ in range(count):
-                before.append(int.from_bytes(payload[i:i + 8], 'big'))
-                i += 12 + int.from_bytes(payload[i + 8:i + 12], 'big')
-            after = [int.from_bytes(payload[i + 4 + k * 40:i + 12 + k * 40], 'big') for k in range(int.from_bytes(payload[i:i + 4], 'big'))]
+                offset, size = int.from_bytes(payload[i:i + 8], 'big'), int.from_bytes(payload[i + 8:i + 12], 'big')
+                before.append((offset, payload[i + 12:i + 12 + size])); i += 12 + size
+            afters, i, after = int.from_bytes(payload[i:i + 4], 'big'), i + 4, []
+            for _ in range(afters):
+                after.append(int.from_bytes(payload[i:i + 8], 'big')); i += 40
+                if kind == 4:
+                    i += 4 + 8 * int.from_bytes(payload[i:i + 4], 'big')
+            assert i == len(payload), (kind, i, len(payload))
             groups.append((before, after))
         at += 5 + length + 32
     return groups
+
+
+def epoch_groups(data):
+    """[(before offsets, after offsets)] per group frame."""
+    return [([o for o, _ in before], after) for before, after in epoch_frames(data)]
+
+
+def epoch_befores(data):
+    """[[(offset, before bytes)]] per group frame."""
+    return [before for before, _ in epoch_frames(data)]
 
 
 def recovery_interruption(m, base):
@@ -227,16 +243,77 @@ def refusals(m, base):
     with image.open('r+b') as f:
         f.seek(0x48); f.write(b'\xff' * 8)  # volume serial
     superseded(image, journal); m.checks.append('supersede-boot-changed')
-    # A block the journal already wrote (not in the possibly torn final group), changed by someone else.
+    # A block of a checkpointed, still retained epoch (its writes had completed),
+    # changed by someone else. KEEP_ALL_BEFORE: every block has a before-image,
+    # so a checkpoint falls every 32 MiB and the file spans two epochs.
+    big = {**env, 'BIG_MIB': '40', 'OP_CHECKPOINTS': '1', 'KEEP_ALL_BEFORE': '1'}
+    image, journal = m.fresh(base, 'foreign-block-probe')
+    total = json.loads(driver('op', image, journal, 'big', 'none', 0, env=big, expect=0).stdout)['deviceWrites']
     image, journal = m.fresh(base, 'foreign-block')
-    driver('op', image, journal, 'big', 'crash', 2100, env={**env, 'BIG_MIB': '20'}, expect=86)
-    groups = epoch_groups(sorted(journal.glob('*.epoch'))[-1].read_bytes())
-    assert len(groups) >= 2, len(groups)
-    final = set(groups[-1][1])
-    offset = next(o for o in groups[0][0] if o not in final)
+    driver('op', image, journal, 'big', 'crash', total - 300, env=big, expect=86)
+    epochs = sorted(journal.glob('*.epoch'))
+    assert len(epochs) >= 2, epochs
+    newest = {o for g in epoch_groups(epochs[-1].read_bytes()) for o in g[1]}
+    offset = next(o for g in epoch_groups(epochs[-2].read_bytes()) for o in g[0] if o not in newest)
     with image.open('r+b') as f:
         f.seek(offset + 2048); f.write(os.urandom(64))
     refused(image, journal, 'foreignChange'); m.checks.append('refuse-block-changed')
+    # A drive that loses power with writes in its cache can leave a block of a
+    # checkpointed epoch half written: its earlier content with a run of empty
+    # sectors (seen on a real USB disk, 2026-10-06), or new and old halves.
+    # Those are this host's own writes: recognised sector by sector, rolled back.
+    for damage in ['zeroed-run', 'new-and-old']:
+        image, journal = m.fresh(base, f'partial-{damage}')
+        driver('op', image, journal, 'big', 'crash', total - 300, env=big, expect=86)
+        epochs = sorted(journal.glob('*.epoch'))
+        newest = {o for g in epoch_groups(epochs[-1].read_bytes()) for o in g[1]}
+        candidates = [(o, b) for g in epoch_befores(epochs[-2].read_bytes()) for o, b in g if o not in newest]
+        with image.open('rb') as f:
+            def suitable(o, b):
+                # Zeroing must change the earlier content; new-and-old must mix two different halves.
+                if damage == 'zeroed-run': return b[1024:3072] != bytes(2048)
+                f.seek(o); now, half = f.read(len(b)), len(b) // 2
+                return now[:half] != b[:half] and now[half:] != b[half:]
+            offset, before = next((o, b) for o, b in candidates if suitable(o, b))
+        with image.open('r+b') as f:
+            if damage == 'zeroed-run':
+                f.seek(offset); f.write(before)
+                f.seek(offset + 1024); f.write(bytes(2048))
+            else:
+                f.seek(offset + len(before) // 2); f.write(before[len(before) // 2:])
+        m.recover_ok(image, journal); healthy(image, expect_new=False, kind='big'); m.next_session(image, journal, env)
+        m.checks.append(f'partial-write-{damage}-in-checkpointed-epoch-recovers')
+    # Any block of the unfinished epoch may be torn, not only its last group's:
+    # delayed writes reach the device whenever the system flushes them.
+    image, journal = m.fresh(base, 'torn-early-group')
+    driver('op', image, journal, 'big', 'crash', 2100, env={**env, 'BIG_MIB': '20'}, expect=86)
+    groups = epoch_befores(sorted(journal.glob('*.epoch'))[-1].read_bytes())
+    assert len(groups) >= 2, len(groups)
+    final = {o for o, _ in groups[-1]}
+    offset, before = next((o, b) for o, b in groups[0] if o not in final and len(b) == 4096)
+    with image.open('r+b') as f:
+        f.seek(offset + 2048); f.write(before[2048:])  # new first half, old second half
+    m.recover_ok(image, journal); healthy(image, expect_new=False, kind='big'); m.next_session(image, journal, env)
+    m.checks.append('torn-block-in-early-group-recovers')
+    # An epoch whose header never became complete (host full, killed while
+    # creating it) recorded no group: it is ignored, not a reason to refuse.
+    for tail in [b'', b'\x01\x00\x00']:
+        image, journal = crashed(f'headerless-epoch-{len(tail)}')
+        newest = sorted(journal.glob('*.epoch'))[-1].name
+        serial, number = newest[:-len('.epoch')].split('-')
+        (journal / f'{serial}-{int(number, 16) + 1:016x}.epoch').write_bytes(tail)
+        m.recover_ok(image, journal); healthy(image, expect_new=False); m.next_session(image, journal, env)
+        m.checks.append(f'headerless-epoch-{len(tail)}-ignored')
+    # Cleanup after a clean unmount interrupted once the session record is gone:
+    # nothing is replayed, and the next session removes the orphan epochs.
+    image, journal = m.fresh(base, 'finish-interrupted')
+    p = driver('op', image, journal, 'file', 'finish-crash', 0, env=env)
+    assert p.returncode == 86 and b'COMMITTED' in p.stderr, (p.returncode, p.stderr.decode())
+    assert records(journal) and not any(n.endswith('.session') for n in records(journal)), records(journal)
+    out = json.loads(driver('recover', image, journal, expect=0).stdout)
+    assert out['outcome'] == 'none' and out['writes'] == 0, out
+    healthy(image, expect_new=True); m.next_session(image, journal, env)
+    m.checks.append('cleanup-interrupted-after-session-removed')
     image, journal = crashed('corrupt-frame')
     epoch = sorted(journal.glob('*.epoch'))[-1]
     data = bytearray(epoch.read_bytes()); data[len(data) // 2] ^= 0xff; epoch.write_bytes(data)
@@ -372,6 +449,37 @@ def capacity(m, folder):
         m.checks.append(f'reused-clusters-of-file-deleted-in-window-restored-{loss}')
 
 
+def pattern_mib(i):
+    return bytes(((j * 31) ^ (i * 131) ^ (j >> 12)) & 0xff for j in range(1048576))
+
+
+def unreadable_free_space(m, base):
+    # Unreadable sectors in free space (a real USB disk, 2026-10-07): a copy whose
+    # pieces end inside cache blocks must not read the rest of such a block first.
+    # The fixture fails every read of a block free at the session start until it
+    # is written, so any such read fails the write.
+    env = {'BLOCK': '65536', 'BIG_MIB': '24', 'PIECE': '200704', 'UNREADABLE_FREE': '1'}
+    image, journal = m.fresh(base, 'unreadable-free-space')
+    p = driver('op', image, journal, 'odd', 'none', 0, env=env, expect=0)
+    out = json.loads(p.stdout)
+    assert not out['failed'] and out['unreadableReads'] == 0 and records(journal) == [], (out, p.stderr.decode()[-500:])
+    data = subprocess.run([BIN / 'ntfscat', '-f', image, '/big'], capture_output=True, check=True).stdout
+    assert len(data) == 24 * 1048576, len(data)
+    for i in range(0, len(data), 1048576):
+        assert data[i:i + 1048576] == pattern_mib(i // 1048576), i
+    healthy(image, expect_new=True, kind='big')
+    m.next_session(image, journal, {'BLOCK': '65536'})
+    m.checks.append('partial-writes-into-unreadable-free-space-read-nothing')
+    # Interrupted there: rolled back like any other free-space write.
+    for n in [40, 300]:
+        image, journal = m.fresh(base, f'unreadable-free-space-crash-{n}')
+        driver('op', image, journal, 'odd', 'crash', n, env=env, expect=86)
+        m.recover_ok(image, journal, env={'BLOCK': '65536'})
+        healthy(image, expect_new=False, kind='big')
+        m.next_session(image, journal, {'BLOCK': '65536'})
+        m.checks.append(f'partial-writes-into-unreadable-free-space-crash-{n}-rolls-back')
+
+
 def large_volume(m, folder):
     # 2 TiB sparse image: session start and recovery must not scan the volume.
     base = folder / 'base-2t.img'
@@ -398,6 +506,19 @@ def large_volume(m, folder):
     base.unlink()
 
 
+def full_matrix(m, base, folder):
+    # Retained (as shipped) and without retention (the checkpoint logic alone).
+    for retention in [{}, {'RETENTION': '0'}]:
+        for block in ['4096', '16384', '65536']:
+            for kind in ['file', 'directory', 'write', 'many']:
+                m.run_kind(base, kind, {'BLOCK': block, **retention})
+    recovery_interruption(m, base)
+    refusals(m, base)
+    capacity(m, folder)
+    if '--large' in sys.argv:
+        large_volume(m, folder)
+
+
 def main():
     build()
     folder = Path(tempfile.mkdtemp(prefix='write-journal-', dir=ROOT / '.workbench'))
@@ -405,16 +526,9 @@ def main():
     result = {'completed': False, 'success': False}
     try:
         base = folder / 'base.img'; make_base(base)
-        # Retained (as shipped) and without retention (the checkpoint logic alone).
-        for retention in [{}, {'RETENTION': '0'}]:
-            for block in ['4096', '16384', '65536']:
-                for kind in ['file', 'directory', 'write', 'many']:
-                    m.run_kind(base, kind, {'BLOCK': block, **retention})
-        recovery_interruption(m, base)
-        refusals(m, base)
-        capacity(m, folder)
-        if '--large' in sys.argv:
-            large_volume(m, folder)
+        unreadable_free_space(m, base)
+        if '--unreadable-only' not in sys.argv:
+            full_matrix(m, base, folder)
         result.update(completed=True, success=True)
     finally:
         result.update(checks=len(m.checks), counts=m.counts, timings=m.timings, folder=str(folder))

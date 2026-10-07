@@ -132,8 +132,10 @@ raise AssertionError('crash callback not reached')
                 if result<0: break
             else: raise AssertionError('bounded metadata allocation did not fail')
             assert error==errno.ENOSPC,(kind,error,index)
-            blocked(io,volume);io.close();preserved(image)
-            results.append(f'{kind}-real-metadata-ENOSPC-locks-session-after-{index}-nodes')
+            # Since 0.5.4 running out of space is not damage: NTFS-3G backs the
+            # allocation out, the session stays usable and the volume clean.
+            assert LIB.nk_umount(volume)==0 and io.inspect()==0;io.close();preserved(image)
+            results.append(f'{kind}-real-metadata-ENOSPC-keeps-volume-clean-after-{index}-nodes')
         completed = True
         print(json.dumps({'success': not recovery_failures, 'checks': results,
                           'recovery_failures': recovery_failures, 'evidence': str(folder)}, ensure_ascii=False))

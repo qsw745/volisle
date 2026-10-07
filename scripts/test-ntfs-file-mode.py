@@ -28,8 +28,11 @@ def info(image):
 
 
 def security(image):
-    # Newly created bridge files use the legacy security-descriptor attribute.
-    return subprocess.check_output([BIN / 'ntfscat', '-f', '-a', '0x50', image, '/document'], stderr=subprocess.DEVNULL)
+    # New files inherit the parent's descriptor through a $Secure security ID
+    # (no per-file 0x50 attribute): the ID must not change.
+    lines = [l for l in info(image).splitlines() if 'Security ID' in l]
+    assert len(lines) == 1, lines
+    return lines[0].encode()
 
 
 def content(volume):

@@ -63,12 +63,15 @@ public struct AutoMountReported: Error, Sendable { public init() {} }
     public let preferences: AutoMountPreferences
     public private(set) var lastError: String?
     public private(set) var activeConnections: Set<UUID> = []
+    /// A pending user copy may request one write attempt without changing preferences.
+    public var writeRequest: @MainActor (VolumeSnapshot) -> UUID? = { _ in nil }
     private let engine: any FileSystemAdapter
     private let coordinator: MountCoordinator
     private let helperEnable: (@MainActor (VolumeSnapshot) async throws -> Void)?
     private let helperReady: @MainActor () -> Bool
     private var current: [VolumeSnapshot] = []
     private var attempted: Set<UUID> = []
+    private var attemptedRequests: [UUID: UUID] = [:]
     private var helperRunning: Set<UUID> = []
     private var pending: [UUID: Task<Void, Never>] = [:]
     /// Deferred (not-ready) starts per connection; bounded so a disk that stays
@@ -85,6 +88,8 @@ public struct AutoMountReported: Error, Sendable { public init() {} }
     /// starting from a mounted disk is the ordinary, well-tested path.
     private var firstSeen: [UUID: ContinuousClock.Instant] = [:]
     private var graceWakes: Set<UUID> = []
+    /// Connections already logged as skipped because another NTFS driver holds them.
+    private var reportedForeign: Set<UUID> = []
     private let automountGrace: Duration
     private static let maximumDeferrals = 6
     /// Wake-ups per deferral while the background is not ready (about a minute at 5 s).
@@ -115,10 +120,17 @@ public struct AutoMountReported: Error, Sendable { public init() {} }
         current = volumes
         let connected = Set(volumes.map { $0.identity.connection })
         attempted.formIntersection(connected)
+        attemptedRequests = attemptedRequests.filter { connected.contains($0.key) }
         deferrals = deferrals.filter { connected.contains($0.key) }
         notBefore = notBefore.filter { connected.contains($0.key) }
         firstSeen = firstSeen.filter { connected.contains($0.key) }
         graceWakes.formIntersection(connected)
+        reportedForeign.formIntersection(connected)
+        // Said once per connection, so a report shows why nothing happened.
+        for volume in volumes where volume.isExternal && !volume.isProtected {
+            guard let driver = volume.foreignDriver, reportedForeign.insert(volume.identity.connection).inserted else { continue }
+            autoMountLog.notice("跳过一块 NTFS 盘：它由其他驱动挂载（\(driver.kind, privacy: .public)），盘屿不接管")
+        }
         for volume in volumes where firstSeen[volume.identity.connection] == nil {
             firstSeen[volume.identity.connection] = .now
         }
@@ -128,6 +140,11 @@ public struct AutoMountReported: Error, Sendable { public init() {} }
         guard helperReady() else { return }
         for volume in volumes where eligible(volume, in: volumes) {
             let connection = volume.identity.connection
+            if let request = writeRequest(volume), attemptedRequests[connection] != request,
+               !helperRunning.contains(connection) {
+                attempted.remove(connection)
+                deferrals[connection] = nil; notBefore[connection] = nil
+            }
             guard !attempted.contains(connection), pending[connection] == nil else { continue }
             if let earliest = notBefore[connection], ContinuousClock.now < earliest { continue }
             if volume.mountState == .unmounted, let seen = firstSeen[connection], ContinuousClock.now < seen + automountGrace {
@@ -150,6 +167,7 @@ public struct AutoMountReported: Error, Sendable { public init() {} }
                 // Missing prerequisites do not consume the connection's attempt.
                 // Actual failures do: no automatic busy/unsafe retry loop.
                 self.attempted.insert(connection); didAttempt = true
+                if let request = self.writeRequest(fresh) { self.attemptedRequests[connection] = request }
                 do {
                     if let helperEnable = self.helperEnable {
                         // Once delegated, the persistent helper owns recovery.
@@ -208,16 +226,21 @@ public struct AutoMountReported: Error, Sendable { public init() {} }
     }
     public func stop() { for task in pending.values { task.cancel() } }
     private func eligible(_ volume: VolumeSnapshot, in volumes: [VolumeSnapshot]) -> Bool {
+        let copying = writeRequest(volume) != nil
         guard volume.isNTFS, volume.isExternal, !volume.isProtected,
               volume.mountState == .readOnly || volume.mountState == .unmounted,
-              preferences.isEnabled(volume.identity) else { return false }
+              preferences.isEnabled(volume.identity) || copying else { return false }
+        if copying {
+            guard let key = volume.identity.resumeKey,
+                  volumes.filter({ $0.identity.resumeKey == key }).count == 1 else { return false }
+        }
         if let key = volume.identity.persistentKey {
             guard volume.identity.supportsCurrentOperation,
                   volumes.filter({ $0.identity.persistentKey == key }).count == 1 else { return false }
         } else {
             // Global mode need not remember a UUID-less USB disk. Only the
             // trusted helper may bind and recheck this live IORegistry object.
-            guard preferences.automaticEnabled, helperEnable != nil,
+            guard preferences.automaticEnabled || copying, helperEnable != nil,
                   !volume.identity.devicePath.isEmpty,
                   let registry = volume.identity.mediaRegistryID, registry > 0,
                   volumes.filter({ $0.identity.mediaRegistryID == registry }).count == 1 else { return false }

@@ -44,10 +44,20 @@ final class HelperMountJournal: @unchecked Sendable {
         try record.validate()
         try writeFile(JSONEncoder().encode(record), name: "operation.json", limit: 8192)
     }
-    // IDs are never evicted: a delayed request must not regain permission to run.
-    // The bounded ledger fails closed when full. It stores identities, not paths
-    // supplied to filesystem operations. 16,384 requests cover years of daily use.
+    // Within one boot IDs are never evicted: a delayed request must not regain
+    // permission to run. The bounded ledger fails closed when full. It stores
+    // identities, not paths supplied to filesystem operations. No request can be
+    // delivered across a restart of the Mac, so a new boot starts a new ledger
+    // (see HelperMountCycleService.init); before 0.7 it was kept for ever and,
+    // once full after enough connections, refused every write start.
     static let receiptLimit = 16_384
+    /// The boot session the ledger belongs to.
+    func readReceiptBoot() throws -> String? {
+        try readFile("receipts-boot", limit: 128).map { String(decoding: $0, as: UTF8.self) }
+    }
+    func writeReceiptBoot(_ boot: String) throws {
+        try writeFile(Data(boot.utf8), name: "receipts-boot", limit: 128)
+    }
     func readReceipts() throws -> [UUID: HelperMountReceipt] {
         guard let data = try readFile("requests.json", limit: 16 * 1024 * 1024) else { return [:] }
         let records = try JSONDecoder().decode([HelperMountReceipt].self, from: data)

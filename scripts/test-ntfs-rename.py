@@ -26,6 +26,12 @@ def read(image, name):
     return result.stdout if result.returncode == 0 else None
 
 
+def listing(image, path):
+    result = subprocess.run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfsls', '-f', '-p', path, image],
+                            capture_output=True, timeout=15)
+    return sorted(set(result.stdout.decode().split()) - {'.', '..'}) if result.returncode == 0 else None
+
+
 def main():
     report = {'checks': [], 'failure_points': [], 'sync_failure_points': [], 'crash_points': [], 'success': False}
     with tempfile.TemporaryDirectory(prefix='volisle-rename-', dir=ROOT / '.workbench') as tmp:
@@ -50,6 +56,34 @@ def main():
         assert LIB.nk_umount(volume) == 0 and io.inspect() == 0; io.close()
         assert read(base, '/source') == PAYLOAD and read(base, '/existing') == SENTINEL
         report['checks'].append('no-op-collision-and-directory-cycle-zero-writes')
+
+        # Non-empty folders (an app's package document, a folder renamed in
+        # Finder) rename and move like files: the new name is linked before the
+        # old one goes. Only removing a non-empty folder is refused, unchanged,
+        # and the session stays writable.
+        tree = folder / 'tree.img'; shutil.copyfile(base, tree)
+        io = ImageIO(tree); volume = io.mount(); assert volume
+        assert LIB.nk_mkdir(volume, b'/', b'saving') == 0 and LIB.nk_mkdir(volume, b'/', b'documents') == 0
+        assert LIB.nk_mkdir(volume, b'/saving', b'report.rtfd') == 0
+        assert LIB.nk_mkdir(volume, b'/saving/report.rtfd', b'Data') == 0
+        assert LIB.nk_create(volume, b'/saving/report.rtfd', b'TXT.rtf') == 0
+        buf = C.create_string_buffer(PAYLOAD)
+        assert LIB.nk_write(volume, b'/saving/report.rtfd/TXT.rtf', 0, len(PAYLOAD), buf) == len(PAYLOAD)
+        assert LIB.nk_rename(volume, b'/saving/report.rtfd', b'/documents', b'report.rtfd') == 0, ('移动非空文件夹', C.get_errno())
+        assert LIB.nk_rename(volume, b'/directory', b'/', b'renamed-directory') == 0, ('改名非空文件夹', C.get_errno())
+        writes = io.writes
+        assert LIB.nk_delete(volume, b'/documents/report.rtfd') == -1 and C.get_errno() == errno.ENOTEMPTY
+        assert io.writes == writes
+        assert LIB.nk_create(volume, b'/', b'still-writable') == 0, '拒绝删除非空文件夹后会话必须仍可写'
+        assert LIB.nk_delete(volume, b'/saving') == 0
+        assert LIB.nk_umount(volume) == 0 and io.inspect() == 0; io.close()
+        assert read(tree, '/documents/report.rtfd/TXT.rtf') == PAYLOAD
+        assert listing(tree, '/documents/report.rtfd') == ['Data', 'TXT.rtf']
+        assert listing(tree, '/renamed-directory') == ['child'] and listing(tree, '/directory') is None
+        assert 'saving' not in listing(tree, '/') and 'still-writable' in listing(tree, '/')
+        assert subprocess.run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfsfix', '-n', tree],
+                              capture_output=True, timeout=30).returncode == 0
+        report['checks'].append('non-empty-folders-rename-and-move-delete-refused-without-lock')
 
         normal = folder / 'normal.img'; shutil.copyfile(base, normal)
         io = ImageIO(normal); volume = io.mount(); assert volume

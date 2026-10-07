@@ -418,7 +418,12 @@ struct SystemHelperMountCycleBackend: HelperMountCycleBackend {
                 throw HelperDiskFailure.busy
             }
         } else { current = try validate(record.disk) }
-        guard current.isEmpty != record.restoreRequired else { throw HelperDiskFailure.busy }
+        // Mounted before: it must be mounted read-only again. Not mounted before:
+        // either state is right. After a failed write start the helper mounts it
+        // read-only as macOS was about to (0.6.1), and macOS may also have finished
+        // its own mount meanwhile; demanding "unmounted" kept such a disk "awaiting
+        // verification" forever, blocking every other disk operation.
+        if record.restoreRequired { guard !current.isEmpty else { throw HelperDiskFailure.busy } }
         return current.isEmpty ? .unmounted : .readOnly
     }
     func prepare(_ disk: HelperDiskRequest) async throws -> Bool {

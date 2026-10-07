@@ -15,8 +15,33 @@ func writeMountOutcome() {
     #expect(SystemHelperWriteMountBackend.writeMountOutcome([record()], path: point) == nil)
     #expect(SystemHelperWriteMountBackend.writeMountOutcome([record(flags: safe | UInt32(MNT_RDONLY))], path: point) == .writeNotEnabled)
     for records in [[], [record("/Volumes/qsw")], [record(type: "ntfs")], [record(flags: 0)], [record(), record()]] {
-        #expect(SystemHelperWriteMountBackend.writeMountOutcome(records, path: point) == .mountFailed)
+        #expect(SystemHelperWriteMountBackend.writeMountOutcome(records, path: point, kernelReflectsFlags: true) == .mountFailed)
     }
+    // macOS 15 never sets nosuid/nodev on an FSKit mount; everything else still counts.
+    #expect(SystemHelperWriteMountBackend.writeMountOutcome([record(flags: 0)], path: point, kernelReflectsFlags: false) == nil)
+    #expect(SystemHelperWriteMountBackend.writeMountOutcome([record(flags: UInt32(MNT_RDONLY))], path: point, kernelReflectsFlags: false) == .writeNotEnabled)
+    #expect(SystemHelperWriteMountBackend.writeMountOutcome([record(type: "ntfs", flags: 0)], path: point, kernelReflectsFlags: false) == .mountFailed)
+}
+
+@Test("macOS 15 的复制目录核验沿用开启读写的策略，仍拒绝只读与错误设备")
+func verifiedWritableMountOnLegacyKernel() throws {
+    let device = "/dev/disk8s3"
+    #expect(try SystemHelperWriteMountBackend.verifiedWritableMount([record(flags: 0)], device: device,
+        path: point, kernelReflectsFlags: false) == URL(filePath: point))
+    for records in [[], [record(flags: UInt32(MNT_RDONLY))], [record(type: "ntfs", flags: 0)],
+                    [record("/Volumes/elsewhere", flags: 0)], [record(flags: 0), record(flags: 0)],
+                    [SystemMountRecord(source: "/dev/disk9s1", path: point, type: "volisle", flags: 0)]] {
+        #expect(throws: VolumeError.mountNotVerified) {
+            try SystemHelperWriteMountBackend.verifiedWritableMount(records, device: device, path: point,
+                kernelReflectsFlags: false)
+        }
+    }
+    #expect(throws: VolumeError.mountNotVerified) {
+        try SystemHelperWriteMountBackend.verifiedWritableMount([record(flags: 0)], device: device,
+            path: point, kernelReflectsFlags: true)
+    }
+    #expect(try SystemHelperWriteMountBackend.verifiedWritableMount([record()], device: device,
+        path: point, kernelReflectsFlags: true) == URL(filePath: point))
 }
 
 @Test("两种新失败各有具体提示，不再落到“无法核对当前磁盘”")

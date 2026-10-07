@@ -1,0 +1,18 @@
+盘屿 0.7.0 · Volisle 0.7.0
+
+· 稳定版：这一版做了一次全面检查，修复了一批少见但会让磁盘一直只读、卡住或推不出的问题，建议所有人更新。
+· 文件名与 Windows 互通：文件名里有 ? : * " < > | \ 或以空格、句点结尾时，Windows 上也能正常打开和删除；其他系统写入的部分中文、日文、韩文和带重音字母的文件名以前列得出却打不开，现在都能打开。
+· 修复：写入时磁盘读写出错后，可以直接“恢复只读”再重新开启读写，不再卡在“待核验”或推不出。
+· 修复：“在 Mac 上检查”遇到读盘出错（坏扇区、数据线或接口不稳）时不再误报“文件记录有问题”，没通过时会附一行技术信息；Windows 上没做完的磁盘检查不再被清掉标记；含目录联接点的盘也能在 Mac 上检查。
+· 更快：大文件读取约 100 MB/s、写入约 50 MB/s；上万个文件的文件夹秒开；删除大量文件快数十倍。
+· 改进：拷贝带隐藏属性的文件不再中途停止；“空间不足”“名称已存在”“文件夹不是空的”等提示更准确；新建的点文件在 Windows 中也隐藏。
+· 改进：BitLocker 盘解锁时也能正常更新和退出盘屿，菜单栏可以推出 BitLocker 盘；抹掉磁盘默认选中侧栏里的盘，并写明容量和设备号。
+· 改进：写保护、非 USB 或没有分区表的盘会说明为什么只能读取；刷新磁盘列表不再让刚恢复只读的盘重新开启读写；登录时启动不再弹出主窗口。
+· Stable release: a full review fixed a set of rare problems that could leave a disk read-only for good, stuck, or impossible to eject. Updating is recommended for everyone.
+· File names now work both ways with Windows: names with ? : * " < > | \ or ending in a space or period open and delete normally in Windows, and names written by other systems with accented letters or East Asian characters, which listed but wouldn’t open, now open.
+· After a disk read or write error while writing, Restore Read-Only now works and writing can be turned on again, instead of getting stuck verifying or failing to eject.
+· Check on This Mac no longer reports a read error (a bad sector, or an unstable cable or port) as damaged file records, and adds a line of technical details when a check doesn’t pass; it no longer clears the flag when Windows maintenance didn’t finish, and disks with directory junctions can now be checked.
+· Faster: large files read at about 100 MB/s and write at about 50 MB/s, folders with tens of thousands of files open at once, and deleting many files is dozens of times faster.
+· Copying files with the hidden attribute no longer stops partway; messages such as no space, name already exists, and folder not empty are more precise; new dot files are hidden in Windows too.
+· With a BitLocker disk unlocked, updates and quitting Volisle work normally, and BitLocker disks can be ejected from the menu bar; Erase selects the disk chosen in the sidebar and shows its size and device name.
+· Disks that can only be read (write-protected, not USB, or without a partition table) now say why; refreshing the disk list no longer turns writing back on for a disk you set to read-only; launching at login no longer opens the main window.

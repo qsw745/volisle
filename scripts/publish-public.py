@@ -94,9 +94,21 @@ def export(ref, out):
     print('扫描：没有密钥、服务器信息、本机路径或第三方昵称')
 
 
+# Public commits never carry a personal address (the local git config may).
+PUBLIC_AUTHOR = ['-c', 'user.name=qsw745', '-c', 'user.email=92699806+qsw745@users.noreply.github.com']
+
+
 def sync(snapshot, clone, message):
     if not (clone / '.git').is_dir():
         sys.exit(f'{clone} 不是 git 仓库')
+    # Everything but .git is deleted below: never this private repository, a
+    # folder inside it, or one that contains it.
+    root = ROOT.resolve()
+    if clone == root or root in clone.parents or clone in root.parents:
+        sys.exit(f'{clone} 是私有仓库本身、在它里面或包含它，拒绝同步')
+    remote = subprocess.run(['git', '-C', str(clone), 'remote', 'get-url', 'origin'], capture_output=True, text=True).stdout.strip()
+    if not remote.rstrip('/').removesuffix('.git').lower().endswith('github.com/qsw745/volisle'):
+        sys.exit(f'{clone} 的 origin 不是公开仓库 qsw745/volisle：{remote or "无"}')
     for child in clone.iterdir():
         if child.name == '.git':
             continue
@@ -105,7 +117,7 @@ def sync(snapshot, clone, message):
     subprocess.run(['git', '-C', str(clone), 'add', '-A'], check=True)
     if subprocess.run(['git', '-C', str(clone), 'diff', '--cached', '--quiet']).returncode == 0:
         print('没有变化，未提交'); return
-    subprocess.run(['git', '-C', str(clone), 'commit', '-q', '-m', message], check=True)
+    subprocess.run(['git', '-C', str(clone), *PUBLIC_AUTHOR, 'commit', '-q', '-m', message], check=True)
     print(subprocess.run(['git', '-C', str(clone), 'show', '--stat', '--format=%h %s', 'HEAD'],
                          capture_output=True, text=True).stdout.splitlines()[0])
     print(f'已提交到 {clone}，确认后运行：git -C {clone} push')

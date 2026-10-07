@@ -69,6 +69,7 @@ import VolisleCore
             await self.cycle.refresh()
             if self.cycle.canRecover { await self.cycle.recover() }
             guard !self.cycle.blocksActions, !self.cycle.isBusy else { throw UpdateSafetyError.diskBusy }
+            try UpdateMaintenance.lockBitLockerVolumes()
         }, stopService: {
             if self.helper.state == .connected {
                 UserDefaults.standard.set(true, forKey: Self.restoreKey)
@@ -142,8 +143,17 @@ import VolisleCore
 /// Sparkle can resume a staged installer or install on ordinary quit. Guard the
 /// termination path as well as the normal "Install and Relaunch" callback.
 @MainActor final class UpdateAppDelegate: NSObject, NSApplicationDelegate {
-    var updates: AppUpdates?
+    /// Set at launch, before any window: quitting must be guarded even when the
+    /// main window never opened (started at login).
+    static weak var registered: AppUpdates?
+    var updates: AppUpdates? {
+        get { assigned ?? Self.registered }
+        set { assigned = newValue }
+    }
+    private var assigned: AppUpdates?
     private var waiting = false
+    /// Logging out, restarting or shutting down: never hold that up for an update.
+    private static var poweringOff = false
     /// macOS refuses a quit request (logout, shutdown, scripts) while a window
     /// shows a sheet, e.g. the setup guide left open. Close sheets first, then
     /// quit through the normal path, so applicationShouldTerminate still decides.
@@ -151,20 +161,54 @@ import VolisleCore
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleQuit(_:reply:)),
                                                      forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEQuitApplication))
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willPowerOffNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { Self.poweringOff = true }
+        }
+        // Opened at login ("Open Volisle at login"): work from the menu bar
+        // without putting a window in front of the user.
+        if launchedAsLoginItem {
+            DispatchQueue.main.async { NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("main") == true }.forEach { $0.close() } }
+        }
     }
+    private var launchedAsLoginItem: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventID == AEEventID(kAEOpenApplication) else { return false }
+        return event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
+    }
+    /// The Dock icon or opening the app again while no window is shown.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { true }
+    /// Closing the main window keeps the menu bar item and automatic writing running.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     @objc private func handleQuit(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         Self.closeSheetsAndTerminate()
     }
     /// Also behind the Quit menu item (⌘Q). SwiftUI sheets are not AppKit's
-    /// attached sheets, so ask the views to close the informational ones (the
-    /// setup guide, disk details) and terminate once they are gone. Sheets of
-    /// running operations such as erasing stay and keep blocking, as before.
-    static func closeSheetsAndTerminate() {
-        guard NSApp.windows.contains(where: { $0.isSheet && $0.isVisible }) else { NSApp.terminate(nil); return }
+    /// attached sheets, so ask the views to close the informational ones (setup
+    /// guide, disk details, write check, diagnostics, copies, recovery) and
+    /// terminate once they are gone. Sheets of running operations, erasing or
+    /// exporting recovered files, stay and keep blocking, as before.
+    /// A sheet opened from another sheet closes after its parent asked: try a
+    /// few times before handing over to terminate, which a remaining sheet blocks.
+    static func closeSheetsAndTerminate(attempt: Int = 0) {
+        // Behind its sheet, terminate would fail without a word.
+        if attempt == 0, !poweringOff, let busy = QuitGuard.busy { refuseQuit(busy); return }
+        guard attempt < 6, NSApp.windows.contains(where: { $0.isSheet && $0.isVisible }) else { NSApp.terminate(nil); return }
         NotificationCenter.default.post(name: .volisleCloseSheetsForQuit, object: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NSApp.terminate(nil) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { closeSheetsAndTerminate(attempt: attempt + 1) }
+    }
+    /// Erasing or exporting: say why the app stays open instead of quitting.
+    static func refuseQuit(_ busy: String) {
+        NSApp.unhide(nil)
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = String(localized: "现在不能退出盘屿")
+        alert.informativeText = String(localized: "\(busy)。中途退出可能让磁盘无法使用，请等它完成后再退出。")
+        alert.addButton(withTitle: String(localized: "知道了"))
+        alert.runModal()
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Hidden or minimized, the sheet of a running erase no longer holds the quit back.
+        if !Self.poweringOff, let busy = QuitGuard.busy { Self.refuseQuit(busy); return .terminateCancel }
         guard let updates, updates.pendingInstall || updates.maintenance.blocking else { return .terminateNow }
         guard !waiting else { return .terminateLater }
         waiting = true
@@ -174,6 +218,9 @@ import VolisleCore
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
                 await updates.cancelPreparation()
+                // A disk still in use only postpones the update; it must never stop
+                // the Mac from logging out or shutting down (everything restarts then).
+                if Self.poweringOff { sender.reply(toApplicationShouldTerminate: true); waiting = false; return }
                 sender.reply(toApplicationShouldTerminate: false)
                 let alert = NSAlert()
                 alert.messageText = String(localized: "更新已暂缓")
@@ -184,6 +231,20 @@ import VolisleCore
         }
         return .terminateLater
     }
+}
+
+/// Work that quitting must not cut off: erasing a disk, exporting recovered
+/// files. Their sheets alone cannot hold a quit back once the app is hidden.
+@MainActor enum QuitGuard {
+    private static var running: [UUID: String] = [:]
+    /// What is running, said when a quit is refused; nil when quitting is safe.
+    static var busy: String? { running.values.first }
+    static func begin(_ what: String) -> UUID {
+        let id = UUID()
+        running[id] = what
+        return id
+    }
+    static func end(_ id: UUID) { running[id] = nil }
 }
 
 extension Notification.Name {

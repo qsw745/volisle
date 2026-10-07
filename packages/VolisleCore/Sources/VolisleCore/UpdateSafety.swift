@@ -58,6 +58,16 @@ public enum UpdateSafetyError: Error, LocalizedError {
         if let barrier { gate.resumeOperations(barrier) }
         barrier = nil; ready = false; blocking = false
     }
+    /// Unlocked BitLocker volumes are mounts of their own (not Disk Arbitration's,
+    /// not the read-write session): lock them, or no update could ever install
+    /// while one is unlocked. They belong to the user, so a normal unmount works;
+    /// one with files in use stays, and the update waits.
+    public static func lockBitLockerVolumes(onDisk disk: String? = nil) throws {
+        for entry in try SystemMountRecord.current() where entry.type == "volisle" && BitLockerMountPoint.owns(entry.path) {
+            if let disk, !entry.source.hasPrefix("/dev/" + disk + "s") { continue }
+            guard Darwin.unmount(entry.path, 0) == 0 || errno == EINVAL || errno == ENOENT else { throw UpdateSafetyError.diskBusy }
+        }
+    }
     public static func verifyNoMountedVolumes() throws {
         guard try !SystemMountRecord.current().contains(where: { $0.type == "volisle" }) else {
             throw UpdateSafetyError.diskBusy

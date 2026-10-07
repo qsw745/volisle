@@ -82,6 +82,25 @@ func checkMarkerReply() throws {
     }
 }
 
+@Test("检查未通过时带回技术信息（记录号与种类），格式不对的一律丢弃")
+func checkMarkerReplyCarriesTheTechnicalReason() throws {
+    let detail = "inconsistent record 1234: listed as a folder, record is a file"
+    do {
+        _ = try HelperCheckMarkerReply.decode(JSONEncoder().encode(HelperCheckMarkerReply(items: nil, failure: .checkFoundProblems, detail: detail)))
+        Issue.record("应当抛出")
+    } catch let refusal as CheckMarkerRefusal {
+        #expect(refusal.failure == .checkFoundProblems && refusal.detail == detail)
+        #expect(refusal.errorDescription?.contains(detail) == true)
+    }
+    #expect(CheckMarkerRefusal(.checkReadFailed, detail: "read failed at record 99") != nil)
+    for bad in ["~/秘密.txt", "inconsistent record 12: 照片", "inconsistent record x: a", String(repeating: "a", count: 200)] {
+        #expect(CheckMarkerRefusal(.checkFoundProblems, detail: bad) == nil)
+        #expect(throws: HelperDiskFailure.checkFoundProblems) {
+            try HelperCheckMarkerReply.decode(JSONEncoder().encode(HelperCheckMarkerReply(items: nil, failure: .checkFoundProblems, detail: bad)))
+        }
+    }
+}
+
 @Test("清除检查标记：没有维护引擎（App 进程）或不是 root 时拒绝；整盘请求无效")
 func checkMarkerNeedsHelperEngine() async throws {
     let request = try HelperDiskRequest(bsdName: "disk8s1", registryID: 42, byteCount: 2_000_000_000_000)

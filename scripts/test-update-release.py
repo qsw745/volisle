@@ -23,6 +23,18 @@ class UpdateReleaseTests(unittest.TestCase):
             missing=dict(ready);del missing[field]
             with self.assertRaises(ValueError):release.verify_readiness(missing,4,'a'*64)
 
+    def test_notes_become_one_plain_text_description_per_language(self):
+        import xml.etree.ElementTree as ET
+        item=ET.Element('item')
+        release.add_descriptions(item,'0.7.0','盘屿 0.7.0 · Volisle 0.7.0\n\n· 修复：甲。\n· Fixes A.\n','https://x/s.tar.gz')
+        found={d.get(release.XML_LANG):d for d in item.findall('description')}
+        self.assertEqual(set(found),{'zh-Hans','en'})
+        for d in found.values():self.assertEqual(d.get('{'+release.SPARKLE+'}format'),'plain-text')
+        self.assertEqual(found['zh-Hans'].text,'盘屿 0.7.0\n\n· 修复：甲。\n\n对应源码：https://x/s.tar.gz')
+        self.assertEqual(found['en'].text,'Volisle 0.7.0\n\n· Fixes A.\n\nSource code: https://x/s.tar.gz')
+        for bad in ['盘屿 0.7.0\n· Fixes A.\n· 修复：甲。\n','盘屿 0.7.0\n· 修复：甲。\n','盘屿 0.7.0\n· 修复：甲。\n· Fixes A.\n没有圆点\n']:
+            with self.assertRaises(ValueError):release.add_descriptions(ET.Element('item'),'0.7.0',bad,'u')
+
     def test_source_must_match_candidate_exactly(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);app=root/'Fixture.app';resources=app/'Contents/Resources';resources.mkdir(parents=True)

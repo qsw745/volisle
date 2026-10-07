@@ -6,6 +6,8 @@ import { release } from '@/lib/release';
 import { history } from '@/lib/history';
 import { localePath, type Locale } from '@/lib/i18n';
 const base = process.env.NEXT_PUBLIC_BASE_PATH || '';
+/** 0.5.7 and earlier: unplugging could leave stale data (fixed in 0.5.5), and a quick eject could roll back new files on Windows 11 disks (fixed in 0.5.8). */
+const hasDataRisk = (version: string) => { const [a, b, c] = version.split('.').map(Number); return a * 1e6 + b * 1e3 + c <= 5007; };
 const copy = {
   zh: {
     title: '免费下载盘屿。', lead: '官网版免费，源码以 GNU GPL v2 开放。没有账号，也没有内购。', iconAlt: '盘屿应用图标', name: '盘屿',
@@ -16,7 +18,7 @@ const copy = {
     reqTitle: '系统要求', req1: 'Apple 芯片 Mac（不支持 Intel）。', req2a: `${release.minimumSystem} 或更高版本。完整验证在 macOS 27.2 上完成，详见`, req2link: '兼容性', req2b: '。', req3: '外接 USB NTFS 硬盘或 U 盘。',
     sumsTitle: '校验与源码', sumsA: '以上为 SHA-256。在“终端”中运行 ', sumsCode: 'shasum -a 256 文件名', sumsB: ' 即可核对。源码包含构建脚本和第三方许可声明，可离线重新构建。',
     changelog: '更新日志 ›', help: '使用帮助 ›',
-    historyTitle: '历史版本', historyLead: '旧版本里的已知问题都在后续版本中修复了（见更新日志），只建议在需要退回旧版时使用；打开后盘屿会提示更新到最新版本。',
+    historyTitle: '历史版本', historyLead: '旧版本里的已知问题都在后续版本中修复了（见更新日志），只建议在需要退回旧版时使用；打开后盘屿会提示更新到最新版本。标有“有数据风险”的版本存在已知的数据问题（见更新日志 0.5.5 与 0.5.8），请不要用它们读写重要数据。', historyRisk: '有数据风险',
     historyDmg: '安装包', historySource: '源码', historySums: 'SHA-256',
   },
   en: {
@@ -28,7 +30,7 @@ const copy = {
     reqTitle: 'System requirements', req1: 'A Mac with Apple silicon (Intel isn’t supported).', req2a: `${release.minimumSystem} or later. Full verification was done on macOS 27.2; see `, req2link: 'Compatibility', req2b: ' for details.', req3: 'An external USB NTFS drive or flash drive.',
     sumsTitle: 'Checksums and source code', sumsA: 'These are SHA-256 checksums. To verify, run ', sumsCode: 'shasum -a 256 filename', sumsB: ' in Terminal. The source includes build scripts and third-party license notices, and can be rebuilt offline.',
     changelog: 'Release Notes ›', help: 'Help ›',
-    historyTitle: 'Earlier versions', historyLead: 'Known issues in earlier versions are fixed in later ones (see the Release Notes). Use one only if you need to go back; Volisle will offer to update to the latest version.',
+    historyTitle: 'Earlier versions', historyLead: 'Known issues in earlier versions are fixed in later ones (see the Release Notes). Use one only if you need to go back; Volisle will offer to update to the latest version. Versions marked “Known data risk” have known data problems (see 0.5.5 and 0.5.8 in the Release Notes); don’t use them with important data.', historyRisk: 'Known data risk',
     historyDmg: 'Installer', historySource: 'Source', historySums: 'SHA-256',
   },
 };
@@ -57,7 +59,7 @@ export function DownloadPage({ locale }: { locale: Locale }) {
       <h2 id="history">{c.historyTitle}</h2>
       <p>{c.historyLead}</p>
       <ul className="history-list">{history.map(h => <li key={h.version}>
-        <div className="history-row"><strong>{h.version}</strong><span>{locale === 'zh' ? h.date : h.dateEn}</span>
+        <div className="history-row"><strong>{h.version}</strong><span>{locale === 'zh' ? h.date : h.dateEn}</span>{hasDataRisk(h.version) && <em className="history-risk">{c.historyRisk}</em>}
           <a className="inline-link" href={`${base}${h.dmg}`} download>{c.historyDmg} · {h.dmgSize}</a>
           <a className="inline-link" href={`${base}${h.source}`}>{c.historySource} · {h.sourceSize}</a></div>
         <details><summary>{c.historySums}</summary><dl className="checksums">

@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import VolisleCore
 
-private let recovery = "123456-234567-345678-456789-567890-678901-789012-890123"
+// A well-formed key: every group is a multiple of 11 below 65536 × 11.
+private let recovery = "466895-217492-569250-069608-104434-135707-527241-083622"
 
 private func request(_ bsd: String = "disk8s2", kind: BitLockerSecretKind? = .password, secret: String? = "口令 Pass!",
                      size: UInt64 = 2_000_188_080_128) throws -> HelperBitLockerRequest {
@@ -18,7 +19,15 @@ func recoveryKeyNormalization() {
     #expect(BitLockerSecretKind.normalizedRecoveryKey(String(recovery.dropLast())) == nil)
     #expect(BitLockerSecretKind.normalizedRecoveryKey(recovery + "1") == nil)
     #expect(BitLockerSecretKind.normalizedRecoveryKey(recovery.replacingOccurrences(of: "1", with: "a")) == nil)
-    #expect(BitLockerSecretKind.normalizedRecoveryKey(recovery.replacingOccurrences(of: "1", with: "١")) == nil, "全角或其他文字的数字不算")
+    #expect(BitLockerSecretKind.normalizedRecoveryKey(recovery.replacingOccurrences(of: "1", with: "١")) == nil, "其他文字的数字不算")
+    // A Chinese input method types full-width digits and dashes; Word turns "-" into "–".
+    let fullWidth = String(recovery.unicodeScalars.map { $0 == "-" ? "－" : Character(UnicodeScalar($0.value + 0xFEE0)!) })
+    #expect(BitLockerSecretKind.normalizedRecoveryKey(fullWidth) == recovery)
+    #expect(BitLockerSecretKind.normalizedRecoveryKey(recovery.replacingOccurrences(of: "-", with: "–")) == recovery)
+    #expect(BitLockerSecretKind.normalizedRecoveryKey("恢复密钥：" + recovery) == recovery)
+    #expect(BitLockerSecretKind.normalizedRecoveryKey("Recovery key:\n" + recovery + "\n") == recovery)
+    #expect(BitLockerSecretKind.normalizedRecoveryKey(recovery + " " + recovery) == nil, "两个密钥不知道用哪个")
+    #expect(BitLockerSecretKind.normalizedRecoveryKey(recovery.replacingOccurrences(of: "466895", with: "466896")) == nil, "输错一位的组不是 11 的倍数")
 }
 
 @Test("解锁请求只接受分区、成对的方式与密钥、合法长度")

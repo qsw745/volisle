@@ -9,7 +9,7 @@ scripts/build-mkntfs.sh >/dev/null
 out=.workbench/format-engine
 rm -rf "$out"
 mkdir -p "$out"
-clang -target arm64-apple-macos26.4 -c -fPIC -DHAVE_CONFIG_H -DNK_WITH_FORMAT=1 -I "$source_dir" -I "$source_dir/include" \
+clang -target "arm64-apple-macos${VOLISLE_MIN_MACOS:-15.4}" -c -fPIC -DHAVE_CONFIG_H -DNK_WITH_FORMAT=1 -I "$source_dir" -I "$source_dir/include" \
   packages/VolisleNTFS/bridge/ntfs_bridge.c -o "$out/ntfs_bridge.o"
 libtool -static -no_warning_for_no_symbols -o "$out/libvolisleformat.a" \
   "$out/ntfs_bridge.o" .workbench/fskit-build/mkntfs/*.o "$source_dir/libntfs-3g/.libs/libntfs-3g.a"

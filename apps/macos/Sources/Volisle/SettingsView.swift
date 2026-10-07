@@ -3,11 +3,6 @@ import AppKit
 import VolisleCore
 import ServiceManagement
 
-private struct DiagnosticPresentation: Identifiable {
-    let id = UUID()
-    let report: DiagnosticReport
-}
-
 struct SettingsView: View {
     var discovery: DiskDiscovery
     var engineStatus: EngineStatus
@@ -21,6 +16,7 @@ struct SettingsView: View {
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
     @State private var showEngine = false
+    @State private var confirmingRemoval = false
     var body: some View {
         Form {
             Section("通用") {
@@ -79,7 +75,7 @@ struct SettingsView: View {
                         }
                         Button("检查连接") { Task { await helperService.refresh() } }
                         if helperService.state == .connected || helperService.state == .requiresApproval || helperService.state == .failed {
-                            Button("移除组件") { Task { await helperService.unregister() } }
+                            Button("移除组件") { confirmingRemoval = true }
                         }
                     }.disabled(helperService.isBusy || !helperService.packageVerified || updates.maintenance.blocking)
                     if let message = helperService.lastError { Text(message).font(.caption).foregroundStyle(.secondary) }
@@ -91,9 +87,11 @@ struct SettingsView: View {
                     .accessibilityHint(showEngine ? "收起" : "展开")
                 }
                 Button("导出诊断…") {
-                    diagnostics = .init(report: DiagnosticReport(volumes: discovery.volumes, diskServiceRunning: discovery.isRunning, engine: engineStatus.capability, lastOperation: mountCycle.operation))
+                    diagnostics = .init(report: .snapshot(discovery: discovery, engineStatus: engineStatus, mountCycle: mountCycle,
+                                                          helperService: helperService, autoMount: autoMount),
+                                        models: DiagnosticReport.diskModels(discovery.volumes))
                 }
-                Text("诊断仅保存在本机，不包含文件内容、卷名或完整路径。")
+                Text("诊断仅保存在本机，不包含文件内容、卷名或完整路径；附带盘屿最近 24 小时的运行记录（已去掉路径、名称和标识），便于定位问题。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -113,7 +111,16 @@ struct SettingsView: View {
             }
         }.formStyle(.grouped)
         .task { await refreshRuntime(); await helperService.refresh(); loginEnabled = SMAppService.mainApp.status == .enabled }
-        .sheet(item: $diagnostics) { DiagnosticsView(report: $0.report) }
+        .sheet(item: $diagnostics) { DiagnosticsView(report: $0.report, models: $0.models) }
+        .onReceive(NotificationCenter.default.publisher(for: .volisleCloseSheetsForQuit)) { _ in
+            diagnostics = nil; confirmingRemoval = false
+        }
+        .confirmationDialog("移除盘屿的后台组件？", isPresented: $confirmingRemoval, titleVisibility: .visible) {
+            Button("移除", role: .destructive) { Task { await helperService.unregister() } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("移除后插入的 NTFS 磁盘将只能读取，直到重新设置后台组件。卸载盘屿前才需要这样做。")
+        }
     }
     private static var version: String {
         let info = Bundle.main.infoDictionary

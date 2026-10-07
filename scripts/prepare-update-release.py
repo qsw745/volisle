@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / '.workbench/sparkle-build/Build/Products/Release'
 ACCOUNT = 'top.qisw.volisle.updates'
 SPARKLE = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
+XML_LANG = '{http://www.w3.org/XML/1998/namespace}lang'
 
 def run(*args): return subprocess.run([str(x) for x in args], check=True, capture_output=True, text=True).stdout.strip()
 def sha(path):
@@ -48,6 +49,20 @@ def verify_source(app, source):
             seen.add(name)
             if hashlib.sha256(archive.extractfile(member).read()).hexdigest() != expected[name]['sha256'] or member.mode != expected[name]['mode']:
                 raise ValueError('源码不属于本次候选：' + name)
+
+def add_descriptions(item, version, notes_text, source_url):
+    """Plain text, one per language: Sparkle shows the one matching the user's
+    language, and as HTML (the default) every line break was lost."""
+    lines = [l.strip() for l in notes_text.splitlines() if l.strip()]
+    items = [l[1:].strip() for l in lines[1:] if l.startswith('·')]
+    zh = [i for i in items if any('\u4e00' <= c <= '\u9fff' for c in i)]
+    en = [i for i in items if i not in zh]
+    if not lines or len(items) != len(lines) - 1 or not zh or not en or items != zh + en:
+        raise ValueError('更新说明格式不对：标题行之后每行以“· ”开头，先中文条目、后英文条目')
+    for language, title, entries, label in [('zh-Hans', '盘屿 ' + version, zh, '对应源码：'),
+                                            ('en', 'Volisle ' + version, en, 'Source code: ')]:
+        element = ET.SubElement(item, 'description', {'{'+SPARKLE+'}format': 'plain-text', XML_LANG: language})
+        element.text = title + '\n\n' + '\n'.join('· ' + e for e in entries) + '\n\n' + label + source_url
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -97,7 +112,7 @@ def main():
     item=ET.SubElement(channel,'item')
     ET.SubElement(item,'title').text='盘屿 '+version
     ET.SubElement(item,'pubDate').text=format_datetime(datetime.now(timezone.utc))
-    ET.SubElement(item,'description').text=args.notes.read_text()+'\n对应源码：'+base+source.name
+    add_descriptions(item, version, args.notes.read_text(), base+source.name)
     ET.SubElement(item,'{'+SPARKLE+'}version').text=str(build)
     ET.SubElement(item,'{'+SPARKLE+'}shortVersionString').text=version
     ET.SubElement(item,'{'+SPARKLE+'}minimumSystemVersion').text=info['LSMinimumSystemVersion']

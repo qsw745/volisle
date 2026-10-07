@@ -2,10 +2,12 @@
 import Foundation
 import CryptoKit
 import Darwin
+import os
 
 /// Session lifecycle and connection-time recovery for one volume serial.
 /// Every call is serialized by the volume's engine queue.
 enum WriteJournalCoordinator {
+    private static let log = Logger(subsystem: "Volisle.NTFSModule", category: "journal")
     enum Outcome: Equatable {
         case none
         case recovered
@@ -27,8 +29,9 @@ enum WriteJournalCoordinator {
                 guard old.state == .recovered, io.device.flushIsDurable else { throw WriteJournalError.busy }
                 try io.device.journalFlush()
                 try store.removeAll(serial: serial)
-            } else if try !store.epochs(serial: serial, session: UUID()).isEmpty {
-                throw WriteJournalError.corrupt
+            } else {
+                // Left by a cleanup that was interrupted after the session record went.
+                try store.removeOrphanEpochs(serial: serial)
             }
             let facts = try volumeFacts(io)
             let record = WriteJournalSessionRecord(session: UUID(), serial: serial,
@@ -50,7 +53,10 @@ enum WriteJournalCoordinator {
     static func finish(store: WriteJournalStore, io: JournaledIO, lock: Int32) throws {
         defer { Darwin.close(lock); io.session = nil }
         guard let session = io.session else { throw WriteJournalError.failed }
-        session.retention = 0  // the records go next; this epoch need not be kept
+        // Keep every epoch until the device barrier below: removing the newest
+        // first (as the retention window would) and then being interrupted would
+        // leave an older subset that recovery rolls back over newer data.
+        session.retention = .infinity
         try session.checkpoint()
         guard io.device.flushIsDurable else { throw WriteJournalError.unavailable }
         try io.device.journalFlush()
@@ -124,7 +130,10 @@ enum WriteJournalCoordinator {
         let unknownBits = record.initialFlags & ~knownFlags
         if unknownBits != 0, facts.flags == record.initialFlags & knownFlags { return }
         let legacy = unknownBits != 0 && facts.flags == (record.initialFlags | dirtyFlag) & knownFlags
-        guard facts.flags == record.initialFlags | dirtyFlag || legacy else { throw WriteJournalError.foreignChange }
+        guard facts.flags == record.initialFlags | dirtyFlag || legacy else {
+            log.error("回滚后卷标志不符：当前 0x\(String(facts.flags, radix: 16), privacy: .public)，开始时 0x\(String(record.initialFlags, radix: 16), privacy: .public)")
+            throw WriteJournalError.foreignChange
+        }
         let session = WriteJournalSession(store: store, record: record, device: io.device, epoch: epoch, kind: .recovery)
         io.session = session
         defer { io.session = nil }
@@ -139,26 +148,96 @@ enum WriteJournalCoordinator {
 
     /// Every block must hold a value from its recorded history: any before-image
     /// or any value this journal wrote. A lost cached write leaves an earlier one.
-    /// Blocks of the newest unfinished epoch's final group may be torn.
+    /// Blocks of the newest unfinished epoch may be torn: its delayed writes
+    /// reach the device whenever the system flushes, not only its last group.
+    /// A drive that loses power with writes in its own cache can leave any
+    /// recent block half written (seen: a 24 KiB run of zeros in a block of the
+    /// oldest retained epoch); such a block is this host's own, recognised sector
+    /// by sector, and rolling back restores it. Anything else is someone else's.
     private static func verify(_ targets: [WriteJournalEpoch], io: JournaledIO) throws {
         let newest = targets.first
-        let torn = newest.map { $0.checkpointed ? [] : Set($0.groups.last?.after.map(\.offset) ?? []) } ?? []
+        let torn = newest.map { $0.checkpointed ? [] : Set($0.groups.flatMap { $0.after.map(\.offset) }) } ?? []
         var allowed: [Int64: Set<Data>] = [:]
+        var versions: [Int64: [Data]] = [:]
+        var written: [Int64: [[UInt64]]] = [:]
+        // Written without a before-image: free at the start of every retained epoch,
+        // so free again once rolled back, and what they hold does not matter.
+        var freeWrites = Set<Int64>()
         for epoch in targets {
+            var befores = Set<Int64>(), afters = Set<Int64>()
             for group in epoch.groups {
-                for item in group.after { allowed[item.offset, default: []].insert(item.sha256) }
-                for item in group.before { allowed[item.offset, default: []].insert(Data(SHA256.hash(data: item.bytes))) }
-            }
-        }
-        for epoch in targets {
-            for group in epoch.groups {
-                for item in group.before where !torn.contains(item.offset) {
-                    let current = try readBytes(io, at: item.offset, count: item.bytes.count)
-                    guard allowed[item.offset, default: []].contains(Data(SHA256.hash(data: current))) else {
-                        throw WriteJournalError.foreignChange
-                    }
+                for item in group.after { allowed[item.offset, default: []].insert(item.sha256); afters.insert(item.offset) }
+                for (offset, hashes) in group.afterSectors { written[offset, default: []].append(hashes) }
+                for item in group.before {
+                    allowed[item.offset, default: []].insert(Data(SHA256.hash(data: item.bytes)))
+                    versions[item.offset, default: []].append(item.bytes)
+                    befores.insert(item.offset)
                 }
             }
+            freeWrites.formUnion(afters.subtracting(befores))
+        }
+        var checked = Set<Int64>(), partial = 0
+        var mismatches: [Mismatch] = []
+        for (position, epoch) in targets.enumerated() {
+            for group in epoch.groups {
+                for item in group.before where !torn.contains(item.offset) && !freeWrites.contains(item.offset) {
+                    guard checked.insert(item.offset).inserted else { continue }
+                    let current = try readBytes(io, at: item.offset, count: item.bytes.count)
+                    if allowed[item.offset, default: []].contains(Data(SHA256.hash(data: current))) { continue }
+                    let olds = versions[item.offset] ?? [], news = written[item.offset] ?? []
+                    if sectorsAccounted(current, olds, news) { partial += 1; continue }
+                    mismatches.append(.init(epoch: epoch.header.epoch, position: position, checkpointed: epoch.checkpointed,
+                                            offset: item.offset, sectors: sectorPattern(current, olds, news), versions: olds.count))
+                }
+            }
+        }
+        if partial > 0 { log.notice("恢复核对：\(partial, privacy: .public) 块是断开时写到一半的本机写入，照常回滚") }
+        guard !mismatches.isEmpty else { return }
+        // Which blocks and how they differ tells our own torn or lost writes apart from someone else's.
+        log.error("""
+            恢复核对不符：\(mismatches.count, privacy: .public)/\(checked.count, privacy: .public) 块；\
+            批次 \(targets.count, privacy: .public) 个，最新批次\(newest?.checkpointed == true ? "已确认" : "未完成", privacy: .public)
+            """)
+        for mismatch in mismatches.prefix(40) {
+            log.error("""
+                不符块：偏移 \(mismatch.offset, privacy: .public) 批次 \(mismatch.epoch, privacy: .public)\
+                （第 \(mismatch.position + 1, privacy: .public) 新，\(mismatch.checkpointed ? "已确认" : "未完成", privacy: .public)）\
+                已记旧版 \(mismatch.versions, privacy: .public) 个；扇区 \(mismatch.sectors, privacy: .public)
+                """)
+        }
+        throw WriteJournalError.foreignChange
+    }
+
+    private struct Mismatch {
+        let epoch: UInt64; let position: Int; let checkpointed: Bool; let offset: Int64; let sectors: String; let versions: Int
+    }
+
+    /// Every 512-byte sector equals that sector of a recorded earlier content or
+    /// of a recorded write, or was left empty.
+    static func sectorsAccounted(_ current: Data, _ versions: [Data], _ written: [[UInt64]]) -> Bool {
+        sectorKinds(current, versions, written).allSatisfy { $0 != "?" }
+    }
+
+    /// The block's sectors as runs, for the log: "旧" a recorded earlier content,
+    /// "新" a recorded write, "零" empty, "?" none of these.
+    static func sectorPattern(_ current: Data, _ versions: [Data], _ written: [[UInt64]]) -> String {
+        var runs: [(String, Int, Int)] = []
+        for (index, kind) in sectorKinds(current, versions, written).enumerated() {
+            if let last = runs.last, last.0 == kind, last.2 == index - 1 { runs[runs.count - 1].2 = index }
+            else { runs.append((kind, index, index)) }
+        }
+        return runs.map { $0.1 == $0.2 ? "\($0.0)\($0.1)" : "\($0.0)\($0.1)-\($0.2)" }.joined(separator: " ")
+    }
+
+    private static func sectorKinds(_ current: Data, _ versions: [Data], _ written: [[UInt64]]) -> [String] {
+        let size = WriteJournalEpoch.sectorSize, bytes = [UInt8](current)
+        let olds = versions.filter { $0.count == bytes.count }.map { [UInt8]($0) }
+        return stride(from: 0, to: bytes.count, by: size).map { at in
+            let sector = bytes[at..<min(at + size, bytes.count)], index = at / size
+            if olds.contains(where: { $0[sector.indices] == sector }) { return "旧" }
+            let hash = sector.withUnsafeBytes { WriteJournalEpoch.sectorHash($0) }
+            if written.contains(where: { index < $0.count && $0[index] == hash }) { return "新" }
+            return sector.allSatisfy { $0 == 0 } ? "零" : "?"
         }
     }
 

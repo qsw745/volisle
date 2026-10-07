@@ -13,6 +13,13 @@ version=${1:-} notes=${2:-}
 notes=${notes:A}
 step() { print "\n━━ $1"; }
 ask() { local answer; read "answer?$1 输入 y 继续，其他任意键停止："; [[ $answer == y ]] || { print '已停止。'; exit 1; }; }
+# Stopped or failed before the website commit: drop the version commit this run
+# made, but only while nothing else sits on top of it or in the work tree.
+undo_version() {
+  [[ -n ${release_commit:-} && $(git rev-parse HEAD) == $release_commit && -z $(git status --porcelain) ]] || return 0
+  git reset -q --hard HEAD~1 && print -u2 "已撤销本次的版本号提交 ${release_commit:0:7}。"
+}
+trap undo_version EXIT
 
 # Expected hashes: the extension's declarations, entitlements and the helper's
 # launchd plist must stay byte-identical to the released ones (a change breaks
@@ -40,7 +47,10 @@ out=dist/Volisle-$version-build$build
 [[ ! -e $out ]] || { print -u2 "$out 已存在。上次中断的话，先检查里面的内容再删掉"; exit 1; }
 print "准备发布 $version（构建 $build），上一版 $old_version（构建 $old_build）"
 
-step "2/9 版本号与测试"
+step "2/9 测试与版本号"
+swift test --package-path packages/VolisleCore 2>&1 | grep -E "Test run with" | tail -1 | grep -q passed || { print -u2 '单元测试没有通过'; exit 1; }
+python3 scripts/check-localization.py | tail -1 | grep -q '问题 0 个' || { print -u2 '本地化检查没有通过（缺翻译？运行 python3 scripts/check-localization.py 查看）'; exit 1; }
+print '单元测试、本地化检查通过'
 python3 - $version $build <<'PY'
 import json, sys, pathlib
 p = pathlib.Path('config/updates.json'); d = json.loads(p.read_text())
@@ -49,12 +59,9 @@ p.write_text(json.dumps(d, ensure_ascii=False, indent=2) + '\n')
 PY
 git commit -qam "feat: 盘屿 $version（构建 $build）"
 release_commit=$(git rev-parse HEAD)
-swift test --package-path packages/VolisleCore 2>&1 | grep -E "Test run with" | tail -1 | grep -q passed || { print -u2 '单元测试没有通过'; exit 1; }
-python3 scripts/check-localization.py | tail -1 | grep -q '问题 0 个' || { print -u2 '本地化检查没有通过（缺翻译？运行 python3 scripts/check-localization.py 查看）'; exit 1; }
-print '单元测试、本地化检查通过'
 
-step "3/9 构建、签名并装到本机测试版"
-tag=build$build-release-$(date +%Y%m%d)
+step "3/9 构建、签名并装到本机"
+tag=build$build-release-$(date +%Y%m%d-%H%M%S)  # a retry the same day needs new candidate folders
 zsh scripts/release/build-local-candidate.sh $tag
 app=apps/macos/build/signed-$tag/top.qisw.volisle.app
 [[ -d $app ]] || { print -u2 '候选包没有生成，请看 .workbench/logs/build-'$tag'.log'; exit 1; }
@@ -67,8 +74,8 @@ e_helper=$(codesign -d --entitlements - --xml "$app/Contents/Library/LaunchServi
 plist=$(cat "$app/Contents/Library/LaunchDaemons/"*.plist | hash16)
 [[ $decl == $EXPECT_DECL && $e_app == $EXPECT_APP && $e_ext == $EXPECT_EXT && $e_helper == $EXPECT_HELPER && $plist == $EXPECT_PLIST ]] || {
   print -u2 "扩展声明、权限或后台组件配置变了（$decl $e_app $e_ext $e_helper $plist），原位升级会让扩展失效，停止发布"; exit 1; }
-print "已装到 ~/Applications/Volisle Test.app，扩展声明与各组件权限与已发布版本一致"
-ask "请用本机测试版实际试一下（插盘、读写、推出）。确认没问题后"
+print "已装到本机（/Applications/Volisle.app，没有时为 ~/Applications/Volisle Test.app），扩展声明与各组件权限与已发布版本一致"
+ask "请用本机新装的版本实际试一下（插盘、读写、推出）。确认没问题后"
 
 step "4/9 苹果公证"
 zsh scripts/release/notarize-and-staple.sh $app $out $ISSUER
@@ -95,8 +102,9 @@ step "7/9 核对源码包与发布提交一致"
 tmp=$(mktemp -d)
 tar -xzf $source -C $tmp
 bad=0 n=0
-for f in $(cd $tmp/Volisle && find packages apps/extension apps/macos/Sources scripts assets/brand/Localization -type f \
-            \( -name '*.swift' -o -name '*.c' -o -name '*.inc' -o -name '*.h' -o -name '*.py' -o -name '*.sh' -o -name '*.strings' \)); do
+for f in $(cd $tmp/Volisle && find packages apps/extension apps/macos/Sources apps/macos/Helper scripts assets/brand/Localization -type f \
+            \( -name '*.swift' -o -name '*.c' -o -name '*.inc' -o -name '*.h' -o -name '*.py' -o -name '*.sh' -o -name '*.strings' \
+               -o -name '*.plist' -o -name '*.entitlements' \)); do
   n=$((n + 1))
   [[ $(shasum -a 256 < $tmp/Volisle/$f | cut -c1-64) == $(git show $release_commit:$f 2>/dev/null | shasum -a 256 | cut -c1-64) ]] || { print -u2 "不一致：$f"; bad=$((bad + 1)); }
 done

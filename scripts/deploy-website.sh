@@ -25,6 +25,8 @@ preflight() {  # $1 release name
     echo \"当前指向：\$(readlink $site)\"
     test ! -e $releases/$1 || { echo '同名发行目录已存在，停止'; exit 1; }
     df -h /data | tail -1
+    avail=\$(df -Pk /data | awk 'NR==2 {print \$4}')
+    test \"\$avail\" -ge 2097152 || { echo \"服务器 /data 只剩 \$((avail / 1024)) MB，不足 2 GB：先清理不再需要的旧发行目录再发布\"; exit 1; }
     sudo -n nginx -t 2>&1 | tail -1"
 }
 

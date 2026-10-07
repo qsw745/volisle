@@ -3,6 +3,6 @@
   "channel": "website",
   "feed_url": "https://qisw.top/volisle/updates/appcast.xml",
   "public_ed25519_key": "BHoZnwZycPtNjwIejVPT1SQhZ3RL13xMdOYnLQ87b6o=",
-  "version": "0.6.1",
-  "build": 64
+  "version": "0.8.2",
+  "build": 69
 }

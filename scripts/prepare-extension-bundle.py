@@ -58,18 +58,21 @@ source_receipt={'schema':1,'files':source_inventory(root)}
 subprocess.run([str(root/'scripts/build-macos.sh')],cwd=root,check=True)
 subprocess.run([str(root/'scripts/build-fskit-extension.sh')] + (['--daily-write'] if args.daily_write else []) + (['--physical-test', str(args.physical_test.resolve())] if physical else []) + (['--write-fixture', str(args.write_fixture.resolve())] if fixture else []) + (['--experimental-replacement'] if args.experimental_replacement else []) + (['--experimental-private-permissions'] if args.experimental_private_permissions else []),cwd=root,check=True)
 build=json.loads((root/'.workbench/fskit-build/VolisleFS.build.json').read_text())
+# The oldest macOS this build runs on (test builds for older systems set it).
+minimum=os.environ.get('VOLISLE_MIN_MACOS','15.4')
+if build.get('target')!='arm64-apple-macos'+minimum: parser.error('扩展编译目标与最低系统版本不一致')
 if build.get('experimental_private_permissions', False) != args.experimental_private_permissions or build.get('daily_writes', False) != args.daily_write or build['experimental_writes'] != bool(fixture or physical) or build.get('physical_test') != physical or build.get('experimental_replacement', False) != args.experimental_replacement or build.get('fixture') != fixture or build['binary_sha256'] != sha256(root/'.workbench/fskit-build/VolisleFS'):
     parser.error('扩展编译记录与二进制不一致')
 shutil.copytree(root/'apps/macos/build/Volisle.app',out,symlinks=True)
 p=out/'Contents/Info.plist';info=plistlib.loads(p.read_bytes())
 info['CFBundleIdentifier']=args.bundle_id
-info['LSMinimumSystemVersion']='26.4'
+info['LSMinimumSystemVersion']=minimum
 p.write_bytes(plistlib.dumps(info))
 ext=out/'Contents/Extensions/VolisleFS.appex/Contents'
 (ext/'MacOS').mkdir(parents=True);(ext/'Resources').mkdir()
 shutil.copyfile(root/'.workbench/fskit-build/VolisleFS',ext/'MacOS/VolisleFS')
 (ext/'MacOS/VolisleFS').chmod(0o755)
-info={'CFBundleDevelopmentRegion':'en','CFBundleLocalizations':['zh-Hans','zh-Hant','en'],'CFBundleExecutable':'VolisleFS','CFBundleIdentifier':args.bundle_id+'.filesystem','CFBundleName':'VolisleFS','CFBundleDisplayName':'Volisle NTFS','CFBundlePackageType':'XPC!','CFBundleShortVersionString':json.loads((root/'config/updates.json').read_text())['version'],'CFBundleVersion':str(json.loads((root/'config/updates.json').read_text())['build']),'LSMinimumSystemVersion':'26.4','EXAppExtensionAttributes':{'EXExtensionPointIdentifier':'com.apple.fskit.fsmodule','FSName':'Volisle','FSShortName':'volisle','FSSupportsBlockResources':True,'FSSupportsKernelOffloadedIO':False,'FSSupportsGenericURLResources':False,'FSSupportsPathURLs':False,'FSSupportsServerURLs':False,'FSActivateOptionSyntax':{'shortOptions':'o:'},'FSPersonalities':{'Volisle':{'FSName':'盘屿 NTFS'}}}}
+info={'CFBundleDevelopmentRegion':'en','CFBundleLocalizations':['zh-Hans','zh-Hant','en'],'CFBundleExecutable':'VolisleFS','CFBundleIdentifier':args.bundle_id+'.filesystem','CFBundleName':'VolisleFS','CFBundleDisplayName':'Volisle NTFS','CFBundlePackageType':'XPC!','CFBundleShortVersionString':json.loads((root/'config/updates.json').read_text())['version'],'CFBundleVersion':str(json.loads((root/'config/updates.json').read_text())['build']),'LSMinimumSystemVersion':minimum,'EXAppExtensionAttributes':{'EXExtensionPointIdentifier':'com.apple.fskit.fsmodule','FSName':'Volisle','FSShortName':'volisle','FSSupportsBlockResources':True,'FSSupportsKernelOffloadedIO':False,'FSSupportsGenericURLResources':False,'FSSupportsPathURLs':False,'FSSupportsServerURLs':False,'FSActivateOptionSyntax':{'shortOptions':'o:'},'FSPersonalities':{'Volisle':{'FSName':'盘屿 NTFS'}}}}
 (ext/'Info.plist').write_bytes(plistlib.dumps(info))
 shutil.copyfile(root/'LICENSE',ext/'Resources/LICENSE')
 for lproj in sorted((root/'assets/brand/Localization/extension').glob('*.lproj')):

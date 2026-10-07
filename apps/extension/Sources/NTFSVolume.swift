@@ -35,8 +35,17 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     private var writeActivationFailed = false   // guarded by operationLock
     private var closeFailed = false             // guarded by engineQueue
     private let identityCache = ItemIdentityCache()
-    /// Bumped on every namespace mutation so cached kernel dirents invalidate.
-    private var dirGeneration: UInt64 = 1
+    /// Enumeration verifiers: bumped for each directory a namespace mutation
+    /// touches, so a change elsewhere does not restart (or keep restarting) the
+    /// listing of an unrelated large directory. `generationFloor` bumps all.
+    private var directoryGenerations: [UInt64: UInt64] = [:]   // guarded by stateLock
+    private var nextGeneration: UInt64 = 2                      // guarded by stateLock
+    private var generationFloor: UInt64 = 1                     // guarded by stateLock
+    /// The entries of directories being enumerated, reused while FSKit asks for
+    /// the following batches: listing again for every batch made a large
+    /// directory quadratic (12,000 files took 6 s). A few, for several windows.
+    /// Guarded by operationLock.
+    private var listingSnapshots: [(directory: UInt64, generation: UInt64, entries: [DirCollector.Entry])] = []
     #if VOLISLE_EXPERIMENTAL_REPLACEMENT
     private struct LiveReplacement {
         let oldItem: NTFSItem
@@ -269,11 +278,21 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         return identityCache.identifier(path: path, reference: reference)
     }
 
-    /// Namespace mutation bookkeeping under one lock.
-    private func mutateNamespace(_ body: () -> Void) {
+    /// Namespace mutation bookkeeping under one lock. `directories`: the file
+    /// references of the directories whose entries changed; nil means any.
+    private func mutateNamespace(_ directories: [UInt64]? = nil, _ body: () -> Void) {
         stateLock.lock(); defer { stateLock.unlock() }
-        dirGeneration += 1
+        if let directories, !directories.isEmpty {
+            for directory in directories { directoryGenerations[directory] = nextGeneration }
+        } else {
+            directoryGenerations.removeAll(); generationFloor = nextGeneration
+        }
+        nextGeneration += 1
         body()
+    }
+
+    private func directoryGeneration(_ directory: UInt64) -> UInt64 {
+        stateLock.withLock { max(directoryGenerations[directory] ?? 0, generationFloor) }
     }
 
     // These helpers run under operationLock, outside engineQueue. The feature
@@ -593,7 +612,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             #if VOLISLE_DAILY_WRITES
             readOnly = !WriteMountPolicy.allowsBitLocker(options: options.taskOptions, writable: resource.isWritable,
                                                          byteCount: UInt64(max(0, deviceSize)))
-            if !readOnly && !recoverInterruptedWrites() { readOnly = true }
+            if !readOnly && recoverInterruptedWrites() != nil { readOnly = true }
             if !readOnly { try WriteMountPolicy.validateInspection(inspectBeforeWritableActivation()) }
             #else
             readOnly = true
@@ -606,7 +625,11 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         #if VOLISLE_DAILY_WRITES
         readOnly = !WriteMountPolicy.allowsDaily(options: options.taskOptions, writable: resource.isWritable,
             serial: volumeSerial, byteCount: UInt64(max(0, deviceSize)))
-        if !readOnly && !recoverInterruptedWrites() { readOnly = true }
+        // Asked to write but refused: the reason reaches the app (macOS then mounts it read-only itself).
+        if readOnly && WriteMountPolicy.requestsWrite(options.taskOptions) && !resource.isWritable {
+            throw WriteMountPolicy.writeProtected()
+        }
+        if !readOnly, let refused = recoverInterruptedWrites() { throw WriteMountPolicy.recoveryRefused(refused) }
         if !readOnly { try WriteMountPolicy.validateInspection(inspectBeforeWritableActivation()) }
         wantReadOnlyMount = readOnly
         #endif
@@ -614,7 +637,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         readOnly = !PhysicalTestTarget.policy.allows(bsdName: resource.bsdName, serial: volumeSerial,
             byteCount: UInt64(max(0, deviceSize)), options: options.taskOptions,
             writable: resource.isWritable, now: Date().timeIntervalSince1970)
-        if !readOnly && !recoverInterruptedWrites() { readOnly = true }
+        if !readOnly && recoverInterruptedWrites() != nil { readOnly = true }
         if !readOnly { try WriteMountPolicy.validateInspection(inspectBeforeWritableActivation()) }
         wantReadOnlyMount = readOnly
         log.notice("实盘测试激活只读=\(self.readOnly)")
@@ -623,7 +646,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         readOnly = try WriteMountPolicy.requiresReadOnly(options: options.taskOptions, writable: resource.isWritable,
             serial: volumeSerial, byteCount: UInt64(max(0, deviceSize)), allowedSerial: ExperimentalFixture.serial, allowedByteCount: ExperimentalFixture.byteCount,
             inspect: {
-                guard self.recoverInterruptedWrites() else { throw self.posix(EROFS) }
+                guard self.recoverInterruptedWrites() == nil else { throw self.posix(EROFS) }
                 return try self.inspectBeforeWritableActivation()
             })
         wantReadOnlyMount = readOnly
@@ -672,7 +695,15 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
 
         // FSKit can send a final sync after unmount has closed the engine.
         // Preserve an earlier failure, but don't sync a nil handle.
-        let rc = engineQueue.sync { vol == nil ? (closeFailed ? Int32(-1) : Int32(0)) : checkpointJournal(force: true) }
+        // It also sends one for every file the kernel lets go of (each file
+        // "rm -r" deletes), and a forced checkpoint costs two full syncs and a
+        // device flush. So a sync forces one at most once a second; the 250 ms
+        // timer checkpoints the rest (after 1 s idle or a 5 s epoch). Either way
+        // an interruption rolls back to an epoch boundary, a prefix of what ran.
+        let rc = engineQueue.sync {
+            vol == nil ? (closeFailed ? Int32(-1) : Int32(0))
+                : checkpointJournal(force: journal.session.map { $0.checkpointSeconds >= 1 } ?? true)
+        }
         guard rc == 0 else { throw posix(EIO) }
     
         }
@@ -680,8 +711,8 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
 
     // MARK: attributes
 
-    private func makeAttributes(path: String, st: nk_stat,
-                                identifier: FSItem.Identifier) throws -> FSItem.Attributes {
+    private func makeAttributes(path: String, st: nk_stat, identifier: FSItem.Identifier,
+                                parentID: FSItem.Identifier? = nil) throws -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
         if st.is_symlink != 0 {
             attrs.type = .symlink
@@ -697,7 +728,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         attrs.allocSize = UInt64(max(0, st.alloc_size))
         attrs.linkCount = isPrivateReplacementPath(path) ? 0 : 1
         attrs.fileID = identifier
-        attrs.parentID = try path == "/" ? .parentOfRoot : id(for: (path as NSString).deletingLastPathComponent)
+        attrs.parentID = try path == "/" ? .parentOfRoot : parentID ?? id(for: (path as NSString).deletingLastPathComponent)
         attrs.uid = getuid()
         attrs.gid = getgid()
         attrs.flags = Self.flags(st)
@@ -777,6 +808,11 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
                 }
                 guard rc == 0 else { throw self.posix(errno == 0 ? EIO : errno) }
             }
+        }, setHidden: { hidden in
+            try self.engineQueue.sync {
+                let rc = path.withCString { nk_set_hidden(self.vol, $0, hidden ? 1 : 0) }
+                guard rc == 0 else { throw self.posix(errno == 0 ? EIO : errno) }
+            }
         })
     }
 
@@ -786,15 +822,21 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         return try operationLock.withLock {
 
         guard let dir = directory as? NTFSItem, let childName = name.string else { throw posix(EINVAL) }
-        try requirePathIdentity(dir)
         let childPath = dir.childPath(childName)
         guard !isPrivateReplacementPath(childPath) else { throw posix(ENOENT) }
+        // In the directory object itself (by its reference): one index lookup,
+        // not three walks from the root (ls -l, find and copies look up every file).
         var st = nk_stat()
-        let rc = engineQueue.sync { childPath.withCString { nk_stat_path(vol, $0, &st) } }
-        guard rc == 0 else { throw posix(ENOENT) }
+        var reference: UInt64 = 0
+        let error: Int32 = engineQueue.sync {
+            childName.withCString { nk_lookup_reference(vol, dir.fileReference, $0, &reference, &st) } == 0
+                ? 0 : (errno == 0 ? ENOENT : errno)
+        }
+        // An I/O error (an unplugged disk) must not look like a missing file.
+        guard error == 0 else { throw posix(error) }
         let kind: FSItem.ItemType = st.is_symlink != 0 ? .symlink
                                   : st.is_dir != 0 ? .directory : .file
-        return (try item(path: childPath, kind: kind), name)
+        return (stateLock.withLock { identityCache.item(path: childPath, kind: kind, reference: reference) }, name)
     
         }
     }
@@ -813,53 +855,76 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         // after the list, the verifier we hand back is already stale and the
         // next resume gets told to restart — never a fresh verifier on a
         // stale entry vector.
-        let generation = stateLock.withLock { dirGeneration }
+        let generation = directoryGeneration(dir.fileReference)
         if cookie.rawValue != 0 && verifier.rawValue != generation {
             throw FSError(.invalidDirectoryCookie)
         }
-
-        let collector = DirCollector()
-        let rc = engineQueue.sync {
-            dir.path.withCString { path in
-                nk_list(vol, path, dirCollectCallback, Unmanaged.passUnretained(collector).toOpaque())
-            }
-        }
-        guard rc == 0 else { throw posix(EIO) }
-
-        var entries: [(name: String, type: FSItem.ItemType, path: String)] = []
-        if attributes == nil {
-            let parentPath = dir.path == "/" ? "/"
-                : (dir.path as NSString).deletingLastPathComponent
-            entries.append((".", .directory, dir.path))
-            entries.append(("..", .directory, parentPath))
-        }
-        for e in collector.items where !isPrivateReplacementPath(dir.childPath(e.name)) {
-            entries.append((e.name, e.isDir ? .directory : (e.isLink ? .symlink : .file), dir.childPath(e.name)))
-        }
-
         guard var index = Int(exactly: cookie.rawValue) else {
             throw FSError(.invalidDirectoryCookie)
         }
-        while index < entries.count {
-            let entry = entries[index]
-            // FSKit drops entries packed without attributes when it asked for
-            // them — fetch per entry (path-addressed engine, one stat each).
+
+        let listed: [DirCollector.Entry]
+        if cookie.rawValue != 0, let snapshot = listingSnapshots.first(where: {
+            $0.directory == dir.fileReference && $0.generation == generation }) {
+            listed = snapshot.entries
+        } else {
+            let collector = DirCollector()
+            let error: Int32 = engineQueue.sync {
+                let rc = dir.path.withCString { path in
+                    nk_list(vol, path, dirCollectCallback, Unmanaged.passUnretained(collector).toOpaque())
+                }
+                return rc == 0 ? 0 : (errno == 0 ? EIO : errno)
+            }
+            guard error == 0 else { throw posix(error) }
+            listed = collector.items.filter { !isPrivateReplacementPath(dir.childPath($0.name)) }
+        }
+
+        // "." and ".." only when no attributes are wanted, as before.
+        let dots = attributes == nil ? 2 : 0
+        let total = dots + listed.count
+        while index < total {
+            let name: String, type: FSItem.ItemType, itemID: FSItem.Identifier
             var entryAttrs: FSItem.Attributes? = nil
-            if attributes != nil {
-                var st = nk_stat()
-                let rc = engineQueue.sync { entry.path.withCString { nk_stat_path(vol, $0, &st) } }
-                if rc == 0 {
-                    entryAttrs = try makeAttributes(path: entry.path, st: st,
-                                                identifier: id(for: entry.path))
+            if index < dots {
+                name = index == 0 ? "." : ".."
+                type = .directory
+                itemID = index == 0 ? dir.identifier
+                    : (dir.path == "/" ? dir.identifier : try id(for: (dir.path as NSString).deletingLastPathComponent))
+            } else {
+                let entry = listed[index - dots]
+                let path = dir.childPath(entry.name)
+                name = entry.name
+                type = entry.isDir ? .directory : (entry.isLink ? .symlink : .file)
+                // From the listing itself: no lookup from the root per entry.
+                itemID = stateLock.withLock { identityCache.identifier(path: path, reference: entry.reference) }
+                if attributes != nil {
+                    // FSKit drops entries packed without attributes when it asked for them.
+                    var st = nk_stat()
+                    let rc = engineQueue.sync {
+                        nk_stat_reference(vol, entry.reference, &st) == 0 ? 0 : path.withCString { nk_stat_path(vol, $0, &st) }
+                    }
+                    guard rc == 0 else {
+                        // One unreadable entry must not fail the whole listing.
+                        log.error("目录项无法读取属性，已跳过")
+                        index += 1
+                        continue
+                    }
+                    entryAttrs = try makeAttributes(path: path, st: st, identifier: itemID, parentID: dir.identifier)
                 }
             }
-            let ok = packer.packEntry(name: FSFileName(string: entry.name),
-                                      itemType: entry.type,
-                                      itemID: try id(for: entry.path),
+            let ok = packer.packEntry(name: FSFileName(string: name),
+                                      itemType: type,
+                                      itemID: itemID,
                                       nextCookie: FSDirectoryCookie(rawValue: UInt64(index + 1)),
                                       attributes: entryAttrs)
             if !ok { break }
             index += 1
+        }
+        // Kept only while batches remain; the last one releases it.
+        listingSnapshots.removeAll { $0.directory == dir.fileReference }
+        if index < total {
+            listingSnapshots.append((dir.fileReference, generation, listed))
+            if listingSnapshots.count > 4 { listingSnapshots.removeFirst() }
         }
         return FSDirectoryVerifier(rawValue: generation)
     
@@ -878,10 +943,10 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         try requirePathIdentity(dir)
         try requireMutableNamespace(dir.childPath(childName))
         guard type == .file || type == .directory else { throw posix(ENOTSUP) }
-        let update = try AttributeUpdate(newAttributes, kind: type, privateModes: privateModesEnabled)
+        let update = try AttributeUpdate(newAttributes, kind: type, privateModes: privateModesEnabled, creating: true)
         try requireWritableEngine()
-        let rc = engineQueue.sync {
-            dir.path.withCString { dp in
+        let error: Int32 = engineQueue.sync {
+            let rc = dir.path.withCString { dp in
                 childName.withCString { np in
                     if privateModesEnabled {
                         let mode: UInt32 = newAttributes.isValid(.mode) ? newAttributes.mode & 0o7777 : (type == .directory ? 0o755 : 0o644)
@@ -890,9 +955,11 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
                     return type == .directory ? nk_mkdir(vol, dp, np) : nk_create(vol, dp, np)
                 }
             }
+            return rc == 0 ? 0 : (errno == 0 ? EIO : errno)
         }
-        guard rc == 0 else { throw posix(EIO) }
-        mutateNamespace {}
+        // EEXIST, ENOSPC, ENAMETOOLONG, EINVAL…: what Finder and apps can explain.
+        guard error == 0 else { throw posix(error) }
+        mutateNamespace([dir.fileReference]) {}
         let childPath = dir.childPath(childName)
         do {
             try applyAttributes(update, path: childPath)
@@ -915,10 +982,12 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         try requirePathIdentity(item)
         try requireMutableNamespace(item.path)
         try requireWritableEngine()
-        let rc = engineQueue.sync { item.path.withCString { nk_delete(vol, $0) } }
-        log.info("removeItem \(item.path, privacy: .private) rc=\(rc)")
-        guard rc == 0 else { throw posix(EIO) }
-        mutateNamespace {
+        let error: Int32 = engineQueue.sync {
+            item.path.withCString { nk_delete(vol, $0) } == 0 ? 0 : (errno == 0 ? EIO : errno)
+        }
+        log.info("removeItem \(item.path, privacy: .private) errno=\(error)")
+        guard error == 0 else { throw posix(error) }  // e.g. ENOTEMPTY for a directory
+        mutateNamespace([(directory as? NTFSItem)?.fileReference].compactMap { $0 }) {
             identityCache.remove(item)
         }
     
@@ -953,25 +1022,27 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             #if VOLISLE_EXPERIMENTAL_REPLACEMENT
             try replace(item, old: old, directory: destDir, name: newName)
             #else
-            try replaceWithinOperation(item, old: old, directory: destDir, name: newName)
+            try replaceWithinOperation(item, old: old, directory: destDir, name: newName,
+                                       sourceDirectory: (sourceDirectory as? NTFSItem)?.fileReference)
             #endif
             return destinationName
         }
         try requireMutableNamespace(item.path)
         try requireMutableNamespace(destDir.childPath(newName))
-        let rc = engineQueue.sync {
-            item.path.withCString { op in
+        let error: Int32 = engineQueue.sync {
+            let rc = item.path.withCString { op in
                 destDir.path.withCString { dp in
                     newName.withCString { np in nk_rename(vol, op, dp, np) }
                 }
             }
+            return rc == 0 ? 0 : (errno == 0 ? EIO : errno)
         }
-        guard rc == 0 else { throw posix(EIO) }
+        guard error == 0 else { throw posix(error) }  // EEXIST, ENOSPC, …
 
         // The kernel keeps using the SAME item object after rename (it may be
         // open) — rewrite its path in place and re-key the caches, including
         // every cached descendant and enumeration-only identifier.
-        mutateNamespace {
+        mutateNamespace([destDir.fileReference, (sourceDirectory as? NTFSItem)?.fileReference].compactMap { $0 }) {
             let newPath = destDir.childPath(newName)
             identityCache.move(item, to: newPath)
         }
@@ -985,7 +1056,8 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     /// FSKit operation, so the write journal makes it crash-atomic: an
     /// interruption rolls back to before it. Each step fails without loss;
     /// an engine failure locks the session for rollback at reconnection.
-    private func replaceWithinOperation(_ item: NTFSItem, old: NTFSItem, directory: NTFSItem, name: String) throws {
+    private func replaceWithinOperation(_ item: NTFSItem, old: NTFSItem, directory: NTFSItem, name: String,
+                                        sourceDirectory: UInt64?) throws {
         try requirePathIdentity(old)
         try requireMutableNamespace(old.path)
         guard old.path.lowercased() == directory.childPath(name).lowercased(), old.fileReference != item.fileReference else {
@@ -1025,7 +1097,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             }
             guard backupPath.withCString({ nk_delete(vol, $0) }) == 0 else { throw posix(EIO) }
         }
-        mutateNamespace {
+        mutateNamespace([directory.fileReference, sourceDirectory].compactMap { $0 }) {
             identityCache.remove(old)
             identityCache.move(item, to: directory.childPath(name))
         }
@@ -1139,7 +1211,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             return rc == 0 ? 0 : (errno == 0 ? EIO : errno)
         }
         guard error == 0 else { throw posix(error) }
-        mutateNamespace {}
+        mutateNamespace([dir.fileReference]) {}
         return (try item(path: dir.childPath(childName), kind: .symlink), name)
     
         }
@@ -1159,15 +1231,28 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
 // Extended attributes are named NTFS data streams. ACLs and compression
 // metadata remain unsupported; an I/O failure is never translated to ENOATTR.
 extension NTFSVolume: FSVolume.XattrOperations {
+    /// Answered by the volume itself on its root, never stored on the disk and
+    /// never listed: "stopped" once this mount can no longer write (a device
+    /// error locked the session; its records wait for the next connection).
+    /// The app reads it to explain why writes fail; the helper, to know that
+    /// only a forced unmount can end such a mount.
+    static let writeStateAttribute = "top.qisw.volisle.write-state"
+    /// The actual module mode, including read-only fallback that old FSKit
+    /// kernels do not expose in statfs. It is virtual and cannot be overwritten.
+    static let mountModeAttribute = "top.qisw.volisle.mount-mode"
+
+    private var writeStopped: Bool {
+        engineQueue.sync { (journal.session?.failed ?? false) || closeFailed } || writeActivationFailed
+    }
+
     func xattrs(of item: FSItem) async throws -> [FSFileName] {
         try operationLock.withLock {
             guard let item = item as? NTFSItem else { throw posix(EINVAL) }
-            try requirePathIdentity(item)
+            // By the item's own reference: copies and `ls -l` list every file's attributes.
             let collector = XattrCollector()
             return try engineQueue.sync {
-                let result = item.path.withCString {
-                    nk_xattr_list(vol, $0, xattrCollectCallback, Unmanaged.passUnretained(collector).toOpaque())
-                }
+                let result = nk_xattr_list_reference(vol, item.fileReference, xattrCollectCallback,
+                                                     Unmanaged.passUnretained(collector).toOpaque())
                 guard result == 0 else { throw posix(errno == 0 ? EIO : errno) }
                 return collector.names.map { FSFileName(string: $0) }
             }
@@ -1177,22 +1262,27 @@ extension NTFSVolume: FSVolume.XattrOperations {
     func xattr(named name: FSFileName, of item: FSItem) async throws -> Data {
         try operationLock.withLock {
             guard let item = item as? NTFSItem, let name = name.string else { throw posix(EINVAL) }
-            try requirePathIdentity(item)
+            if name == Self.writeStateAttribute && item.path == "/" {
+                guard writeStopped else { throw posix(ENOATTR) }
+                return Data("stopped".utf8)
+            }
+            if name == Self.mountModeAttribute && item.path == "/" {
+                return Data((writeStopped ? "stopped" : readOnly ? "read-only" : "read-write").utf8)
+            }
+            let reference = item.fileReference
             return try engineQueue.sync {
-                try item.path.withCString { path in
-                    try name.withCString { name in
-                        let size = nk_xattr_get(vol, path, name, nil, 0)
-                        guard size >= 0 else { throw posix(errno == 0 ? EIO : errno) }
-                        guard size <= 4 * 1024 * 1024 else { throw posix(E2BIG) }
-                        if size == 0 { return Data() }
-                        var data = Data(count: Int(size))
-                        let count = data.withUnsafeMutableBytes {
-                            nk_xattr_get(vol, path, name, $0.baseAddress, Int64($0.count))
-                        }
-                        guard count >= 0 else { throw posix(errno == 0 ? EIO : errno) }
-                        guard count == size else { throw posix(EIO) }
-                        return data
+                try name.withCString { name in
+                    let size = nk_xattr_get_reference(vol, reference, name, nil, 0)
+                    guard size >= 0 else { throw posix(errno == 0 ? EIO : errno) }
+                    guard size <= 4 * 1024 * 1024 else { throw posix(E2BIG) }
+                    if size == 0 { return Data() }
+                    var data = Data(count: Int(size))
+                    let count = data.withUnsafeMutableBytes {
+                        nk_xattr_get_reference(vol, reference, name, $0.baseAddress, Int64($0.count))
                     }
+                    guard count >= 0 else { throw posix(errno == 0 ? EIO : errno) }
+                    guard count == size else { throw posix(EIO) }
+                    return data
                 }
             }
         }
@@ -1202,6 +1292,7 @@ extension NTFSVolume: FSVolume.XattrOperations {
                   policy: FSVolume.SetXattrPolicy) async throws {
         try operationLock.withLock {
             guard let item = item as? NTFSItem, let name = name.string else { throw posix(EINVAL) }
+            guard name != Self.writeStateAttribute, name != Self.mountModeAttribute else { throw posix(EPERM) }
             try requirePathIdentity(item)
             // Recovery fingerprints cover unnamed data, not named streams.
             try requireMutableNamespace(item.path)
@@ -1243,7 +1334,8 @@ private let xattrCollectCallback: nk_name_cb = { context, name in
 
 /// Box that collects directory entries out of the C callback.
 final class DirCollector {
-    var items: [(name: String, isDir: Bool, size: Int64, isLink: Bool)] = []
+    struct Entry { let name: String; let isDir: Bool; let isLink: Bool; let reference: UInt64 }
+    var items: [Entry] = []
 }
 
 private let dirCollectCallback: nk_dirent_cb = { ctx, entryPtr in
@@ -1251,7 +1343,8 @@ private let dirCollectCallback: nk_dirent_cb = { ctx, entryPtr in
     let collector = Unmanaged<DirCollector>.fromOpaque(ctx).takeUnretainedValue()
     let entry = entryPtr.pointee
     if let namePtr = entry.name {
-        collector.items.append((String(cString: namePtr), entry.is_dir != 0, entry.size, entry.is_symlink != 0))
+        collector.items.append(.init(name: String(cString: namePtr), isDir: entry.is_dir != 0,
+                                     isLink: entry.is_symlink != 0, reference: entry.reference))
     }
     return 0
 }
@@ -1292,6 +1385,12 @@ extension NTFSVolume: JournalBlockDevice {
         if ioMode == .metadata { try resource.metadataFlush() }
     }
 
+    func journalStartFlush() {
+        guard ioMode == .metadata else { return }
+        // A failure to start is harmless: the checkpoint's flush writes everything.
+        do { try resource.asynchronousMetadataFlush() } catch { log.debug("提前刷盘未能启动") }
+    }
+
     private var journalSerial: String { volumeSerial.map { String(format: "%02x", $0) }.joined() }
 
     private func writeJournalStore() throws -> WriteJournalStore {
@@ -1302,23 +1401,23 @@ extension NTFSVolume: JournalBlockDevice {
     }
 
     /// Activation, before the writable inspection: roll an interrupted session
-    /// back to its last checkpoint. Returns false when writes must stay off.
-    func recoverInterruptedWrites() -> Bool {
+    /// back to its last checkpoint. Returns why writes must stay off, or nil.
+    func recoverInterruptedWrites() -> WriteJournalError? {
         engineQueue.sync {
             let outcome: WriteJournalCoordinator.Outcome
             do { outcome = WriteJournalCoordinator.recover(store: try writeJournalStore(), serial: journalSerial, io: journal) }
             catch { outcome = .refused(.unavailable) }
             switch outcome {
-            case .none: return true
+            case .none: return nil
             case .superseded:
                 log.notice("这块盘中断后在其他系统上用过：旧的恢复记录已作废并归档，按磁盘当前状态检查")
-                return true
+                return nil
             case .recovered:
                 log.notice("上次写入中断已回滚到最后一致点并释放本机脏标记")
-                return true
+                return nil
             case .refused(let reason):
                 log.error("上次写入中断无法安全恢复（\(String(describing: reason), privacy: .public)）；保持只读，记录保留")
-                return false
+                return reason
             }
         }
     }
@@ -1388,10 +1487,8 @@ extension NTFSVolume: JournalBlockDevice {
         // Even when idle: a retained epoch left past its window would make an
         // unplug minutes later undo writes long since on the disk.
         session.pruneRetained()
-        let now = Date()
         guard force || session.checkpointDue ||
-              (session.hasUncheckpointedWrites &&
-               (now.timeIntervalSince(session.lastWrite) >= 1 || now.timeIntervalSince(session.epochStarted) >= 5)) else { return 0 }
+              (session.hasUncheckpointedWrites && (session.idleSeconds >= 1 || session.epochSeconds >= 5)) else { return 0 }
         guard nk_sync(vol) == 0 else { session.stop(); return -1 }
         do {
             let epoch = session.epoch

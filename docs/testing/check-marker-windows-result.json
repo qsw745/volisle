@@ -1,0 +1,13 @@
+{
+  "fixture_sha256": "14ced7dfde452ab23627744a790e74b7d16081eb2728d8433e12b55500370a38",
+  "flags_before": "Volume Flags: 0x0101 DIRTY",
+  "result": {
+    "rc": 0,
+    "errno": 0,
+    "reason": "",
+    "items": 9157
+  },
+  "flags_after": "Volume Flags: 0x0100",
+  "checked_items": 9157,
+  "success": true
+}

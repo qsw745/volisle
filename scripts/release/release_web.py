@@ -59,6 +59,12 @@ def notes(path):
     return zh, en
 
 
+def jsx_text(text):
+    """A note as JSX text: entities for < > & " ' (lint rejects bare quotes) and
+    for braces, which JSX would read as code."""
+    return html.escape(text, quote=True).replace('{', '&#123;').replace('}', '&#125;')
+
+
 def field(text, key):
     m = re.search(rf"\n  {key}: '([^']*)'", text)
     if not m:
@@ -117,7 +123,7 @@ def website(dmg, source, notes_path):
         first = page.find('<h2>')
         if first < 0:
             fail(f'{CHANGELOG[locale]} 里找不到版本标题')
-        block = f'<h2>{heading}</h2><ul>\n' + ''.join(f'<li>{html.escape(i, quote=False)}</li>\n' for i in items) + '</ul>\n'
+        block = f'<h2>{heading}</h2><ul>\n' + ''.join(f'<li>{jsx_text(i)}</li>\n' for i in items) + '</ul>\n'
         CHANGELOG[locale].write_text(page[:first] + block + page[first:])
     print(f'官网：{old["version"]} 移入历史版本，当前版本改为 {version}（构建 {build}）')
 

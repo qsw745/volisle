@@ -170,7 +170,7 @@ private final class HelperStatusEndpoint: NSObject, VolisleHelperProtocol {
             let result: HelperMountReply
             do {
                 let command = try HelperMountCommand.decode(request)
-                let service = try SystemHelperMountService.shared.get()
+                let service = try SystemHelperMountService.shared()
                 let operation: HelperMountOperation?
                 switch command.action {
                 case .start: operation = try await service.start(id: command.id!, disk: command.disk!, uid: uid)
@@ -205,6 +205,8 @@ private final class HelperStatusEndpoint: NSObject, VolisleHelperProtocol {
             let result: HelperCheckMarkerReply
             do {
                 result = .init(items: try await HelperPartitionFormatter.clearCheckMarker(HelperDiskRequest.decode(request)), failure: nil)
+            } catch let refusal as CheckMarkerRefusal {
+                result = .init(items: nil, failure: refusal.failure, detail: refusal.detail)
             } catch { result = .init(items: nil, failure: .from(error)) }
             reply((try? JSONEncoder().encode(result)) ?? Data())
         }

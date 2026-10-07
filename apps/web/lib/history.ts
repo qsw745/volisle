@@ -1,6 +1,7 @@
-/** Earlier public releases, newest first. Every file stays on the site; the
- * release script (scripts/release/release.sh) moves the current release here
- * when it publishes the next one. Hashes must match the uploaded files. */
+/** Retained public releases, newest first. The release script
+ * (scripts/release/release.sh) moves the current release here when it publishes
+ * the next one. Remove retired downloads here when pruning old releases.
+ * Hashes must match the uploaded files. */
 export type PastRelease = {
   version: string; build: number; date: string; dateEn: string;
   dmg: string; dmgSize: string; dmgSha256: string;
@@ -8,6 +9,12 @@ export type PastRelease = {
 };
 
 export const history: PastRelease[] = [
+  { version: '0.7.0', build: 65, date: '2026 年 10 月 6 日', dateEn: 'October 6, 2026',
+    dmg: '/downloads/Volisle-0.7.0-arm64.dmg', dmgSize: '4.3 MB', dmgSha256: 'd683e688bbf19c258d668d4b06ea2102d60c29c670dcf96d36aed91b3da28888',
+    source: '/downloads/Volisle-0.7.0-source.tar.gz', sourceSize: '19.7 MB', sourceSha256: '74a3a7373f22a2a11ebf89e49901f230fc669493ee00eb0454c04d92dbfe3964' },
+  { version: '0.6.1', build: 64, date: '2026 年 10 月 5 日', dateEn: 'October 5, 2026',
+    dmg: '/downloads/Volisle-0.6.1-arm64.dmg', dmgSize: '4.2 MB', dmgSha256: 'e50a792891efd6262f6702cd703fb57296ab854d07a9f8ce5f154d8a1fa21999',
+    source: '/downloads/Volisle-0.6.1-source.tar.gz', sourceSize: '19.6 MB', sourceSha256: '812a2b12408a107fc4c0053c2caad366a960d5777a4b2a6d3723a0b6e8889947' },
   { version: '0.6.0', build: 63, date: '2026 年 10 月 5 日', dateEn: 'October 5, 2026',
     dmg: '/downloads/Volisle-0.6.0-arm64.dmg', dmgSize: '4.2 MB', dmgSha256: '9504ff4ecc412b84b4c64c7f2f365da3d4be990d6ea45af583efb2d7172433a7',
     source: '/downloads/Volisle-0.6.0-source.tar.gz', sourceSize: '19.6 MB', sourceSha256: '4706afee8e2a18da63779941ec97bd60c37edc288a3e067d4f23c58d9fa97952' },
@@ -38,19 +45,4 @@ export const history: PastRelease[] = [
   { version: '0.5.0', build: 54, date: '2026 年 9 月 30 日', dateEn: 'September 30, 2026',
     dmg: '/downloads/Volisle-0.5.0-arm64.dmg', dmgSize: '4.0 MB', dmgSha256: 'd654ba74bc65ea32cf7cfce4e1a46e25251f263518956ba0d4b4eeb3544b21de',
     source: '/downloads/Volisle-0.5.0-source.tar.gz', sourceSize: '19.5 MB', sourceSha256: '98ad745366abd0943c4d6c8cba85a8dd3a3b86cf88ae1aa80a2953474b4a3c54' },
-  { version: '0.4.0', build: 53, date: '2026 年 9 月 29 日', dateEn: 'September 29, 2026',
-    dmg: '/downloads/Volisle-0.4.0-arm64.dmg', dmgSize: '3.8 MB', dmgSha256: '092d8eb22ed1e06138b42c3d961e82510f786e990ef0be653eb6930cf6d6c0ba',
-    source: '/downloads/Volisle-0.4.0-source.tar.gz', sourceSize: '19.5 MB', sourceSha256: '95408375449245032b5936ab724033de9530532e49f28e3b4b0e953e2c3191b2' },
-  { version: '0.3.3', build: 19, date: '2026 年 9 月 28 日', dateEn: 'September 28, 2026',
-    dmg: '/downloads/Volisle-0.3.3-arm64.dmg', dmgSize: '3.4 MB', dmgSha256: '970749bb139eae6b95e6ffcfbe7d2e3ebb95a06b0cf45db5845a17db6136c6f2',
-    source: '/downloads/Volisle-0.3.3-source.tar.gz', sourceSize: '19.4 MB', sourceSha256: '30432f10a943d361a3f1700884cd75e74797ea9723193464259b732ad8d475f8' },
-  { version: '0.3.2', build: 18, date: '2026 年 9 月 27 日', dateEn: 'September 27, 2026',
-    dmg: '/downloads/Volisle-0.3.2-arm64.dmg', dmgSize: '3.4 MB', dmgSha256: 'a992da36faf60e1f8d53500cb9311f5e8a6359b8b42da9e4173573bb3bc2a894',
-    source: '/downloads/Volisle-0.3.2-source.tar.gz', sourceSize: '19.4 MB', sourceSha256: '84f55b601a702a429f624754ad7700f2ef6c102b4d0ec3baf0790c50ea4e4578' },
-  { version: '0.3.1', build: 17, date: '2026 年 9 月 27 日', dateEn: 'September 27, 2026',
-    dmg: '/downloads/Volisle-0.3.1-arm64.dmg', dmgSize: '3.4 MB', dmgSha256: '2e30f43b6878ed0b855f9f8da5747c19a8988ef7220c636edc776f628db51392',
-    source: '/downloads/Volisle-0.3.1-source.tar.gz', sourceSize: '19.4 MB', sourceSha256: '28a3c72cb4ac848bd6318773effa9145f08f5600403ee1f2364cfeb03403734d' },
-  { version: '0.3.0', build: 14, date: '2026 年 9 月 26 日', dateEn: 'September 26, 2026',
-    dmg: '/downloads/Volisle-0.3.0-arm64.dmg', dmgSize: '3.4 MB', dmgSha256: 'fae7f2068e5125a3eba1d6613b9381254bf384d90a105aad763f61c0dcb4f980',
-    source: '/downloads/Volisle-0.3.0-source.tar.gz', sourceSize: '19.3 MB', sourceSha256: 'd5cd0a0963d1514d6234b5f8d5cb659b8f96da986fb923f35140a826c5b40224' },
 ];

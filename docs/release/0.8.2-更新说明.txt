@@ -1,0 +1,20 @@
+盘屿 0.8.2 · Volisle 0.8.2
+
+· 新功能：支持 macOS 15.4 及以上（此前要求 26.4）。已在 macOS 15.6.1 上验证自动读写、拷贝、拔线续传、恢复文件、抹掉和 BitLocker 加密盘；macOS 15 上的实体 USB 硬盘还没有实测，遇到问题请反馈。
+· 修复：用盘屿拷进 NTFS 盘的文件，有时拷完在访达里看不到。
+· 拷贝完成后点“打开文件”，会在访达里选中刚拷好的项目。
+· 关闭了“自动开启读写”时，拔线后插回，没拷完的任务也会为这块盘重新开启读写并接着拷。
+· 暂停拷贝后进度不再归零；续传时只显示一条进度，先核对已拷部分，再接着拷。
+· 同一个文件反复出现读写错误时，停止自动续传并说明原因，不再一直重试。
+· 盘被其他 NTFS 工具（如 TT NTFS、macFUSE / NTFS-3G、Paragon、Tuxera）接管时，盘屿会列出这块盘，说明由谁接管、怎样交给盘屿，不再没有任何提示。
+· “读写不了？检查一下”和诊断报告会读出硬盘自己报告的读写错误，分清是坏道还是数据线、接口、供电不稳。
+· 弹窗统一为系统设置的样式；开着读写检查、诊断、拷贝或恢复文件等窗口时也能正常退出盘屿；切回盘屿时不再整体刷新。
+· New: runs on macOS 15.4 or later (previously 26.4). Automatic write access, copying, resuming after an unplug, recovery files, formatting and BitLocker disks were verified on macOS 15.6.1; physical USB drives on macOS 15 haven’t been tested yet, so please report any problems.
+· Fixed: files copied onto an NTFS disk by Volisle sometimes didn’t appear in Finder.
+· When a copy finishes, click Show in Finder to select the copied items.
+· With automatic write access turned off, an unfinished copy now turns writing back on for its disk and continues after the disk is plugged in again.
+· Pausing a copy no longer resets its progress; when resuming, one progress bar shows the check of what was already copied, then the rest.
+· If the same file keeps failing to read or write, automatic resuming stops and Volisle explains why instead of retrying endlessly.
+· When another NTFS tool (such as TT NTFS, macFUSE / NTFS-3G, Paragon or Tuxera) has taken a disk, Volisle now lists it, says which tool has it and how to hand it over, instead of saying nothing.
+· “Can’t write? Check why” and diagnostics now read the errors the drive itself reports, telling bad sectors apart from an unsteady cable, port or power supply.
+· Dialogs now follow the System Settings style; Volisle quits normally while the write check, diagnostics, copy or recovery windows are open; switching back to Volisle no longer refreshes everything.

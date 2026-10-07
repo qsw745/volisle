@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-10-06T05:21:17.528857+00:00",
+  "checks": [
+    {
+      "name": "Windows 不允许的字符：以 Mac 名字新建、列出、读写一致",
+      "passed": true
+    },
+    {
+      "name": "盘上按 SFM 映射存储（Windows 可打开），不含 Windows 禁用字符",
+      "passed": true
+    },
+    {
+      "name": "映射过的名字可改名、删除",
+      "passed": true
+    },
+    {
+      "name": "旧版未映射存储的名字仍可打开、防重名、删除",
+      "passed": true
+    },
+    {
+      "name": "其他系统存的 NFD 名与兼容汉字：可列出、打开、删除，NFC 拼写也能找到",
+      "passed": true
+    },
+    {
+      "name": "Mac 新建的名字按 NFC 存储（与 Windows 一致）",
+      "passed": true
+    },
+    {
+      "name": "“$”开头的名字只在根目录保留，子目录可用",
+      "passed": true
+    },
+    {
+      "name": "点文件新建时带 Windows 隐藏属性",
+      "passed": true
+    },
+    {
+      "name": "只差大小写：文件夹与改名被拒绝，新建文件不拒绝（防内核死循环）；同一文件只改大小写正常",
+      "passed": true
+    },
+    {
+      "name": "非空目录、不存在、名字过长返回各自的错误码，且不锁会话",
+      "passed": true
+    },
+    {
+      "name": "卸载干净，ntfsfix -n 无错误",
+      "passed": true
+    }
+  ],
+  "success": true
+}

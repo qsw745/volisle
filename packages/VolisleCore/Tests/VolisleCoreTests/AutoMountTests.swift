@@ -55,6 +55,76 @@ private actor AutoEngine: FileSystemAdapter {
     throw VolumeError.busy
 }
 @MainActor struct AutoMountTests {
+    @Test func aCopyRequestReopensOnlyItsDiskWithAutomaticWritingOff() async throws {
+        let (prefs, defaults, name) = preferences(); defer { defaults.removePersistentDomain(forName: name) }
+        try prefs.setAutomaticEnabled(false)
+        let volume = autoVolume(), engine = AutoEngine(), request = UUID()
+        let other = autoVolume(identity: .init(volumeUUID: "other", mediaUUID: "other", devicePath: "other"))
+        var mounted: [UUID] = []
+        let control = AutoMountController(preferences: prefs, engine: engine,
+            coordinator: MountCoordinator(engine: engine, resolver: AutoResolver(volume), gate: DeviceOperationGate()),
+            helperEnable: { mounted.append($0.identity.connection) })
+        control.writeRequest = { $0.identity == volume.identity ? request : nil }
+        control.reconcile([volume, other]); try await waitForCompletion(control)
+        #expect(mounted == [volume.identity.connection])
+        #expect(!AutoMountPreferences(defaults: defaults).automaticEnabled)
+        control.reconcile([volume, other]); try await waitForCompletion(control)
+        #expect(mounted.count == 1, "a real attempt is not retried by duplicate notifications")
+    }
+    @Test func anExplicitNewCopyRequestGetsOneNewAttemptOnTheSameConnection() async throws {
+        let (prefs, defaults, name) = preferences(); defer { defaults.removePersistentDomain(forName: name) }
+        try prefs.setAutomaticEnabled(false)
+        let volume = autoVolume(), engine = AutoEngine()
+        var request = UUID(), calls = 0
+        let control = AutoMountController(preferences: prefs, engine: engine,
+            coordinator: MountCoordinator(engine: engine, resolver: AutoResolver(volume), gate: DeviceOperationGate()),
+            helperEnable: { _ in calls += 1; throw AutoMountReported() })
+        control.writeRequest = { _ in request }
+        control.reconcile([volume]); try await waitForCompletion(control)
+        control.reconcile([volume]); try await waitForCompletion(control)
+        #expect(calls == 1)
+        request = UUID()  // another explicit Continue/Retry, not another notification
+        control.reconcile([volume]); try await waitForCompletion(control)
+        control.reconcile([volume]); try await waitForCompletion(control)
+        #expect(calls == 2 && !prefs.automaticEnabled)
+    }
+    @Test func withdrawingACopyRequestCancelsInspection() async throws {
+        let (prefs, defaults, name) = preferences(); defer { defaults.removePersistentDomain(forName: name) }
+        let volume = autoVolume(), engine = AutoEngine(hold: true)
+        var request: UUID? = UUID()
+        let control = controller(prefs, engine, AutoResolver(volume))
+        control.writeRequest = { _ in request }
+        control.reconcile([volume]); try await waitForInspection(engine)
+        request = nil; control.reconcile([volume])
+        await engine.release(); try await waitForCompletion(control)
+        #expect(await engine.mounts == 0)
+    }
+    @Test func aCopyRequestDoesNotOverrideDuplicateVolumeIdentity() async throws {
+        let (prefs, defaults, name) = preferences(); defer { defaults.removePersistentDomain(forName: name) }
+        let volume = autoVolume(), duplicate = autoVolume(), engine = AutoEngine()
+        let control = controller(prefs, engine, AutoResolver(volume))
+        let request = UUID(); control.writeRequest = { _ in request }
+        control.reconcile([volume, duplicate]); try await waitForCompletion(control)
+        #expect(await engine.inspections == 0)
+        #expect(await engine.mounts == 0)
+    }
+    @Test func aCopyOnNTFSWithoutAVolumeUUIDCanRequestItsNewConnection() async throws {
+        let (prefs, defaults, name) = preferences(); defer { defaults.removePersistentDomain(forName: name) }
+        try prefs.setAutomaticEnabled(false)
+        let volume = autoVolume(identity: .init(volumeUUID: nil, mediaUUID: "partition-guid", devicePath: "usb-port", mediaRegistryID: 42))
+        let engine = AutoEngine(), request = UUID()
+        var calls = 0
+        let control = AutoMountController(preferences: prefs, engine: engine,
+            coordinator: MountCoordinator(engine: engine, resolver: AutoResolver(volume), gate: DeviceOperationGate()),
+            helperEnable: { _ in calls += 1 })
+        control.writeRequest = { $0.identity.resumeKey == "media:partition-guid" ? request : nil }
+        control.reconcile([volume]); try await waitForCompletion(control)
+        #expect(calls == 1 && !prefs.automaticEnabled)
+        let duplicate = autoVolume(identity: .init(volumeUUID: nil, mediaUUID: "partition-guid", devicePath: "usb-other", mediaRegistryID: 43))
+        control.reconcile([])
+        control.reconcile([volume, duplicate]); try await waitForCompletion(control)
+        #expect(calls == 1, "matching resume keys on two partitions must not grant task access")
+    }
     @Test func dailyDefaultAndExplicitPausePersistWithoutPerDiskSetup() throws {
         let (_, defaults, name) = preferences(); defer { defaults.removePersistentDomain(forName: name) }
         let prefs = AutoMountPreferences(defaults: defaults, defaultAutomatic: true)

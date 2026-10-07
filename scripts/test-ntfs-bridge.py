@@ -123,11 +123,14 @@ with tempfile.TemporaryDirectory(prefix='volisle-bridge-',dir=ROOT/'.workbench')
     assert device.writes==0 and digest(badlog)==before;device.close()
     passed('损坏日志拒绝写挂载，不重置日志，镜像不变')
     device=ImageIO(base);v=device.mount();assert v
-    for badname in [b'../escape',b'.',b'..',b'$MFT',b'file:stream']:
+    for badname in [b'../escape',b'.',b'..',b'$MFT']:
         assert LIB.nk_create(v,b'/',badname)!=0
     assert write(v,b'/$MFT',b'bad')<0
+    # ':' (Finder's "/") is never stream syntax: an ordinary file, its name stored SFM-mapped.
+    assert LIB.nk_create(v,b'/',b'file:stream')==0 and write(v,b'/file:stream',b'own data')==8
+    assert LIB.nk_create(v,b'/',b'file')==0 and read(v,b'/file',16)==b''
     assert LIB.nk_umount(v)==0;device.close()
-    passed('拒绝非法文件名和对系统元数据文件的直接写入')
+    passed('拒绝非法文件名和对系统元数据文件的直接写入；冒号不会写成数据流')
     failed=folder/'failed-write.img';shutil.copyfile(base,failed);device=ImageIO(failed)
     v=device.mount();assert v;device.fail_write=True
     assert LIB.nk_create(v,b'/',b'fail.txt')!=0

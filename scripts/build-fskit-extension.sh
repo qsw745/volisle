@@ -8,6 +8,9 @@ if [[ ! -f "$source_dir/libntfs-3g/.libs/libntfs-3g.a" ]]; then
   python3 scripts/prepare-ntfs-probe.py
 fi
 mkdir -p .workbench/fskit-build
+# The oldest macOS this build runs on; an explicit override remains available.
+min_macos="${VOLISLE_MIN_MACOS:-15.4}"
+[[ "$min_macos" =~ '^[0-9]+\.[0-9]+$' ]] || { print -u2 "VOLISLE_MIN_MACOS 格式错误：$min_macos"; exit 1; }
 extra_flags=()
 c_flags=()
 replacement=false
@@ -41,9 +44,9 @@ elif (( $# > 0 )); then
     fi
   done
 fi
-clang "${c_flags[@]}" -target arm64-apple-macos26.4 -c -fPIC -DHAVE_CONFIG_H -I "$source_dir" -I "$source_dir/include" \
+clang "${c_flags[@]}" -target "arm64-apple-macos$min_macos" -c -fPIC -DHAVE_CONFIG_H -I "$source_dir" -I "$source_dir/include" \
   packages/VolisleNTFS/bridge/ntfs_bridge.c -o .workbench/fskit-build/ntfs_bridge.o
-swiftc -swift-version 6 -parse-as-library -application-extension -target arm64-apple-macos26.4 \
+swiftc -swift-version 6 -parse-as-library -application-extension -target "arm64-apple-macos$min_macos" \
   "${extra_flags[@]}" \
   -import-objc-header packages/VolisleNTFS/bridge/ntfs_bridge.h \
   apps/extension/Sources/*.swift packages/VolisleCore/Sources/VolisleCore/ReplacementJournal.swift .workbench/fskit-build/ntfs_bridge.o \
@@ -53,7 +56,7 @@ swiftc -swift-version 6 -parse-as-library -application-extension -target arm64-a
   -o .workbench/fskit-build/VolisleFS
 python3 scripts/verify-extension-entry.py
 # Default builds remain read-only; experimental builds bind one tiny fixture.
-python3 - "$#" "$replacement" "$physical" "$daily" "$private_permissions" <<'PY'
+python3 - "$#" "$replacement" "$physical" "$daily" "$private_permissions" "$min_macos" <<'PY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -61,7 +64,7 @@ from pathlib import Path
 import sys
 binary = Path('.workbench/fskit-build/VolisleFS')
 receipt = {
-    'target': 'arm64-apple-macos26.4',
+    'target': 'arm64-apple-macos' + sys.argv[6],
     'experimental_writes': sys.argv[1] != '0' and sys.argv[4] != 'true',
     'daily_writes': sys.argv[4] == 'true',
     'experimental_private_permissions': sys.argv[5] == 'true',

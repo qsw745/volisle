@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 import Foundation
+import os
 import Darwin
 import VolisleCore
 import VolisleNTFSFormat
@@ -117,10 +118,15 @@ struct NTFSMaintenanceEngine: PartitionMaintenanceEngine {
         let code = errno
         guard rc != 0 else { return items }
         let reason = Self.reason(errbuf)
+        // Record numbers and a fixed kind only: no names or contents of the disk.
+        if code != EALREADY { Logger(subsystem: "top.qisw.volisle.helper", category: "check").error("在 Mac 上检查未通过：\(reason, privacy: .public)") }
         switch code {
         case EALREADY: return 0  // not marked: nothing to clear
         case EBUSY: throw reason == "hibernated" ? HelperDiskFailure.windowsHibernated : HelperDiskFailure.windowsLogUnclean
-        case EIO where reason.hasPrefix("inconsistent record"): throw HelperDiskFailure.checkFoundProblems
+        case EIO where reason.hasPrefix("inconsistent record"):
+            throw CheckMarkerRefusal(.checkFoundProblems, detail: reason) ?? HelperDiskFailure.checkFoundProblems
+        case EIO where reason.hasPrefix("read failed"):
+            throw CheckMarkerRefusal(.checkReadFailed, detail: reason) ?? HelperDiskFailure.checkReadFailed
         default: throw HelperDiskFailure.unavailable
         }
     }

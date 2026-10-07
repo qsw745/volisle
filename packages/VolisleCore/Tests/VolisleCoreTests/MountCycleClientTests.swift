@@ -3,6 +3,20 @@ import Testing
 @testable import VolisleCore
 
 @MainActor struct MountCycleClientTests {
+    @Test func onlyAutomaticRecoveryOfGoneMediaPreservesCopyReconnectIntent() async throws {
+        for (automatic, present, expected) in [(false, false, false), (true, true, false), (true, false, true)] {
+            let store = ClientStore()
+            store.value = .init(id: UUID(), disk: try .init(bsdName: "disk7s1", registryID: 123, byteCount: 4096), purpose: .readWrite)
+            let backend = ClientBackend(phase: .writeMounted)
+            backend.physicalMediaPresent = present
+            let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+            var reconnect: Bool?
+            client.willEndWriteSession = { reconnect = $0 }
+            await client.refresh(); await client.recover(automatically: automatic)
+            #expect(reconnect == expected)
+            #expect(!client.blocksActions)
+        }
+    }
     @Test func relaunchRetainsWritableClaimAndOffersExplicitReadOnlyRecovery() async throws {
         let store = ClientStore(), gate = DeviceOperationGate()
         store.value = .init(id: UUID(), disk: try .init(bsdName: "disk7s1", registryID: 123, byteCount: 4096), purpose: .readWrite)
@@ -83,6 +97,106 @@ import Testing
         try await client.prepareForEject(target)
         #expect(!client.blocksActions && store.value == nil && backend.verified)
     }
+    @Test func ejectDuringAnUnfinishedRequestSaysItIsStillRunningNotBusy() async {
+        let backend = ClientBackend(startFailure: .timedOut), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume(); await client.start(target, resolver: ClientResolver(value: target))
+        await #expect(throws: MountCycleStillRunning.self) { try await client.prepareForEject(target) }
+    }
+    @Test func endedExtensionIsReportedWithoutAnUnmountThatWouldHang() async {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        #expect(client.isWritable(target))
+        backend.health = .extensionEnded
+        await client.checkWriteSession()
+        #expect(!client.isWritable(target) && client.needsAttention && client.blocksActions)
+        #expect(backend.actions == [.latest, .startWrite])
+        #expect(client.lastError?.contains("重启 Mac") == true)
+    }
+    @Test func stoppedMountNeverClaimsWritableOnStart() async {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        backend.health = .stopped
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        #expect(!client.isWritable(target) && client.writableURL == nil)
+        #expect(client.needsAttention && client.canRecover && client.blocksActions)
+        #expect(store.value != nil && client.lastError != nil)
+        #expect(backend.actions == [.latest, .startWrite])
+    }
+    @Test func stoppedSessionDoesNotReviveWhenTheAppRefreshes() async {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        backend.health = .stopped
+        await client.checkWriteSession()
+        #expect(!client.isWritable(target) && client.needsAttention)
+        await client.refresh()
+        #expect(!client.isWritable(target) && client.writableURL == nil)
+        #expect(client.needsAttention && client.canRecover && client.blocksActions)
+        #expect(store.value != nil && client.lastError != nil)
+        #expect(backend.actions == [.latest, .startWrite, .resolveWrite])
+    }
+    @Test func stoppedSessionIsRejectedBeforeOpeningFiles() async {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        backend.health = .stopped
+        await #expect(throws: (any Error).self) { _ = try await client.verifiedWritableURL(for: target) }
+        #expect(!client.isWritable(target) && client.needsAttention)
+        #expect(client.canRecover && client.blocksActions && store.value != nil)
+        #expect(backend.actions == [.latest, .startWrite])
+    }
+    @Test func writableVerificationDoesNotReturnAnEndedSession() async {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        backend.beforeWritableVerification = { await client.recover() }
+        await #expect(throws: (any Error).self) { _ = try await client.verifiedWritableURL(for: target) }
+        #expect(!client.isWritable(target) && !client.blocksActions && store.value == nil)
+        #expect(!client.needsAttention && client.verifiedState == .readOnly)
+    }
+    @Test func endedExtensionCannotEnterUnmountRecovery() async {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        backend.health = .extensionEnded
+        await client.checkWriteSession()
+        #expect(!client.canRecover && client.needsAttention && client.blocksActions)
+        await client.recover()
+        #expect(!backend.actions.contains(.recover), "the kernel cannot safely unmount an ended extension")
+        #expect(store.value != nil && !client.isWritable(target))
+    }
+    @Test func lateStoppedResultCannotReplaceTheRestartRequirement() async {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        backend.healthResponse = {
+            backend.healthResponse = nil
+            backend.health = .extensionEnded
+            await #expect(throws: (any Error).self) { _ = try await client.verifiedWritableURL(for: target) }
+            return .stopped  // an earlier poll arrives after the direct check
+        }
+        await client.checkWriteSession()
+        #expect(!client.canRecover && client.needsAttention && client.blocksActions)
+        #expect(client.lastError?.contains("重启 Mac") == true)
+        #expect(store.value != nil && !client.isWritable(target))
+    }
     @Test func refusedWriteReasonSurvivesLaterReconciliation() async {
         let backend = ClientBackend(), store = ClientStore()
         backend.failure = .ntfsDirty
@@ -162,6 +276,21 @@ import Testing
         #expect(throws: VolumeError.busy) { _ = try gate.acquire("another-device") }
         #expect(client.notice == nil)
     }
+    @Test func lostReplyIsFollowedUpByIDButAStoppedOrRecoveringSessionIsNot() async throws {
+        let backend = ClientBackend(startFailure: .timedOut), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume(); await client.start(target, resolver: ClientResolver(value: target))
+        #expect(client.awaitsResult)
+        await client.refresh()
+        #expect(backend.actions == [.latest, .start, .resolve])
+        #expect(!client.awaitsResult && !client.blocksActions)
+        let recovering = ClientStore()
+        recovering.value = .init(id: UUID(), disk: try .init(bsdName: "disk7s1", registryID: 123, byteCount: 4096))
+        let other = MountCycleClient(backend: ClientBackend(phase: .needsRecovery), store: recovering, gate: DeviceOperationGate())
+        await other.refresh()
+        #expect(other.needsAttention && !other.awaitsResult)
+    }
     @Test func relaunchQueriesSavedIDWithoutRepeatingStartOrRecovery() async throws {
         let store = ClientStore()
         store.value = .init(id: UUID(), disk: try .init(bsdName: "disk7s1", registryID: 123, byteCount: 4096))
@@ -240,6 +369,21 @@ import Testing
         #expect(throws: (any Error).self) { _ = try first.load() }
         #expect(try Data(contentsOf: target) == Data("keep".utf8))
     }
+    @Test func unreadableFileIntentBlocksUntilTheMacRestarts() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = FileMountCycleIntentStore(directory: directory)
+        try store.save(MountCycleIntent(id: UUID(), disk: try .init(bsdName: "disk7s1", registryID: 123, byteCount: 4096)))
+        let file = directory.appendingPathComponent("pending-readonly-check.json")
+        try Data("{\"id\":".utf8).write(to: file)
+        #expect(throws: MountCycleIntentUnreadable.self) { _ = try store.load() }
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        // Written before this boot: its request can no longer reach the daemon.
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 86_400)], ofItemAtPath: file.path)
+        #expect(try store.load() == nil)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("pending-readonly-check.invalid.json").path))
+    }
     @Test func verifiedRemovalClearsFinishedIntentWithoutClaimingDiskIsMounted() async throws {
         let store = ClientStore()
         store.value = .init(id: UUID(), disk: try .init(bsdName: "disk7s1", registryID: 123, byteCount: 4096))
@@ -315,6 +459,15 @@ private struct ClientResolver: VolumeResolver {
     func resolve(_ identity: VolumeIdentity) -> VolumeSnapshot { value }
 }
 @MainActor private final class ClientBackend: MountCycleClientBackend {
+    var physicalMediaPresent = false
+    func mediaPresent(_ record: HelperMountOperation) -> Bool { physicalMediaPresent }
+    var health: WriteSessionHealth = .writing
+    var beforeWritableVerification: (() async -> Void)?
+    var healthResponse: (() async -> WriteSessionHealth)?
+    func writeSessionHealth(_ record: HelperMountOperation) async -> WriteSessionHealth {
+        if let healthResponse { return await healthResponse() }
+        return health
+    }
     let startFailure: HelperServiceError?
     var verificationFails: Bool
     let permissionDenied: Bool
@@ -365,7 +518,8 @@ private struct ClientResolver: VolumeResolver {
         if let failure { record.purpose = .readWrite; record.failure = failure; last = record }
         return record
     }
-    func verifyWritable(_ record: HelperMountOperation) throws -> URL {
+    func verifyWritable(_ record: HelperMountOperation) async throws -> URL {
+        if let beforeWritableVerification { await beforeWritableVerification() }
         if verificationFails { throw HelperDiskFailure.busy }
         return URL(filePath: "/private/var/run/volisle-write-mounts/" + record.id.uuidString.lowercased())
     }

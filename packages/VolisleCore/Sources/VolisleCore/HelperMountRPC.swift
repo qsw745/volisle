@@ -67,11 +67,20 @@ public extension HelperRPC {
 }
 
 enum SystemHelperMountService {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var created: HelperMountCycleService?
     // Lazy creation: a nonprivileged integration host cannot instantiate a
     // system transaction service. Nothing mutates disks at helper launch.
-    static let shared: Result<HelperMountCycleService, any Error> = Result {
+    // A failure is not kept: the daemon lives until the Mac restarts, and one
+    // failed read of its records (e.g. a full disk at boot) would refuse every
+    // later request. Creating it again only repeats the same record checks.
+    static func shared() throws -> HelperMountCycleService {
+        lock.lock(); defer { lock.unlock() }
+        if let created { return created }
         guard geteuid() == 0 else { throw HelperServiceError.wrongPrivileges }
-        return try HelperMountCycleService(journal: .system(), backend: SystemHelperWriteMountBackend(), bootSession: currentBootSession())
+        let service = try HelperMountCycleService(journal: .system(), backend: SystemHelperWriteMountBackend(), bootSession: currentBootSession())
+        created = service
+        return service
     }
     static func currentBootSession() throws -> String {
         var bytes = [CChar](repeating: 0, count: 128)

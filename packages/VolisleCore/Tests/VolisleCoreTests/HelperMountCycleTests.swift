@@ -113,7 +113,8 @@ struct HelperMountCycleTests {
         let backend = CycleDisk(journal: journal), id = UUID(), disk = try target()
         let first = try HelperMountCycleService(journal: journal, backend: backend, bootSession: "boot-a")
         #expect(try await first.resolve(id: id, disk: disk, uid: 501, write: true) == nil)
-        let restarted = try HelperMountCycleService(journal: journal, backend: backend, bootSession: "boot-b")
+        // The daemon restarted within the same boot: the fence holds.
+        let restarted = try HelperMountCycleService(journal: journal, backend: backend, bootSession: "boot-a")
         await #expect(throws: (any Error).self) { _ = try await restarted.startWrite(id: id, disk: disk, uid: 501) }
         #expect(try await restarted.resolve(id: id, disk: disk, uid: 501, write: true) == nil)
         await #expect(throws: (any Error).self) { _ = try await restarted.resolve(id: id, disk: disk, uid: 502, write: true) }
@@ -188,18 +189,41 @@ struct HelperMountCycleTests {
     @Test func fullReceiptLedgerNeverEvictsAnOldFenceToAdmitNewWork() async throws {
         let journal = try store(); defer { try? FileManager.default.removeItem(at: journal.directory) }
         let disk = try target(), id = UUID()
+        _ = try HelperMountCycleService(journal: journal, backend: CycleDisk(journal: journal), bootSession: "boot-a")
         var receipts: [UUID: HelperMountReceipt] = [id: .init(id: id, disk: disk, ownerUID: 501, write: false)]
         for _ in 1..<HelperMountJournal.receiptLimit {
             let key = UUID(); receipts[key] = .init(id: key, disk: disk, ownerUID: 501, write: false)
         }
         try journal.writeReceipts(receipts)
         let backend = CycleDisk(journal: journal)
+        // Same boot: the full ledger still fails closed.
         let service = try HelperMountCycleService(journal: journal, backend: backend, bootSession: "boot-a")
         await #expect(throws: (any Error).self) { _ = try await service.start(id: UUID(), disk: disk, uid: 501) }
         await #expect(throws: (any Error).self) { _ = try await service.start(id: id, disk: disk, uid: 501) }
         #expect(try journal.readReceipts()[id] == receipts[id])
         #expect(try journal.read() == nil)
         #expect(await backend.unmountCount == 0)
+    }
+    @Test func aNewBootStartsANewLedgerKeepingOnlyTheCurrentRecord() async throws {
+        let journal = try store(); defer { try? FileManager.default.removeItem(at: journal.directory) }
+        let disk = try target(), current = UUID(), fenced = UUID()
+        let first = try HelperMountCycleService(journal: journal, backend: CycleDisk(journal: journal), bootSession: "boot-a")
+        _ = try await first.start(id: current, disk: disk, uid: 501)
+        _ = try await finish(first, id: current)
+        #expect(try await first.resolve(id: fenced, disk: disk, uid: 501, write: false) == nil)
+        var receipts = try journal.readReceipts()
+        for _ in receipts.count..<HelperMountJournal.receiptLimit {
+            let key = UUID(); receipts[key] = .init(id: key, disk: disk, ownerUID: 501, write: false)
+        }
+        try journal.writeReceipts(receipts)
+        // No request survives a restart of the Mac: earlier fences go, new work is admitted.
+        let backend = CycleDisk(journal: journal)
+        let rebooted = try HelperMountCycleService(journal: journal, backend: backend, bootSession: "boot-b")
+        #expect(Set(try journal.readReceipts().keys) == [current])
+        let next = UUID()
+        _ = try await rebooted.start(id: next, disk: disk, uid: 501)
+        #expect(try await finish(rebooted, id: next).phase == .finished)
+        #expect(Set(try journal.readReceipts().keys) == [current, next])
     }
     @Test func missingOrExtraArgumentsNeverReachTheOperation() throws {
         for command in [HelperMountCommand(action: .start), .init(action: .resolve), .init(action: .resolveWrite, id: UUID()), .init(action: .status), .init(action: .recover),

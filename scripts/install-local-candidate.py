@@ -42,16 +42,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('candidate', type=Path)
     parser.add_argument('--label', required=True)
+    # The copy macOS should use: one per Mac, or FSKit may pick either extension.
+    parser.add_argument('--target', type=Path, default=Path.home() / 'Applications/Volisle Test.app')
     args = parser.parse_args()
     if not re.fullmatch(r'[a-z0-9-]{1,60}', args.label): parser.error('备份标签格式错误')
     source = args.candidate.resolve(strict=True)
-    target = Path.home() / 'Applications/Volisle Test.app'
+    target = args.target
+    if target.suffix != '.app' or target.parent not in (Path('/Applications'), Path.home() / 'Applications'):
+        parser.error('只能安装到 /Applications 或 ~/Applications 下的 .app')
     # Keep staging and rollback copies out of ~/Applications: two bundles with the
     # same extension ID there make FSKit discovery pick either one.
     spare = Path.home() / 'Volisle 测试回滚副本'
     spare.mkdir(exist_ok=True)
-    stage = spare / ('Volisle Test.' + args.label + '.staging')
-    backup = spare / ('Volisle Test.before-' + args.label + '.rollback')
+    stage = spare / (target.stem + '.' + args.label + '.staging')
+    backup = spare / (target.stem + '.before-' + args.label + '.rollback')
     if backup.exists() or stage.exists() or target.is_symlink(): parser.error('目标或备份已有冲突')
     if subprocess.run(['pgrep', '-x', 'Volisle'], capture_output=True).returncode != 1: parser.error('请先退出盘屿')
     if run('/sbin/mount', '-t', 'volisle').stdout: parser.error('仍有使用中的盘屿挂载，停止更新')

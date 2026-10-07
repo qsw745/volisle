@@ -1,5 +1,5 @@
 {
-  "executed_at": "2026-10-05T10:05:58.917637+00:00",
+  "executed_at": "2026-10-06T05:21:20.583965+00:00",
   "engine": "NTFS-3G 2026.7.7 + Volisle callback bridge",
   "scope": "新建普通文件镜像，未 attach，未访问原始设备",
   "checks": [
@@ -44,7 +44,7 @@
       "passed": true
     },
     {
-      "name": "拒绝非法文件名和对系统元数据文件的直接写入",
+      "name": "拒绝非法文件名和对系统元数据文件的直接写入；冒号不会写成数据流",
       "passed": true
     },
     {

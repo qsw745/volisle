@@ -16,8 +16,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
-          "size": 32779
+          "size": 32779,
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
         }
       }
     },
@@ -36,8 +36,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
+          "size": 32779
         }
       }
     },
@@ -56,8 +56,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
-          "size": 32779
+          "size": 32779,
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
         }
       }
     },
@@ -107,8 +107,8 @@
           "status": "checkpoint-match",
           "path": "/draft",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "cb43f09bba159692997260ee444ac19fa08c8d5fb1b1eaa79d66dceb84de43ee"
+          "sha256": "cb43f09bba159692997260ee444ac19fa08c8d5fb1b1eaa79d66dceb84de43ee",
+          "size": 32779
         }
       }
     },
@@ -131,8 +131,8 @@
           "status": "checkpoint-match",
           "path": "/draft",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "cb43f09bba159692997260ee444ac19fa08c8d5fb1b1eaa79d66dceb84de43ee"
+          "sha256": "cb43f09bba159692997260ee444ac19fa08c8d5fb1b1eaa79d66dceb84de43ee",
+          "size": 32779
         }
       }
     },
@@ -172,8 +172,8 @@
           "status": "checkpoint-match",
           "path": "/.old",
           "file": "old.bin",
-          "size": 16395,
-          "sha256": "0a1b34489d94490f2125408488fb717820acca495ee6a990e390e41c0fbec235"
+          "sha256": "0a1b34489d94490f2125408488fb717820acca495ee6a990e390e41c0fbec235",
+          "size": 16395
         },
         "new": {
           "status": "checkpoint-match",
@@ -196,8 +196,8 @@
           "status": "checkpoint-match",
           "path": "/.old",
           "file": "old.bin",
-          "sha256": "0a1b34489d94490f2125408488fb717820acca495ee6a990e390e41c0fbec235",
-          "size": 16395
+          "size": 16395,
+          "sha256": "0a1b34489d94490f2125408488fb717820acca495ee6a990e390e41c0fbec235"
         },
         "new": {
           "status": "checkpoint-match",
@@ -224,8 +224,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "sha256": "cb43f09bba159692997260ee444ac19fa08c8d5fb1b1eaa79d66dceb84de43ee",
-          "size": 32779
+          "size": 32779,
+          "sha256": "cb43f09bba159692997260ee444ac19fa08c8d5fb1b1eaa79d66dceb84de43ee"
         }
       }
     },
@@ -241,8 +241,8 @@
           "status": "checkpoint-match",
           "path": "/.old",
           "file": "old.bin",
-          "size": 16395,
-          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc"
+          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc",
+          "size": 16395
         },
         "new": {
           "status": "checkpoint-match",
@@ -265,8 +265,8 @@
           "status": "checkpoint-match",
           "path": "/.old",
           "file": "old.bin",
-          "size": 16395,
-          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc"
+          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc",
+          "size": 16395
         },
         "new": {
           "status": "checkpoint-match",
@@ -310,15 +310,15 @@
           "status": "checkpoint-match",
           "path": "/.old",
           "file": "old.bin",
-          "size": 16395,
-          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc"
+          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc",
+          "size": 16395
         },
         "new": {
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
+          "size": 32779
         }
       }
     },
@@ -334,15 +334,15 @@
           "status": "checkpoint-match",
           "path": "/.old",
           "file": "old.bin",
-          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc",
-          "size": 16395
+          "size": 16395,
+          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc"
         },
         "new": {
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
+          "size": 32779
         }
       }
     },
@@ -358,8 +358,8 @@
           "status": "checkpoint-match",
           "path": "/.old",
           "file": "old.bin",
-          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc",
-          "size": 16395
+          "size": 16395,
+          "sha256": "5adcee87fa2b32a80b5f690872de74d238eb3e6577df217f03e9d0f03ae8bdfc"
         },
         "new": {
           "status": "checkpoint-match",
@@ -385,8 +385,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
-          "size": 32779
+          "size": 32779,
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
         }
       }
     },
@@ -405,8 +405,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
+          "size": 32779
         }
       }
     },
@@ -489,8 +489,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
+          "size": 32779
         }
       }
     },
@@ -529,8 +529,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
+          "size": 32779
         }
       }
     },
@@ -589,8 +589,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
+          "size": 32779
         }
       }
     },
@@ -609,8 +609,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "size": 32779,
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
+          "size": 32779
         }
       }
     },
@@ -629,8 +629,8 @@
           "status": "checkpoint-match",
           "path": "/document",
           "file": "new.bin",
-          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7",
-          "size": 32779
+          "size": 32779,
+          "sha256": "e75adda53028ea18a6afd8df3d2a04b8d94c7778b25e038d3deac2e5fcb596c7"
         }
       }
     },
@@ -658,13 +658,13 @@
   "cleanup_write_points": 6,
   "allocation_check": {
     "success": true,
-    "image_sha256": "0a4f63cf85558eca040fc1fecce92c4b8774ecdddcf1e441968528231b9b5e09",
+    "image_sha256": "ef32630cce0fa457dc3043c203ac984fbe586fab03eefeca84b3fcf52e9b26bf",
     "records_checked": 21,
     "owned_clusters_checked": 646,
     "errors": [],
     "scope": "run overlap and allocated-run bitmap consistency; not full filesystem validation"
   },
-  "verified_at": "2026-09-23T14:15:13.261734+00:00",
+  "verified_at": "2026-10-05T19:01:50.528305+00:00",
   "not_covered": [
     "hardware power loss",
     "torn NTFS sectors",

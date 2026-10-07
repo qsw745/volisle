@@ -170,14 +170,31 @@ enum HelperPartitionFormatter {
     }
 }
 
+/// The helper's refusal with its technical reason: a record number and a
+/// fixed kind, never a name or content of the disk. Shown under the message so
+/// a screenshot of it tells whether the check misjudged the disk.
+public struct CheckMarkerRefusal: Error, Equatable, LocalizedError {
+    public let failure: HelperDiskFailure
+    public let detail: String
+    public init?(_ failure: HelperDiskFailure, detail: String?) {
+        guard let detail, detail.count <= 120,
+              detail.wholeMatch(of: /(inconsistent record [0-9]+: [a-z ,]+|read failed at record [0-9]+)/) != nil else { return nil }
+        self.failure = failure; self.detail = detail
+    }
+    public var errorDescription: String? {
+        (failure.errorDescription ?? "") + "\n" + String(localized: "技术信息：\(detail)")
+    }
+}
+
 struct HelperCheckMarkerReply: Codable, Sendable {
     let items: Int64?
     let failure: HelperDiskFailure?
+    var detail: String? = nil
     static func decode(_ data: Data) throws -> Int64 {
         guard !data.isEmpty, data.count <= 4096 else { throw HelperServiceError.invalidReply }
         let value = try JSONDecoder().decode(Self.self, from: data)
         guard (value.items == nil) != (value.failure == nil) else { throw HelperServiceError.invalidReply }
-        if let failure = value.failure { throw failure }
+        if let failure = value.failure { throw CheckMarkerRefusal(failure, detail: value.detail) ?? failure }
         guard let items = value.items, items >= 0 else { throw HelperServiceError.invalidReply }
         return items
     }

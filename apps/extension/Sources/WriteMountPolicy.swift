@@ -30,6 +30,23 @@ enum WriteMountPolicy {
         }
     }
 
+    /// Refusals the background component recognises by the bracketed token at
+    /// the end; the words before it are for the log only.
+    static func recoveryRefused(_ reason: WriteJournalError) -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(EROFS), userInfo: [NSLocalizedDescriptionKey:
+            "上次写入中断后的自动恢复没有完成，拒绝可写挂载。[journal:\(reason)]"])
+    }
+
+    static func writeProtected() -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(EROFS), userInfo: [NSLocalizedDescriptionKey:
+            "磁盘处于写保护状态，拒绝可写挂载。[media:writeProtected]"])
+    }
+
+    static func requestsWrite(_ options: [String]) -> Bool {
+        let opts = Set(options.flatMap { $0.split(separator: ",").map(String.init) })
+        return opts.contains("volisle-rw") && !opts.contains("ro") && !opts.contains("rdonly")
+    }
+
     static func allowsDaily(options: [String], writable: Bool, serial: [UInt8], byteCount: UInt64) -> Bool {
         let opts = Set(options.flatMap { $0.split(separator: ",").map(String.init) })
         return writable && byteCount >= 512 && byteCount <= UInt64(Int64.max) && byteCount % 512 == 0 &&

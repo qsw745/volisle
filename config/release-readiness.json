@@ -1,16 +1,18 @@
 {
   "schema": 1,
-  "build": 64,
+  "build": 66,
   "status": "ready",
-  "source_provenance_sha256": "87248bfeda5ef7469ce5a152e3428a059b4b41221b1bc2155c6d02860de36320",
+  "source_provenance_sha256": "557950575a0bb66787f47643c700c49d52fb9a740c4f0e35f2c9963d23dd4f8b",
   "blockers": [],
-  "decided": "2026-10-05：所有者要求发 0.6.1（构建 64）：拔线后立即插回偶发开启读写失败且盘从访达消失（0.5.4 起）。新出现未挂载的盘先等系统只读挂载（最多 8 秒）；等待迟到挂载时占用中继续等；开启失败后补挂只读。只改后台组件与应用（AutoMount、SystemHelperWriteMount），扩展与引擎与 0.6.0 相同（写入日志矩阵与 BitLocker 测试沿用 0.6.0 结果）。VolisleCore 302 项、本地化 400 键通过；修复前 6 次快速拔插失败 2 次，修复后 3 次全部成功。扩展声明与各组件权限与 0.6.0 一致",
+  "decided": "2026-10-06：所有者已授权提交并上线发布 0.8.0（构建 66）；本地构建、Developer ID 签名与 Apple 公证完成，用户完成系统权限，正式安装包通过一次性 NTFS 镜像读写与重新挂载回读验收；qsw 恢复记录未改变。未覆盖项保留在 deferred_acceptance。",
   "deferred_acceptance": [
     "bitlocker-disk-encrypted-directly-by-windows（尚无 Windows 直接加密的整块 U 盘或移动硬盘，含 4K 扇区）",
     "bitlocker-whole-disk-encrypted-by-windows（Windows 直接加密的整块 U 盘或移动硬盘、4K 扇区，未测）",
     "macos-26.6-upgrade-with-final-build-55（虚拟机无法启动；声明与 26.6 上验证过的构建 43 相同）",
     "physical-usb-disk-on-macos-26",
     "setup-guide-on-a-brand-new-mac（两位用户卡在首次设置；所有者决定先发 0.5.6，新用户账户全新安装待测）",
-    "two-ntfs-disks-connected-at-once（尚无第二块 NTFS 盘实测）"
+    "two-ntfs-disks-connected-at-once（尚无第二块 NTFS 盘实测）",
+    "qsw-current-complete-readwrite-acceptance（固定LBA设备读错；保留只读与恢复记录，本轮用一次性NTFS镜像验收签名包）",
+    "default-Gatekeeper-first-download-prompt（本机现有 assessments disabled，未改变全局安全设置）"
   ]
 }

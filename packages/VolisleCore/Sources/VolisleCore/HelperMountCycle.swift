@@ -85,6 +85,15 @@ actor HelperMountCycleService {
         self.journal = journal; self.backend = backend; self.bootSession = bootSession
         receipts = try journal.readReceipts()
         operation = try journal.read()
+        // A request reaches only a daemon of the boot it was sent in: fences from an
+        // earlier boot protect nothing. Keep only the current record's own receipt.
+        if try journal.readReceiptBoot() != bootSession {
+            let currentID = operation?.id
+            let kept = receipts.filter { $0.key == currentID }
+            if kept.count != receipts.count { try journal.writeReceipts(kept) }
+            receipts = kept
+            try journal.writeReceiptBoot(bootSession)
+        }
         // Migrate the current legacy record before it can be replaced.
         if let current = operation {
             let receipt = HelperMountReceipt(id: current.id, disk: current.disk, ownerUID: current.ownerUID, write: current.isWrite)
@@ -95,8 +104,11 @@ actor HelperMountCycleService {
             }
         }
         if var old = operation, old.phase.running || old.phase == .writeMounted {
+            // A start cut off midway did not complete. A mounted write session had
+            // succeeded: ending it now is ordinary recovery, and a failure recorded
+            // here showed "cannot verify the disk" even after a clean restore.
+            if old.phase.running { old.failure = .unavailable }
             old.phase = .needsRecovery
-            old.failure = .unavailable
             try journal.write(old)
             operation = old
         }

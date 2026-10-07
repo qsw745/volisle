@@ -43,7 +43,8 @@ private final class Runner: EraseCommandRunner, @unchecked Sendable {
                             fake.table.append(("/dev/" + bsd, url.path, !done))
                             return BitLockerUnlock(url: url, writable: done, readOnlyReason: done ? nil : fake.unlockReason)
                         },
-                        runner: Runner(fake), mounts: { fake.table }, present: { !fake.gone.contains($0) })
+                        runner: Runner(fake), mounts: { fake.table }, present: { !fake.gone.contains($0) },
+                        ready: { _ in true }, kernelReportsReadOnly: true)
 }
 
 @MainActor @Test("候选分区每次连接只问一次后台；未确认或非外接的不算 BitLocker")
@@ -79,7 +80,7 @@ func unlockNormalizes() async throws {
     let fake = Fake(), bitLocker = controller(fake)
     let volume = candidate()
     await bitLocker.check([volume])
-    let spaced = "123456 234567 345678 456789 567890 678901 789012 890123"
+    let spaced = "466895 217492 569250 069608 104434 135707 527241 083622"  // every group a multiple of 11
     let url = try await bitLocker.unlock(volume, recoveryKey: true, secret: spaced).url
     #expect(fake.unlocks.map(\.0) == ["disk8s1"])
     #expect(fake.unlocks[0].1 == .recoveryKey && fake.unlocks[0].2 == spaced.replacingOccurrences(of: " ", with: "-"))
@@ -147,6 +148,7 @@ func unlockWritableOrReadOnly() async throws {
     await bitLocker.check([volume])
     let first = try await bitLocker.unlock(volume, recoveryKey: false, secret: "p")
     #expect(fake.writableRequests == [true] && first.writable)
+    for _ in 0..<200 where !bitLocker.isWritable(volume) { try await Task.sleep(for: .milliseconds(2)) }
     #expect(bitLocker.isWritable(volume) && bitLocker.readOnlyReason(for: volume) == nil)
     try await bitLocker.lock(volume)
     #expect(!bitLocker.isWritable(volume))

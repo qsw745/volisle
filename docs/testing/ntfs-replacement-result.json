@@ -274,7 +274,7 @@
   ],
   "allocation_check": {
     "success": true,
-    "image_sha256": "a9bfbb7af65a98d0b95f9e0b6eab18aa3661162d59a9c4dba78244d98531e154",
+    "image_sha256": "1722618046fbb326b337454392e01fe2e0f9bf573cd79cad2381195b8e74dbd1",
     "records_checked": 23,
     "owned_clusters_checked": 765,
     "errors": [],
@@ -287,5 +287,5 @@
     "physical power loss",
     "Windows recovery"
   ],
-  "verified_at": "2026-09-24T15:42:18.854806+00:00"
+  "verified_at": "2026-10-06T05:21:46.434698+00:00"
 }

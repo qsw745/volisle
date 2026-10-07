@@ -31,14 +31,31 @@ struct PhysicalWritePolicyTests {
     @Test func physicalMountKeepsRootDeviceAccessWhileImageMountDropsPrivileges() throws {
         let physical = HelperMountOperation(id: UUID(), disk: try .init(bsdName: "disk7s1", registryID: 123, byteCount: 4096), ownerUID: 501,
             bootSession: "test", phase: .mountingWrite, restoreRequired: true)
-        let args = SystemHelperWriteMountBackend.mountArguments(for: physical, option: "volisle-test-token")
+        #expect(!SystemHelperWriteMountBackend.mountsAsOwner(physical, rootFindsModules: true))
+        let args = SystemHelperWriteMountBackend.mountArguments(for: physical, option: "volisle-test-token", asOwner: false)
         #expect(Array(args.prefix(3)) == ["asuser", "501", "/sbin/mount"])
         #expect(!args.contains("/usr/bin/sudo"))
-        #expect(SystemHelperWriteMountBackend.mountEnvironment(for: physical)["SUDO_UID"] == "501")
+        #expect(SystemHelperWriteMountBackend.mountEnvironment(for: physical, asOwner: false)["SUDO_UID"] == "501")
         let image = HelperMountOperation(id: UUID(), disk: try .init(version: 2, bsdName: "disk7", registryID: 123, byteCount: 67108864), ownerUID: 501,
             bootSession: "test", phase: .mountingWrite, restoreRequired: true)
-        #expect(Array(SystemHelperWriteMountBackend.mountArguments(for: image, option: "volisle-rw").prefix(8)) ==
+        #expect(SystemHelperWriteMountBackend.mountsAsOwner(image, rootFindsModules: true))
+        #expect(Array(SystemHelperWriteMountBackend.mountArguments(for: image, option: "volisle-rw", asOwner: true).prefix(8)) ==
                 ["asuser", "501", "/usr/bin/sudo", "-n", "-u", "#501", "--", "/sbin/mount"])
+        #expect(SystemHelperWriteMountBackend.mountEnvironment(for: image, asOwner: true)["SUDO_UID"] == nil)
+    }
+    /// macOS 15: root's mount(8) does not see the owner's modules, so even a
+    /// physical disk mounts as the owner (with the device nodes lent to them).
+    @Test func macOS15MountsPhysicalDisksAsTheOwner() throws {
+        let physical = HelperMountOperation(id: UUID(), disk: try .init(bsdName: "disk7s1", registryID: 123, byteCount: 4096), ownerUID: 501,
+            bootSession: "test", phase: .mountingWrite, restoreRequired: true)
+        #expect(SystemHelperWriteMountBackend.mountsAsOwner(physical, rootFindsModules: false))
+        let args = SystemHelperWriteMountBackend.mountArguments(for: physical, option: "volisle-test-token", asOwner: true)
+        #expect(Array(args.prefix(8)) == ["asuser", "501", "/usr/bin/sudo", "-n", "-u", "#501", "--", "/sbin/mount"])
+        #expect(args.suffix(2).first == "/dev/disk7s1")
+        #expect(SystemHelperWriteMountBackend.mountEnvironment(for: physical, asOwner: true)["SUDO_UID"] == nil)
+        // Only real device nodes owned by root can be lent.
+        #expect(throws: HelperDiskFailure.self) { _ = try SystemHelperWriteMountBackend.DeviceLoan.lend("null", to: 501) }
+        #expect(throws: HelperDiskFailure.self) { _ = try SystemHelperWriteMountBackend.DeviceLoan.lend("no-such-disk999", to: 501) }
     }
     @Test func malformedOptionsCannotBecomeMountArguments() throws {
         let data = try JSONEncoder().encode(policy())

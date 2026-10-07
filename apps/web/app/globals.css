@@ -5,7 +5,8 @@
   --paper-soft: #fafaf8;
   --ink: #1d1f1e;
   --muted: #62676b;
-  --faint: #767b77;
+  --faint: #6b706c;   /* ≥ 4.5:1 on --paper for the 12px captions */
+  --risk: #a3471a;
   --line: #e2e4e1;
   --line-strong: #d7dcd5;
   --blue: #1769e0;
@@ -194,6 +195,7 @@ html[lang="en"] .brand { letter-spacing: -.015em; }
 .history-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 22px; }
 .history-row strong { color: var(--ink); min-width: 52px; }
 .history-row span { color: var(--muted); min-width: 150px; }
+.history-row .history-risk { font-style: normal; font-size: 12px; font-weight: 600; line-height: 20px; color: var(--risk); border: 1px solid currentColor; border-radius: 999px; padding: 0 8px; }
 .history-list details { margin-top: 6px; font-size: 14px; color: var(--muted); }
 .history-list summary { cursor: pointer; width: fit-content; }
 .history-list summary:hover { color: var(--blue); }

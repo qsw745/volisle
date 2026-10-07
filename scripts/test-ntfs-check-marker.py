@@ -54,8 +54,8 @@ def geometry(path):
     return cluster, record, struct.unpack_from('<Q', boot, 48)[0], struct.unpack_from('<Q', boot, 56)[0]
 
 
-def mark_dirty(path):
-    """Set VOLUME_IS_DIRTY in $Volume (record 3) of $MFT and $MFTMirr."""
+def mark_dirty(path, extra=0):
+    """Set VOLUME_IS_DIRTY (and `extra` flags) in $Volume (record 3) of $MFT and $MFTMirr."""
     cluster, record, mft, mirror = geometry(path)
     with path.open('r+b') as f:
         for lcn in (mft, mirror):
@@ -70,7 +70,7 @@ def mark_dirty(path):
                     f.seek(at)
                     flags = struct.unpack('<H', f.read(2))[0]
                     f.seek(at)
-                    f.write(struct.pack('<H', flags | 1))
+                    f.write(struct.pack('<H', flags | 1 | extra))
                     break
                 a += length
             else:
@@ -176,6 +176,35 @@ with tempfile.TemporaryDirectory(prefix='volisle-check-', dir=ROOT / '.workbench
     assert digest(path) == before
     passed('文件记录损坏的卷：检查失败并报告记录号，零写入，镜像一个字节不变，仍标记为需要检查')
 
+    # The disk stops answering partway through (a bad sector, a loose cable):
+    # at every read the check makes. A read failure is never reported as a
+    # damaged record, and before the one flag write nothing is written.
+    import shutil
+    path, _, _ = build(folder, 'read-error.img')
+    mark_dirty(path)
+    pristine = folder / 'read-error-pristine.img'
+    shutil.copyfile(path, pristine)
+    probe = ImageIO(path)
+    start_reads = probe.reads
+    assert clear(probe)[0] == 0
+    total_reads = probe.reads - start_reads
+    probe.close()
+    reasons = set()
+    for point in range(1, total_reads + 1):
+        shutil.copyfile(pristine, path)
+        device = ImageIO(path)
+        device.fail_read_from = device.reads + point
+        rc, error, _, reason = clear(device)
+        writes = device.writes
+        device.close()
+        assert rc == -1 and error == errno.EIO, (point, rc, error, reason)
+        assert not reason.startswith('inconsistent record'), ('读盘失败被报成文件记录有问题', point, reason)
+        if reason.startswith('read failed at record') or reason == 'volume could not be read':
+            assert writes == 0 and digest(path) == digest(pristine), (point, reason)
+        reasons.add(reason.split(' at record')[0] if reason.startswith('read failed') else reason)
+    assert 'read failed' in reasons, reasons
+    passed(f'检查途中每一次读盘出错（{total_reads} 个点）都报告为读盘出错、从不报成文件记录有问题；写标记前零写入')
+
     def hiberfile(v):
         assert LIB.nk_create(v, b'/', b'hiberfil.sys') == 0
         data = b'hibr' + bytes(4092)
@@ -192,6 +221,18 @@ with tempfile.TemporaryDirectory(prefix='volisle-check-', dir=ROOT / '.workbench
     device.close()
     assert digest(path) == before
     passed('带 Windows 休眠文件的卷：拒绝（可能有未写完的数据），零写入，镜像不变')
+
+    # chkdsk cut off midway (VOLUME_CHKDSK_UNDERWAY): only Windows may finish it.
+    path, _, _ = build(folder, 'chkdsk-underway.img')
+    mark_dirty(path, extra=0x4000)
+    before = digest(path)
+    device = ImageIO(path)
+    rc, error, _, reason = clear(device)
+    assert (rc, error, reason) == (-1, errno.EBUSY, 'Windows maintenance pending'), (rc, error, reason)
+    assert device.writes == 0
+    device.close()
+    assert digest(path) == before
+    passed('Windows 磁盘检查中途被打断的卷：拒绝，零写入，镜像不变')
 
 report = {'generated_at': datetime.now(timezone.utc).isoformat(), 'checks': checks,
           'scope': '一次性普通镜像；不涉及设备、后台组件或实盘'}

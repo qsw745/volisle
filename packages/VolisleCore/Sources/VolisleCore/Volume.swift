@@ -22,6 +22,16 @@ public struct VolumeIdentity: Hashable, Sendable, Codable {
         return .init(volumeUUID: volume.lowercased(), media: fingerprint)
     }
     public var supportsPersistentPreference: Bool { persistentKey != nil && !devicePath.isEmpty }
+    /// Names this partition across reconnections, for copies that continue
+    /// after an unplug. macOS reports no volume UUID for NTFS, so the partition's
+    /// own GUID comes first, then the USB fingerprint; a volume UUID only if
+    /// neither exists. The partition, not the mount: the same either way it is mounted.
+    public var resumeKey: String? {
+        if let media = Self.nonempty(mediaUUID) { return "media:" + media.lowercased() }
+        if let fingerprint = mediaFingerprint, fingerprint.hasPrefix("usb-v1:") { return fingerprint }
+        if let volume = Self.nonempty(volumeUUID) { return "volume:" + volume.lowercased() }
+        return nil
+    }
     public var supportsCurrentOperation: Bool {
         Self.nonempty(volumeUUID) != nil && !devicePath.isEmpty &&
         (Self.nonempty(mediaUUID) != nil || (mediaRegistryID ?? 0) > 0)
@@ -52,17 +62,21 @@ public struct VolumeSnapshot: Identifiable, Equatable, Sendable {
     public let safety: SafetyStatus
     /// How the device is attached (Disk Arbitration's protocol, e.g. "USB").
     public let deviceProtocol: String?
+    /// Another NTFS driver mounted (or claimed) this partition; Volisle leaves it alone.
+    public let foreignDriver: ForeignNTFSDriver?
     public init(identity: VolumeIdentity, bsdName: String, name: String, fileSystem: String,
                 deviceName: String, totalBytes: Int64?, availableBytes: Int64?, mountURL: URL?,
                 mountState: MountState, isExternal: Bool, isProtected: Bool, safety: SafetyStatus = .unknown,
-                deviceProtocol: String? = nil) {
-        self.deviceProtocol = deviceProtocol
+                deviceProtocol: String? = nil, foreignDriver: ForeignNTFSDriver? = nil) {
+        self.deviceProtocol = deviceProtocol; self.foreignDriver = foreignDriver
         self.identity = identity; self.bsdName = bsdName; self.name = name; self.fileSystem = fileSystem
         self.deviceName = deviceName; self.totalBytes = totalBytes; self.availableBytes = availableBytes
         self.mountURL = mountURL; self.mountState = mountState; self.isExternal = isExternal
         self.isProtected = isProtected; self.safety = safety
     }
     public var isNTFS: Bool { fileSystem.lowercased() == "ntfs" }
+    /// What the user knows the disk as: another driver's kind ("ttntfs") is still NTFS.
+    public var displayFileSystem: String { foreignDriver == nil ? fileSystem.uppercased() : "NTFS" }
     /// An external Windows data partition in which macOS found no file system:
     /// BitLocker, when the helper confirms it.
     public static let unrecognizedWindowsKind = "windows-unrecognized"

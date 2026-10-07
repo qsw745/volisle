@@ -26,7 +26,7 @@ struct NativeMountPrerequisitesTests {
         let report = DiagnosticReport(volumes: [], diskServiceRunning: false,
             engine: .init(available: true, finderReadWrite: false, reason: "fixture"),
             nativeMount: .init(osMajor: 27, entitlement: .absent))
-        #expect(report.schemaVersion == 3)
+        #expect(report.schemaVersion == 4)
         #expect(report.nativeMount?.blocker == .missingEntitlement)
         #expect(!report.engineSupportsFinderReadWrite)
         let decoded = try JSONDecoder().decode(DiagnosticReport.self, from: report.jsonData())

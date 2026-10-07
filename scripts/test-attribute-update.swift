@@ -28,10 +28,12 @@ import FSKit
         } catch {}
         precondition(truncated.consumedAttributes.isEmpty)
 
+        // What NTFS cannot hold is left unconsumed (as FSKit asks), never refused:
+        // refusing stopped Finder copies. The supported part still applies.
         let unsupported = FSItem.SetAttributesRequest()
-        unsupported.size = 0; unsupported.backupTime = timespec(tv_sec: 1, tv_nsec: 0)
-        do { _ = try AttributeUpdate(unsupported, kind: .file); fatalError("混合请求必须在截断前拒绝不支持的属性") } catch {}
-        precondition(unsupported.consumedAttributes.isEmpty)
+        unsupported.size = 0; unsupported.backupTime = timespec(tv_sec: 1, tv_nsec: 0); unsupported.uid = getuid() &+ 1
+        try AttributeUpdate(unsupported, kind: .file).apply(setMode: { _ in fatalError() }, truncate: { _ in }, setTimes: { _, _, _ in fatalError() })
+        precondition(unsupported.consumedAttributes == [.size], "不支持的属性不消费、不报错")
         for time in [timespec(tv_sec: 1, tv_nsec: -1), timespec(tv_sec: 1, tv_nsec: 1000000000), timespec(tv_sec: Int.max, tv_nsec: 0), timespec(tv_sec: -11644473601, tv_nsec: 0)] {
             let invalid = FSItem.SetAttributesRequest(); invalid.size = 0; invalid.modifyTime = time
             do { _ = try AttributeUpdate(invalid, kind: .file); fatalError("非法时间必须在截断前拒绝") } catch {}
@@ -52,9 +54,26 @@ import FSKit
         precondition(privateDirectory.consumedAttributes == [.mode])
         let badType = FSItem.SetAttributesRequest(); badType.mode = 0o040644
         do { _ = try AttributeUpdate(badType, kind: .file); fatalError("类型位不符必须拒绝") } catch {}
+        // Finder's hidden flag is the Windows HIDDEN attribute; other flags are not held.
         let hidden = FSItem.SetAttributesRequest(); hidden.flags = UInt32(UF_HIDDEN)
-        _ = try AttributeUpdate(hidden, kind: .file, currentFlags: UInt32(UF_HIDDEN))
-        do { _ = try AttributeUpdate(hidden, kind: .file); fatalError("改变标志不能伪称成功") } catch {}
+        var setTo: Bool?
+        try AttributeUpdate(hidden, kind: .file).apply(setMode: { _ in fatalError() }, truncate: { _ in fatalError() },
+                                                      setTimes: { _, _, _ in }, setHidden: { setTo = $0 })
+        precondition(setTo == true && hidden.consumedAttributes == [.flags], "隐藏标志写入 Windows 隐藏属性")
+        let same = FSItem.SetAttributesRequest(); same.flags = UInt32(UF_HIDDEN)
+        try AttributeUpdate(same, kind: .file, currentFlags: UInt32(UF_HIDDEN)).apply(setMode: { _ in fatalError() },
+            truncate: { _ in fatalError() }, setTimes: { _, _, _ in }, setHidden: { _ in fatalError("未变化不写盘") })
+        precondition(same.consumedAttributes == [.flags])
+        let other = FSItem.SetAttributesRequest(); other.flags = UInt32(UF_HIDDEN | UF_NODUMP)
+        setTo = nil
+        try AttributeUpdate(other, kind: .file).apply(setMode: { _ in fatalError() }, truncate: { _ in fatalError() },
+                                                     setTimes: { _, _, _ in }, setHidden: { setTo = $0 })
+        precondition(setTo == true && other.consumedAttributes.isEmpty, "无法保存的其他标志不能伪称成功")
+        // A new file is created writable whatever its mode: POSIX checks access at open.
+        let created = FSItem.SetAttributesRequest(); created.mode = 0o444
+        try AttributeUpdate(created, kind: .file, creating: true).apply(setMode: { _ in fatalError("新建不设只读") },
+            truncate: { _ in fatalError() }, setTimes: { _, _, _ in })
+        precondition(created.consumedAttributes == [.mode])
         let readOnly = FSItem.SetAttributesRequest(); readOnly.mode = 0o444
         do { _ = try AttributeUpdate(readOnly, kind: .file) }
         catch { fatalError("普通文件只读权限必须可持久化支持：\(error)") }

@@ -94,9 +94,14 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         guard metadata.registryID == disk.registryID, metadata.byteCount == disk.byteCount else { throw VolumeError.identityChanged }
         let path = "/private/var/run/volisle-write-mounts/" + record.id.uuidString.lowercased()
         let records = try SystemMountRecord.current().filter { $0.source == "/dev/" + disk.bsdName || $0.path == path }
-        guard records.count == 1, records[0].source == "/dev/" + disk.bsdName, records[0].path == path,
-              records[0].type == "volisle", records[0].flags & UInt32(MNT_RDONLY) == 0,
-              records[0].flags & UInt32(MNT_NOSUID | MNT_NODEV) == UInt32(MNT_NOSUID | MNT_NODEV) else { throw VolumeError.mountNotVerified }
+        return try verifiedWritableMount(records, device: "/dev/" + disk.bsdName, path: path)
+    }
+    static func verifiedWritableMount(_ records: [SystemMountRecord], device: String, path: String,
+                                      kernelReflectsFlags: Bool = mountRunsAsRoot) throws -> URL {
+        guard records.count == 1, records[0].source == device,
+              writeMountOutcome(records, path: path, kernelReflectsFlags: kernelReflectsFlags) == nil else {
+            throw VolumeError.mountNotVerified
+        }
         return URL(filePath: path)
     }
     private let readOnly = SystemHelperMountCycleBackend()
@@ -224,9 +229,17 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         _ = try validate(disk, owner: operation.ownerUID)
         // Real USB devices require root to obtain the FSKit block resource.
         // Keep the authenticated user's login context and owned mountpoint;
-        // only disposable images can drop device-opening privileges.
+        // only disposable images drop device-opening privileges, except on
+        // macOS 15 where every mount runs as the owner (see mountRunsAsRoot).
+        let asOwner = Self.mountsAsOwner(operation)
+        let loan = asOwner && disk.version == 1 ? try DeviceLoan.lend(disk.bsdName, to: operation.ownerUID) : nil
         do {
-            try await run(Self.mountArguments(for: operation, option: scope.option), environment: Self.mountEnvironment(for: operation))
+            let mount = {
+                try await run(Self.mountArguments(for: operation, option: scope.option, asOwner: asOwner),
+                              environment: Self.mountEnvironment(for: operation, asOwner: asOwner))
+            }
+            if let loan { try await loan.duringMount(mount) }
+            else { try await mount() }
         } catch let failure as HelperDiskFailure { throw failure }
         catch { throw HelperDiskFailure.mountFailed }
         // A just-inserted disk can still be finishing macOS's own read-only
@@ -269,11 +282,13 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         return .removed
     }
     /// What the mount table says about a write mount just made at `path`.
-    static func writeMountOutcome(_ records: [SystemMountRecord], path: String) -> HelperDiskFailure? {
+    static func writeMountOutcome(_ records: [SystemMountRecord], path: String, kernelReflectsFlags: Bool = mountRunsAsRoot) -> HelperDiskFailure? {
         guard records.count == 1, records[0].path == path, records[0].type == "volisle" else { return .mountFailed }
         // The extension decides: it mounts read-only when it will not write.
         if records[0].flags & UInt32(MNT_RDONLY) != 0 { return .writeNotEnabled }
-        guard records[0].flags & UInt32(MNT_NOSUID | MNT_NODEV) == UInt32(MNT_NOSUID | MNT_NODEV) else { return .mountFailed }
+        // macOS 15 mounts an FSKit volume without the requested nosuid/nodev
+        // (and without rdonly even when the module refuses writes).
+        guard !kernelReflectsFlags || records[0].flags & UInt32(MNT_NOSUID | MNT_NODEV) == UInt32(MNT_NOSUID | MNT_NODEV) else { return .mountFailed }
         return nil
     }
     func restore(_ disk: HelperDiskRequest, originallyMounted: Bool) async throws { try await readOnly.restore(disk, originallyMounted: originallyMounted) }
@@ -285,8 +300,11 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         // every check below. A single native mount that a previous attempt already
         // restored is the goal, not a stray: leave it so retries stay idempotent.
         let ofDevice = try SystemMountRecord.current().filter { $0.source == "/dev/" + disk.bsdName }
-        if !Self.strayNativeMounts(ofDevice, device: "/dev/" + disk.bsdName, keeping: path).isEmpty,
-           ofDevice.count > 1 || !operation.restoreRequired {
+        let strays = Self.strayNativeMounts(ofDevice, device: "/dev/" + disk.bsdName, keeping: path)
+        // The only mount left is macOS's own read-only one and that is where this
+        // restore ends anyway: keep it (unmounting it failed while Spotlight held it).
+        let nativeIsGoal = ofDevice.count == 1 && strays.count == 1 && Self.mountsNativeAfterRestore(operation)
+        if !strays.isEmpty, !nativeIsGoal, ofDevice.count > 1 || !operation.restoreRequired {
             if try removeStrayNativeMounts(disk, keeping: path) == .busy { throw HelperDiskFailure.busy }
         }
         let records = try mounts(disk)
@@ -294,7 +312,14 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         if !atPoint.isEmpty {
             guard atPoint.count == 1, records.count == 1, atPoint[0].source == "/dev/" + disk.bsdName,
                   atPoint[0].type == "volisle" else { throw HelperDiskFailure.busy }
-            try await NativeReadOnlyDisk(bsdName: disk.bsdName, registryID: disk.registryID).unmount()
+            do { try await NativeReadOnlyDisk(bsdName: disk.bsdName, registryID: disk.registryID).unmount() }
+            catch let failure as HelperDiskFailure where failure != .busy && failure != .permissionDenied {
+                // Files in use (busy) are never forced. Anything else: see whether
+                // the volume could not flush because its session already stopped.
+                guard Self.unmountStoppedWriteMount(path) else { throw failure }
+                Logger(subsystem: "top.qisw.volisle.helper", category: "write")
+                    .notice("写入会话已因设备错误停止，强制卸载读写挂载；恢复记录留待下次连接时回滚")
+            }
         }
         guard try !SystemMountRecord.current().contains(where: { $0.path == path }) else { throw HelperDiskFailure.busy }
         var info = stat()
@@ -325,6 +350,21 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
             }
         } else { guard final.isEmpty else { throw HelperDiskFailure.busy } }
     }
+    /// A write mount whose session stopped on a device error (a USB link that
+    /// dropped a read) cannot flush, so every normal unmount fails with EIO and
+    /// only unplugging the disk used to end it. Its journal records stay for
+    /// rollback at the next activation, so forcing loses nothing that was not
+    /// already lost. Never for a busy volume. True once the mount is gone.
+    static func unmountStoppedWriteMount(_ path: String) -> Bool {
+        var value = [UInt8](repeating: 0, count: 16)
+        let size = getxattr(path, "top.qisw.volisle.write-state", &value, value.count, 0, 0)
+        if size <= 0 || String(decoding: value.prefix(size), as: UTF8.self) != "stopped" {
+            // Extensions before 0.7 do not answer: a normal unmount failing with EIO tells the same.
+            if Darwin.unmount(path, 0) == 0 { return true }
+            guard errno == EIO else { return false }
+        }
+        return Darwin.unmount(path, MNT_FORCE) == 0
+    }
     /// Whether restoring leaves the disk mounted read-only by macOS: always when
     /// it was mounted before, and also after a write start that failed on a
     /// just-inserted disk, which macOS was about to mount itself. Without this
@@ -332,19 +372,117 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     static func mountsNativeAfterRestore(_ operation: HelperMountOperation) -> Bool {
         operation.restoreRequired || operation.failure != nil
     }
-    static func mountArguments(for operation: HelperMountOperation, option: String) -> [String] {
+    /// Run as root, mount(8) finds the invoking user's FSKit modules through
+    /// SUDO_UID only from macOS 26. On macOS 15 it looks at root's own modules
+    /// (none) and gives up before probing ("Unable to invoke task"). There the
+    /// command runs as the owner, who is lent the device nodes meanwhile, and
+    /// the kernel does not reflect the requested flags (nosuid, nodev, rdonly)
+    /// on an FSKit mount: the module enforces read-only itself with EROFS.
+    static let mountRunsAsRoot = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
+    /// Whether the mount command drops to the owner: always for a disposable
+    /// image (no device privilege needed), and for every disk on macOS 15.
+    static func mountsAsOwner(_ operation: HelperMountOperation, rootFindsModules: Bool = mountRunsAsRoot) -> Bool {
+        operation.disk.version == 2 || !rootFindsModules
+    }
+    static func mountArguments(for operation: HelperMountOperation, option: String, asOwner: Bool) -> [String] {
         let context = ["asuser", String(operation.ownerUID)]
-        let drop = operation.disk.version == 2 ? ["/usr/bin/sudo", "-n", "-u", "#" + String(operation.ownerUID), "--"] : []
+        let drop = asOwner ? ["/usr/bin/sudo", "-n", "-u", "#" + String(operation.ownerUID), "--"] : []
         let path = "/private/var/run/volisle-write-mounts/" + operation.id.uuidString.lowercased()
         return context + drop + ["/sbin/mount", "-F", "-k", "-t", "volisle", "-o", option + ",nosuid,nodev", "/dev/" + operation.disk.bsdName, path]
     }
-    static func mountEnvironment(for operation: HelperMountOperation) -> [String: String] {
+    static func mountEnvironment(for operation: HelperMountOperation, asOwner: Bool) -> [String: String] {
         var environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C"]
         // Apple's mount uses SUDO_UID to discover the invoking user's FSKit
         // modules when euid is root. Take it only from the authenticated XPC
         // owner, never from the request or the daemon's inherited environment.
-        if operation.disk.version == 1 { environment["SUDO_UID"] = String(operation.ownerUID) }
+        if !asOwner { environment["SUDO_UID"] = String(operation.ownerUID) }
         return environment
+    }
+    /// The partition's block and raw device nodes, owned by the mount's owner
+    /// for the duration of the mount command (fskitd opens the raw node with
+    /// the caller's identity on macOS 15). Given back as soon as the command
+    /// returns: the module already holds its descriptor by then.
+    struct DeviceLoan {
+        struct Attributes: Equatable, Sendable {
+            var uid: uid_t; var gid: gid_t; var mode: mode_t
+            let device: dev_t; let inode: ino_t
+        }
+        protocol Access: Sendable {
+            func read(_ path: String) throws -> Attributes
+            func changeOwner(_ path: String, uid: uid_t, gid: gid_t) throws
+            func changeMode(_ path: String, mode: mode_t) throws
+        }
+        struct SystemAccess: Access {
+            func read(_ path: String) throws -> Attributes {
+                var info = stat()
+                guard lstat(path, &info) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                return Attributes(uid: info.st_uid, gid: info.st_gid, mode: info.st_mode,
+                                  device: info.st_rdev, inode: info.st_ino)
+            }
+            func changeOwner(_ path: String, uid: uid_t, gid: gid_t) throws {
+                guard chown(path, uid, gid) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            }
+            func changeMode(_ path: String, mode: mode_t) throws {
+                guard chmod(path, mode) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            }
+        }
+        private struct Node { let path: String; let attributes: Attributes }
+        private let nodes: [Node]
+        private let access: any Access
+        static func lend(_ bsdName: String, to owner: UInt32, using access: any Access = SystemAccess()) throws -> DeviceLoan {
+            guard owner != 0, owner != .max else { throw HelperDiskFailure.invalidRequest }
+            var nodes: [Node] = []
+            do {
+                for (path, kind) in [("/dev/" + bsdName, S_IFBLK), ("/dev/r" + bsdName, S_IFCHR)] {
+                    let info = try access.read(path)
+                    guard info.mode & S_IFMT == kind, info.uid == 0 else { throw HelperDiskFailure.unavailable }
+                    nodes.append(Node(path: path, attributes: info))
+                    try access.changeOwner(path, uid: uid_t(owner), gid: info.gid)
+                    try access.changeMode(path, mode: 0o600)
+                }
+            } catch {
+                Logger(subsystem: "top.qisw.volisle.helper", category: "write")
+                    .error("设备节点权限借出失败：\(String(describing: error), privacy: .public)")
+                try DeviceLoan(nodes: nodes, access: access).giveBack()
+                throw HelperDiskFailure.unavailable
+            }
+            return DeviceLoan(nodes: nodes, access: access)
+        }
+        func giveBack() throws {
+            var failed = false
+            for node in nodes {
+                do {
+                    let current = try access.read(node.path), original = node.attributes
+                    // A hot-unplug can reuse the BSD name for different media.
+                    // Do not apply the previous device's permissions to it.
+                    guard current.device == original.device, current.inode == original.inode,
+                          current.mode & S_IFMT == original.mode & S_IFMT else { throw VolumeError.identityChanged }
+                    try access.changeOwner(node.path, uid: original.uid, gid: original.gid)
+                    try access.changeMode(node.path, mode: original.mode & 0o7777)
+                    guard try access.read(node.path) == original else { throw HelperDiskFailure.unavailable }
+                } catch {
+                    failed = true
+                    Logger(subsystem: "top.qisw.volisle.helper", category: "write")
+                        .error("设备节点权限未还原：\(node.path, privacy: .public)，\(String(describing: error), privacy: .public)")
+                }
+            }
+            guard !failed else { throw HelperDiskFailure.unavailable }
+        }
+        func duringMount(_ mount: () async throws -> Void) async throws {
+            do { try await mount() }
+            catch {
+                do { try giveBack() }
+                catch let restorationError {
+                    Logger(subsystem: "top.qisw.volisle.helper", category: "write")
+                        .error("挂载失败后设备权限亦未还原；挂载错误：\(String(describing: error), privacy: .public)")
+                    throw restorationError
+                }
+                throw error
+            }
+            // Before automount settling, metadata checks, or writeMounted state.
+            try giveBack()
+        }
     }
     private func run(_ arguments: [String], environment: [String: String]) async throws {
         try await HelperLaunchctl.run(arguments, environment: environment)

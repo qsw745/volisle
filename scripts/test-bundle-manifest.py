@@ -2,6 +2,7 @@
 """Checks stale artifact rejection using disposable ordinary files only."""
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import tempfile
 from bundle_manifest import inventory, sha256, verify_manifest
@@ -16,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='volisle-bundle-fixture-') as temporary:
     receipt = parent / 'build-manifest.json'
     original = {
         'schema_version': 1, 'bundle_id': 'test.fixture', 'extension_bundle_id': 'test.fixture.filesystem',
-        'extension_build': {'experimental_writes': False, 'target': 'arm64-apple-macos26.4', 'binary_sha256': sha256(binary)},
+        'extension_build': {'experimental_writes': False, 'target': 'arm64-apple-macos' + os.environ.get('VOLISLE_MIN_MACOS', '15.4'), 'binary_sha256': sha256(binary)},
         'files': inventory(bundle),
     }
     receipt.write_text(json.dumps(original))

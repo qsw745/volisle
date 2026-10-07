@@ -1,6 +1,6 @@
 # 盘屿 Volisle
 
-**让硬盘，在 Mac 上自在读写。** 免费开源的 Mac NTFS 读写工具，基于 macOS 26 的 FSKit 用户态文件系统，不装内核扩展、不改安全设置。
+**让硬盘，在 Mac 上自在读写。** 免费开源的 Mac NTFS 读写工具，基于 macOS 的 FSKit 用户态文件系统，不装内核扩展、不改安全设置。
 
 官网与下载：<https://qisw.top/volisle/> · English: <https://qisw.top/volisle/en/>
 
@@ -17,7 +17,7 @@
 
 ## 系统要求
 
-Apple 芯片 Mac，macOS 26.4 或更高版本。完整验证在 macOS 27.2 上完成，详见[兼容性](https://qisw.top/volisle/compatibility/)。
+需要 Apple 芯片 Mac、macOS 15.4 或更高版本（0.8.2 起；此前为 26.4）。完整验证在 macOS 27.2 上完成；macOS 15.6.1 在虚拟机里验证了主要磁盘流程，15.4 本身与 macOS 15 上的实体 USB 硬盘尚未实测，详见[兼容性](https://qisw.top/volisle/compatibility/)。
 
 ## 反馈
 
@@ -64,7 +64,7 @@ python3 scripts/prepare-extension-bundle.py --bundle-id <你的 Bundle ID> --dai
 
 # Volisle
 
-**Your drives, read-write on Mac.** A free, open-source NTFS read-write tool for Mac, built on macOS 26's FSKit user-space file systems: no kernel extension, no lowered security settings.
+**Your drives, read-write on Mac.** A free, open-source NTFS read-write tool for Mac, built on macOS FSKit user-space file systems: no kernel extension, no lowered security settings.
 
 Website and download: <https://qisw.top/volisle/en/>
 
@@ -79,7 +79,7 @@ Website and download: <https://qisw.top/volisle/en/>
 
 ## Requirements
 
-A Mac with Apple silicon, macOS 26.4 or later.
+Requires a Mac with Apple silicon and macOS 15.4 or later (since 0.8.2; earlier versions required 26.4). Full verification was done on macOS 27.2; main disk workflows were verified in a macOS 15.6.1 virtual machine. macOS 15.4 itself and physical USB drives on macOS 15 have not been tested yet.
 
 ## Feedback
 

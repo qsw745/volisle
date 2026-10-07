@@ -11,15 +11,19 @@ public final class EngineStatus {
 
     public init(engine: any FileSystemAdapter) { self.engine = engine }
 
-    public func refresh() async {
-        guard !isChecking else { return }
-        isChecking = true
-        defer { isChecking = false }
+    /// `quietly`: a background re-check keeps showing the last result while it
+    /// runs, instead of "checking" flashing over the window.
+    public func refresh(quietly: Bool = false) async {
+        guard !isChecking, !quietRefresh else { return }
+        let visible = !quietly || checkedAt == nil
+        if visible { isChecking = true } else { quietRefresh = true }
+        defer { if visible { isChecking = false } else { quietRefresh = false } }
         let result = await engine.capability()
         guard !Task.isCancelled else { return }
-        capability = result
+        if result != capability { capability = result }
         checkedAt = Date()
     }
+    @ObservationIgnored private var quietRefresh = false
 
     public var title: String {
         if isChecking { return String(localized: "正在检查") }

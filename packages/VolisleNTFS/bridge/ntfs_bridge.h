@@ -22,9 +22,10 @@ typedef struct nk_volume nk_volume;
 typedef struct {
     const char *name;      /* UTF-8, valid only during the callback */
     int         is_dir;
-    long long   size;      /* bytes, 0 for directories */
+    long long   size;      /* always 0: listing does not open each entry */
     uint64_t    inode;     /* MFT record number — stable item id */
     int         is_symlink; /* Interix or reparse-point symbolic link */
+    uint64_t    reference; /* MFT number and sequence, as nk_reference_path returns */
 } nk_dirent;
 
 /* Return 0 to continue, non-zero to stop enumeration early. */
@@ -89,6 +90,10 @@ int nk_stat_path(nk_volume *v, const char *path, nk_stat *st);
  * rejected, and cached inodes are explicitly checked for stale references. */
 int nk_reference_path(nk_volume *v, const char *path, uint64_t *reference);
 int nk_stat_reference(nk_volume *v, uint64_t reference, nk_stat *st);
+/* Looks `name` up inside directory `dir_reference` (no walk from the root):
+ * its reference and stat. Names match as with paths (any spelling). */
+int nk_lookup_reference(nk_volume *v, uint64_t dir_reference, const char *name,
+                        uint64_t *reference, nk_stat *st);
 long long nk_read_reference(nk_volume *v, uint64_t reference, long long offset,
                             long long count, void *buf);
 long long nk_write_reference(nk_volume *v, uint64_t reference, long long offset,
@@ -102,6 +107,8 @@ long long nk_write(nk_volume *v, const char *path, long long offset,
 
 /* Only regular-file 0444/0644: toggles Windows READONLY, preserves security. */
 int nk_set_file_mode(nk_volume *v, const char *path, uint32_t mode);
+/* Set or clear the Windows HIDDEN attribute (Finder's hidden flag). Not on the root. */
+int nk_set_hidden(nk_volume *v, const char *path, int hidden);
 /* Experimental writers; default builds reject. Readers always fail closed. */
 int nk_set_mac_mode(nk_volume *v, const char *path, uint32_t mode);
 int nk_create_mode(nk_volume *v, const char *dir_path, const char *name, uint32_t mode, int is_dir);
@@ -170,6 +177,9 @@ int nk_inspect(const nk_io *io);
 typedef int (*nk_name_cb)(void *ctx, const char *name);
 enum { NK_XATTR_UPSERT = 0, NK_XATTR_CREATE = 1, NK_XATTR_REPLACE = 2 };
 int nk_xattr_list(nk_volume *v, const char *path, nk_name_cb cb, void *ctx);
+/* As nk_xattr_list / nk_xattr_get, for the file `reference` names (no walk from the root). */
+int nk_xattr_list_reference(nk_volume *v, uint64_t reference, nk_name_cb cb, void *ctx);
+long long nk_xattr_get_reference(nk_volume *v, uint64_t reference, const char *name, void *buf, long long size);
 long long nk_xattr_get(nk_volume *v, const char *path, const char *name, void *buf, long long size);
 int nk_xattr_set(nk_volume *v, const char *path, const char *name, const void *buf, long long size, int policy);
 int nk_xattr_remove(nk_volume *v, const char *path, const char *name);

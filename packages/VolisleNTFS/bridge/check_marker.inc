@@ -18,6 +18,7 @@ struct check_walk {
     u64 records;
     long long items;
     u64 failed_at;          /* MFT number of the first problem */
+    const char *failed_why; /* what was wrong with it, for the log and the user */
     int failed;
 };
 
@@ -46,22 +47,29 @@ static int check_runlist(ntfs_volume *vol, ntfs_attr *na) {
     return 0;
 }
 
-static int check_record(struct check_walk *w, u64 mft, int is_dir) {
+/* `expect_dir`: 1 or 0 as the directory entry says, -1 for a reparse point
+ * (a directory junction or symbolic link is listed as a link but its record
+ * may be a directory: either is consistent). Sets *is_dir from the record and,
+ * on a problem, w->failed_why. */
+static int check_record(struct check_walk *w, u64 mft, int expect_dir, int *is_dir) {
     ntfs_inode *ni = ntfs_inode_open(w->vol, mft);
-    if (!ni) return -1;
-    int bad = 0;
-    if (!!(ni->mrec->flags & MFT_RECORD_IS_DIRECTORY) != !!is_dir) bad = 1;
-    if (!bad && !is_dir) {
+    if (!ni) { w->failed_why = "record unreadable"; return -1; }
+    const char *why = NULL;
+    int dir = !!(ni->mrec->flags & MFT_RECORD_IS_DIRECTORY);
+    if (is_dir) *is_dir = dir;
+    if (expect_dir >= 0 && dir != expect_dir) why = dir ? "listed as a file, record is a folder" : "listed as a folder, record is a file";
+    if (!why && !dir) {
         ntfs_attr *na = ntfs_attr_open(ni, AT_DATA, AT_UNNAMED, 0);
         if (na) {
-            if (check_runlist(w->vol, na)) bad = 1;
+            if (check_runlist(w->vol, na)) why = "data outside the volume";
             ntfs_attr_close(na);
         } else if (errno != ENOENT) {
-            bad = 1;
+            why = "data unreadable";
         }
     }
-    if (ntfs_inode_close(ni)) bad = 1;
-    return bad ? -1 : 0;
+    if (ntfs_inode_close(ni) && !why) why = "record could not be closed";
+    if (why) w->failed_why = why;
+    return why ? -1 : 0;
 }
 
 static int check_filldir(void *ctx, const ntfschar *name, const int name_len,
@@ -72,12 +80,14 @@ static int check_filldir(void *ctx, const ntfschar *name, const int name_len,
     if (w->failed || name_type == FILE_NAME_DOS) return 0;
     u64 mft = MREF(mref);
     if (mft < (u64)FILE_first_user) return 0;
-    if (mft >= w->records) { w->failed = 1; w->failed_at = mft; return -1; }
+    if (mft >= w->records) { w->failed = 1; w->failed_at = mft; w->failed_why = "entry beyond the file table"; return -1; }
     /* Hard links reach one record by several names: check it once. */
     if (w->seen[mft / 8] & (1u << (mft % 8))) return 0;
     w->seen[mft / 8] |= (unsigned char)(1u << (mft % 8));
-    int is_dir = dt_type == NTFS_DT_DIR;
-    if (check_record(w, mft, is_dir) || (is_dir && check_push(w, mft))) {
+    int is_dir = 0;
+    int expect = dt_type == NTFS_DT_DIR ? 1 : (dt_type == NTFS_DT_LNK || dt_type == NTFS_DT_REPARSE) ? -1 : 0;
+    /* Reparse points are checked but not entered: a junction's target is elsewhere. */
+    if (check_record(w, mft, expect, &is_dir) || (is_dir && expect == 1 && check_push(w, mft))) {
         w->failed = 1; w->failed_at = mft; return -1;
     }
     w->items++;
@@ -104,8 +114,14 @@ static int check_volume_readonly(const nk_io *io, long long *items, char *errbuf
     if (!v) { snprintf(errbuf, errlen, "volume could not be read"); errno = EIO; return -1; }
     ntfs_volume *vol = v->vol;
     int r = -1;
+    /* Windows maintenance still pending (chkdsk cut off, a log resize, an
+     * upgrade or USN deletion): only Windows may finish it, so leave the disk. */
+    const le16 pending = VOLUME_RESIZE_LOG_FILE | VOLUME_UPGRADE_ON_MOUNT | VOLUME_DELETE_USN_UNDERWAY |
+                         VOLUME_REPAIR_OBJECT_ID | VOLUME_CHKDSK_UNDERWAY;
     if (!(vol->flags & VOLUME_IS_DIRTY)) {
         snprintf(errbuf, errlen, "not marked for check"); errno = EALREADY;
+    } else if (vol->flags & pending) {
+        snprintf(errbuf, errlen, "Windows maintenance pending"); errno = EBUSY;
     } else if (ntfs_volume_check_hiberfile(vol, 0) < 0) {
         snprintf(errbuf, errlen, "hibernated"); errno = EBUSY;
     } else if (!check_log_clean(vol)) {
@@ -114,7 +130,7 @@ static int check_volume_readonly(const nk_io *io, long long *items, char *errbuf
         struct check_walk w = { .vol = vol };
         w.records = (u64)(vol->mft_na->initialized_size >> vol->mft_record_size_bits);
         w.seen = calloc((size_t)(w.records / 8 + 1), 1);
-        if (!w.seen || check_record(&w, FILE_root, 1) || check_push(&w, FILE_root)) {
+        if (!w.seen || check_record(&w, FILE_root, 1, NULL) || check_push(&w, FILE_root)) {
             w.failed = 1; w.failed_at = FILE_root;
         }
         while (!w.failed && w.pending_count) {
@@ -122,12 +138,18 @@ static int check_volume_readonly(const nk_io *io, long long *items, char *errbuf
             ntfs_inode *dir = ntfs_inode_open(vol, mft);
             s64 pos = 0;
             if (!dir || ntfs_readdir(dir, &pos, &w, check_filldir)) {
-                if (!w.failed) { w.failed = 1; w.failed_at = mft; }
+                if (!w.failed) { w.failed = 1; w.failed_at = mft; w.failed_why = "folder unreadable"; }
             }
-            if (dir && ntfs_inode_close(dir) && !w.failed) { w.failed = 1; w.failed_at = mft; }
+            if (dir && ntfs_inode_close(dir) && !w.failed) { w.failed = 1; w.failed_at = mft; w.failed_why = "folder could not be closed"; }
         }
-        if (w.failed) {
-            snprintf(errbuf, errlen, "inconsistent record %llu", (unsigned long long)w.failed_at);
+        if (w.failed && v->devctx->failed) {
+            /* The disk did not answer a read (a bad sector, a loose cable):
+             * nothing is known about the records, so say that instead. */
+            snprintf(errbuf, errlen, "read failed at record %llu", (unsigned long long)w.failed_at);
+            errno = EIO;
+        } else if (w.failed) {
+            snprintf(errbuf, errlen, "inconsistent record %llu: %s", (unsigned long long)w.failed_at,
+                     w.failed_why ? w.failed_why : "unknown");
             errno = EIO;
         } else {
             *items = w.items;

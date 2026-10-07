@@ -1,6 +1,7 @@
 {
   "checks": [
     "no-op-collision-and-directory-cycle-zero-writes",
+    "non-empty-folders-rename-and-move-delete-refused-without-lock",
     "normal-rename-independent-read",
     "each-write-failure-reported-and-content-retained",
     "each-sync-failure-reported-and-content-retained",

@@ -22,78 +22,139 @@ struct RecoveryView: View {
     private var sourceReady: Bool { (volume?.mountState == .readOnly && volume?.mountURL != nil) || volume?.mountState == .unmounted }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("恢复文件").font(.title2.weight(.semibold))
-                Spacer()
-                Button("完成") { dismiss() }.keyboardShortcut(.cancelAction).disabled(isExporting)
-            }
+        SheetScaffold(Text("恢复文件"),
+                      subtitle: Text("保存文件时如果磁盘中途断开，盘屿会留下这个文件新旧两个版本的记录。核对后可以另存到其他位置，原磁盘不会被改动。"),
+                      systemImage: "clock.arrow.circlepath", tint: .blue) {
             if isLoading {
-                ProgressView("正在读取恢复记录…").frame(maxWidth: .infinity, minHeight: 240)
+                SheetPlaceholder(title: Text("正在读取恢复记录…"))
             } else if records.isEmpty {
-                ContentUnavailableView("没有待恢复文件", systemImage: "checkmark.shield", description: Text(error == nil ? "未发现未完成的覆盖记录。" : "恢复记录尚未读取成功。"))
-                    .frame(maxWidth: .infinity, minHeight: 240)
+                if let error {
+                    SheetPlaceholder(systemImage: "exclamationmark.triangle", tint: .orange,
+                                     title: Text("没有读取到恢复记录"), message: Text(error))
+                } else {
+                    SheetPlaceholder(systemImage: "checkmark.shield", tint: .green,
+                                     title: Text("没有需要恢复的文件"), message: Text("最近没有中途断开的文件保存。"))
+                }
             } else {
-                Text("选择文件，将可核对的版本保存到另一处。原磁盘保持不变。")
-                    .font(.callout).foregroundStyle(.secondary)
-                List(records, selection: $selectedRecord) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.filename).lineLimit(1)
-                        Text(item.status).font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 4).tag(item.id)
-                }.listStyle(.bordered).frame(minHeight: 170).disabled(isExporting)
-                if !disks.isEmpty {
+                chooser
+            }
+            status
+        } buttons: {
+            Button("刷新") { Task { await load() } }.disabled(isLoading || isExporting)
+            Button("导入记录…") { Task { await importRecord() } }.disabled(isLoading || isExporting)
+                .help("导入从备份或另一台 Mac 拷来的恢复记录文件夹。")
+            Spacer()
+            if isExporting { ProgressView().controlSize(.small) }
+            Button("完成") { dismiss() }.keyboardShortcut(.cancelAction).disabled(isExporting)
+            if isExporting {
+                Button("取消导出") { exportTask?.cancel() }
+            } else if let result {
+                Button("查看导出文件") { NSWorkspace.shared.open(result.directory) }.buttonStyle(.borderedProminent)
+            } else if !records.isEmpty {
+                Button("选择位置并导出…") { Task { await chooseDestination() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isLoading || record?.canExport != true || !sourceReady)
+            }
+        }
+        .frame(width: 560)
+        .background(RecoveryWindowReader { hostWindow = $0 })
+        .interactiveDismissDisabled(isExporting)
+        .task { selectedDisk = preferredVolume; await load() }
+        .onChange(of: selectedRecord) { _, _ in result = nil; error = nil }
+        .onChange(of: selectedDisk) { _, _ in result = nil; error = nil }
+    }
+
+    /// A list, not custom rows: Tab reaches it and the arrow keys change the choice.
+    private var chooser: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("待恢复的文件").font(.headline)
+            List(records, selection: $selectedRecord) { row($0) }
+                .listStyle(.bordered(alternatesRowBackgrounds: false))
+                .frame(height: CGFloat(min(records.count, 4)) * 46 + 8)
+                .disabled(isExporting)
+            HStack {
+                Text("来源磁盘")
+                Spacer()
+                if disks.isEmpty {
+                    Text("未连接").foregroundStyle(.secondary)
+                } else {
                     Picker("来源磁盘", selection: $selectedDisk) {
                         Text("选择磁盘").tag(VolumeIdentity?.none)
-                        ForEach(disks) { disk in
-                            Text(disk.name + " · " + (disk.mountState == .readOnly ? String(localized: "只读") : disk.mountState == .unmounted ? String(localized: "未挂载") : String(localized: "请先恢复只读")))
-                                .tag(Optional(disk.id))
-                        }
-                    }.disabled(isExporting)
-                }
-                if record?.canExport == false {
-                    Text("这份记录无法验证，已保留原始记录，暂不能自动导出。")
-                        .font(.callout).foregroundStyle(.secondary)
-                } else if volume?.mountState == .unmounted {
-                    Text("导出时会以只读方式连接这块磁盘。")
-                        .font(.callout).foregroundStyle(.secondary)
-                } else if sourceReady {
-                    Text("核对磁盘时会短暂重新连接只读挂载，请先关闭正在使用的文件。")
-                        .font(.callout).foregroundStyle(.secondary)
-                } else if !sourceReady {
-                    Text("请将原磁盘恢复只读，或重新连接让 macOS 只读挂载后刷新。")
-                        .font(.callout).foregroundStyle(.secondary)
+                        ForEach(disks) { disk in Text(describe(disk)).tag(Optional(disk.id)) }
+                    }
+                    .labelsHidden().fixedSize()
                 }
             }
-            if let error { Label(error, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.red).textSelection(.enabled) }
-            if let result {
-                Label(result.exportedCount == 2 ? "新旧两个版本均已校验并导出。" : "已导出 1 个通过校验的版本；另一版本未找到或未通过校验。", systemImage: "checkmark.circle")
-                    .font(.callout)
-                Text("原文件及记录仍保留；导出不会修复磁盘或启用写入。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            HStack {
-                Button("刷新") { Task { await load() } }.disabled(isLoading || isExporting)
-                Button("导入记录…") { Task { await importRecord() } }.disabled(isLoading || isExporting)
-                Spacer()
-                if isExporting {
-                    ProgressView().controlSize(.small)
-                    Button("取消导出") { exportTask?.cancel() }
-                } else if let result {
-                    Button("查看导出文件") { NSWorkspace.shared.open(result.directory) }.buttonStyle(.borderedProminent)
-                } else {
-                    Button("选择位置并导出…") { Task { await chooseDestination() } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isLoading || record?.canExport != true || !sourceReady)
-                }
-            }
-        }.padding(24).frame(width: 560, height: 470)
-            .background(RecoveryWindowReader { hostWindow = $0 })
-            .interactiveDismissDisabled(isExporting)
-            .task { selectedDisk = preferredVolume; await load() }
-            .onChange(of: selectedRecord) { _, _ in result = nil; error = nil }
-            .onChange(of: selectedDisk) { _, _ in result = nil; error = nil }
+            .disabled(isExporting)
+            .padding(.top, 6)
+        }
+        .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 14)
     }
+
+    /// Why exporting is not possible yet, what went wrong, or what was saved:
+    /// always in view above the buttons.
+    @ViewBuilder private var status: some View {
+        if let result {
+            VStack(alignment: .leading, spacing: 4) {
+                Label {
+                    Text(result.exportedCount == 2 ? String(localized: "新旧两个版本均已校验并导出。")
+                         : String(localized: "已导出 1 个通过校验的版本；另一版本未找到或未通过校验。"))
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                }
+                Text("原文件及记录仍保留；导出不会修复磁盘或启用写入。").font(.caption).foregroundStyle(.secondary)
+            }
+            .sheetStatus()
+        } else if !records.isEmpty, let sourceNote {
+            Label(sourceNote, systemImage: "info.circle").foregroundStyle(.secondary).sheetStatus()
+        }
+        if let error, !records.isEmpty {
+            Label(error, systemImage: "exclamationmark.octagon.fill").foregroundStyle(.red).textSelection(.enabled)
+                .sheetStatus()
+        }
+    }
+
+    private func row(_ item: ReplacementRecoveryRecord) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: item.canExport ? "doc" : "exclamationmark.triangle.fill")
+                .foregroundStyle(item.canExport ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
+                .frame(width: 18).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.filename).lineLimit(1).truncationMode(.middle)
+                Text(detail(item)).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// An imported record carries the time it was imported, not when saving
+    /// was interrupted: no date for those.
+    private func detail(_ item: ReplacementRecoveryRecord) -> String {
+        if importedRecords.contains(where: { $0.id == item.id }) { return item.status + " · " + String(localized: "导入的记录") }
+        guard item.modified != .distantPast else { return item.status }
+        return item.status + " · " + item.modified.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func describe(_ disk: VolumeSnapshot) -> String {
+        let state = switch disk.mountState {
+        case .readOnly: String(localized: "只读")
+        case .unmounted: String(localized: "未挂载")
+        default: String(localized: "请先恢复只读")
+        }
+        return disk.name + " · " + state
+    }
+
+    /// What exporting needs from the source disk, or why it cannot be done.
+    private var sourceNote: String? {
+        if record?.canExport == false { return String(localized: "这份记录无法验证，已保留原始记录，暂不能自动导出。") }
+        if disks.isEmpty { return String(localized: "请连接这个文件所在的磁盘，再点“刷新”。") }
+        guard let volume else { return String(localized: "请选择这个文件所在的磁盘。") }
+        if volume.mountState == .unmounted { return String(localized: "导出时会以只读方式连接这块磁盘。") }
+        if sourceReady { return String(localized: "核对磁盘时会短暂重新连接只读挂载，请先关闭正在使用的文件。") }
+        return String(localized: "请将原磁盘恢复只读，或重新连接让 macOS 只读挂载后刷新。")
+    }
+
     private func load() async {
         isLoading = true; error = nil; result = nil
         defer { isLoading = false }
@@ -130,7 +191,8 @@ struct RecoveryView: View {
         let destination = selected.resolvingSymlinksInPath()
         isExporting = true; error = nil; result = nil
         exportTask = Task {
-            defer { isExporting = false; exportTask = nil }
+            let running = QuitGuard.begin(String(localized: "正在导出恢复的文件"))
+            defer { isExporting = false; exportTask = nil; QuitGuard.end(running) }
             do {
                 result = try await ReplacementRecoveryCoordinator().export(record, volume: volume,
                     destination: destination, resolver: discovery)

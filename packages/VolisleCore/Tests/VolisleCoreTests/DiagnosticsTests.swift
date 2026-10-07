@@ -20,7 +20,8 @@ import Foundation
         #expect(!output.contains("123456789"))
         #expect(!output.contains("987654321"))
     }
-    let decoded = try JSONDecoder().decode(DiagnosticReport.self, from: data)
+    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+    let decoded = try decoder.decode(DiagnosticReport.self, from: data)
     #expect(decoded.fileSystemCounts == ["other": 1])
     #expect(decoded.mountStateCounts == ["readWrite": 1])
     #expect(!decoded.engineSupportsFinderReadWrite)

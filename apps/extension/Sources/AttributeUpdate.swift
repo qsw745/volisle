@@ -12,25 +12,31 @@ struct AttributeUpdate {
     private let atime: nk_timestamp?
     private let mtime: nk_timestamp?
     private let btime: nk_timestamp?
+    /// Finder's hidden flag, stored as the Windows HIDDEN attribute.
+    private let hidden: Bool?
+    private let flagsHeld: Bool
 
+    /// `creating`: the attributes a new item is created with. Its write bit is
+    /// not applied then: POSIX checks permissions when a file is opened, so
+    /// `open(O_CREAT|O_WRONLY, 0444)` followed by writes (as git does) must work.
     init(_ request: FSItem.SetAttributesRequest, kind: FSItem.ItemType, privateModes: Bool = false,
-         currentFlags: UInt32 = 0) throws {
+         currentFlags: UInt32 = 0, creating: Bool = false) throws {
         self.request = request
         request.consumedAttributes = []
-        // SDK treats the two capability Booleans as valid even on a fresh
-        // request. They are derived outputs, not requested disk mutations;
-        // leave them unconsumed instead of rejecting every set request.
-        for unsupported: FSItem.Attribute in [.linkCount, .allocSize, .fileID, .parentID,
-            .changeTime, .backupTime, .addedTime] {
-            if request.isValid(unsupported) { throw POSIXError(.ENOTSUP) }
-        }
+        // What NTFS cannot hold (link count, ctime, backup and added time, other
+        // owners, other flags) is left unconsumed, as FSKit asks, not refused:
+        // refusing made a Finder copy of, e.g., a folder with a custom icon stop.
         if request.isValid(.type) && request.type != kind { throw POSIXError(.EINVAL) }
-        if request.isValid(.uid) && request.uid != getuid() { throw POSIXError(.ENOTSUP) }
-        if request.isValid(.gid) && request.gid != getgid() { throw POSIXError(.ENOTSUP) }
-        // Flags mirror NTFS attributes (hidden); only an unchanged value is accepted.
-        if request.isValid(.flags) && request.flags != currentFlags { throw POSIXError(.ENOTSUP) }
+        let hiddenFlag = UInt32(UF_HIDDEN)
+        if request.isValid(.flags), request.flags & hiddenFlag != currentFlags & hiddenFlag {
+            hidden = request.flags & hiddenFlag != 0
+        } else { hidden = nil }
+        // Other flag bits have no NTFS counterpart: consumed only when unchanged.
+        flagsHeld = request.isValid(.flags) && request.flags & ~hiddenFlag == currentFlags & ~hiddenFlag
         if privateModes {
             mode = request.isValid(.mode) && (kind == .file || kind == .directory) ? request.mode & 0o7777 : nil
+        } else if creating {
+            mode = nil
         } else {
             // Like exFAT on macOS: a Windows disk carries no Mac permissions,
             // and this noowners mount gives every local user owner access.
@@ -51,10 +57,11 @@ struct AttributeUpdate {
             }
         }
         var accepted: FSItem.Attribute = []
-        for attribute: FSItem.Attribute in [.type, .uid, .gid, .flags] where request.isValid(attribute) {
-            accepted.insert(attribute)
-        }
-        if kind != .file && !privateModes && request.isValid(.mode) { accepted.insert(.mode) }
+        if request.isValid(.type) { accepted.insert(.type) }
+        if request.isValid(.uid) && request.uid == getuid() { accepted.insert(.uid) }
+        if request.isValid(.gid) && request.gid == getgid() { accepted.insert(.gid) }
+        if flagsHeld && hidden == nil { accepted.insert(.flags) }
+        if (kind != .file || creating) && !privateModes && request.isValid(.mode) { accepted.insert(.mode) }
         noChanges = accepted
         if request.isValid(.size) {
             guard kind == .file else { throw POSIXError(kind == .directory ? .EISDIR : .ENOTSUP) }
@@ -77,8 +84,13 @@ struct AttributeUpdate {
     }
 
     func apply(setMode: (UInt32) throws -> Void, truncate: (Int64) throws -> Void,
-               setTimes: (nk_timestamp?, nk_timestamp?, nk_timestamp?) throws -> Void) throws {
+               setTimes: (nk_timestamp?, nk_timestamp?, nk_timestamp?) throws -> Void,
+               setHidden: (Bool) throws -> Void = { _ in }) throws {
         request.consumedAttributes.formUnion(noChanges)
+        if let hidden {
+            try setHidden(hidden)
+            if flagsHeld { request.consumedAttributes.insert(.flags) }
+        }
         // Clear READONLY before an explicitly requested truncate, and set it
         // only after other changes succeed. Consume only persisted attributes.
         if let mode, mode & 0o200 != 0 { try setMode(mode); request.consumedAttributes.insert(.mode) }

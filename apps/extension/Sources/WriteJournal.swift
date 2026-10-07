@@ -16,6 +16,13 @@ protocol JournalBlockDevice: AnyObject {
     func journalReadRun(into buffer: UnsafeMutableRawBufferPointer, at offset: Int64) throws
     func journalWrite(_ block: UnsafeRawBufferPointer, at offset: Int64) throws
     func journalFlush() throws
+    /// Starts writing cached blocks to the device without waiting. Only a hint:
+    /// durability still comes from journalFlush.
+    func journalStartFlush()
+}
+
+extension JournalBlockDevice {
+    func journalStartFlush() {}
 }
 
 enum WriteJournalLimits {
@@ -111,8 +118,15 @@ final class WriteJournalSession {
     private var writtenBytes = 0
     private(set) var epochBytes = 0
     private(set) var failed = false
-    private(set) var lastWrite = Date.distantPast
-    private(set) var epochStarted = Date.distantPast
+    /// Uptime of the last write and of this epoch's first group: the idle and
+    /// age triggers for a checkpoint, on the same clock as the retention window.
+    private var lastWrite: TimeInterval = -.infinity
+    private var epochStarted: TimeInterval = -.infinity
+    /// Uptime of the last completed checkpoint.
+    private var lastCheckpoint: TimeInterval = -.infinity
+    var idleSeconds: TimeInterval { clock() - lastWrite }
+    var epochSeconds: TimeInterval { clock() - epochStarted }
+    var checkpointSeconds: TimeInterval { clock() - lastCheckpoint }
     #if VOLISLE_WRITE_JOURNAL_TESTING
     var boundary: ((String) throws -> Void)?
     #endif
@@ -124,6 +138,19 @@ final class WriteJournalSession {
     deinit { if file >= 0 { Darwin.close(file) } }
 
     var hasUncheckpointedWrites: Bool { file >= 0 || !overlay.isEmpty }
+    /// Not written by this journal since the last checkpoint's device flush: the
+    /// device holds exactly what the cache would return.
+    func unchangedSinceCheckpoint(_ offset: Int64) -> Bool {
+        !failed && overlay[offset] == nil && pendingBefore[offset] == nil && !logged.contains(offset)
+    }
+    /// About to be written in part, and holding nothing worth keeping: not
+    /// written since the last checkpoint and free then, the reason its
+    /// before-image is skipped too. The unwritten rest of such a block need not
+    /// be read: an unreadable spot in free space (a bad sector) cannot fail a
+    /// write there, and the write lets the drive remap it.
+    func isFreeAndUnwritten(_ offset: Int64, _ length: Int) -> Bool {
+        unchangedSinceCheckpoint(offset) && freeAtCheckpoint(offset, length)
+    }
     var checkpointDue: Bool {
         epochBytes + overlayBytes >= WriteJournalLimits.checkpointBytes ||
             writtenBytes + overlayBytes >= WriteJournalLimits.checkpointWrittenBytes
@@ -149,7 +176,7 @@ final class WriteJournalSession {
             if let old = overlay[offset] { overlayBytes -= old.count }
             overlay[offset] = Data(block)
             overlayBytes += block.count
-            lastWrite = Date()
+            lastWrite = clock()
             if overlayBytes >= WriteJournalLimits.groupBytes { try flushGroup() }
         } catch { stop(); throw error }
     }
@@ -180,6 +207,7 @@ final class WriteJournalSession {
             }
             logged.removeAll(); checkpointBitmap.removeAll(); epochBitmapBefore.removeAll(); epochBitmapKnown = true
             epochBytes = 0; writtenBytes = 0; epoch += 1
+            lastCheckpoint = clock()
             pruneRetained()
         } catch { stop(); throw error }
     }
@@ -209,7 +237,7 @@ final class WriteJournalSession {
             (file, previous) = try store.createEpoch(serial: record.serial,
                 header: .init(session: record.session, epoch: epoch, kind: kind))
             fileName = store.epochName(serial: record.serial, epoch: epoch)
-            epochStarted = Date()
+            epochStarted = clock()
         }
         let offsets = overlay.keys.sorted()
         let free = pendingBefore.filter { freeAtCheckpoint($0.key, $0.value) }.map(\.key)
@@ -224,13 +252,17 @@ final class WriteJournalSession {
         }
         let group = WriteJournalEpoch.Group(
             before: before,
-            after: offsets.map { ($0, Data(SHA256.hash(data: overlay[$0]!))) })
+            after: offsets.map { ($0, Data(SHA256.hash(data: overlay[$0]!))) },
+            afterSectors: Dictionary(uniqueKeysWithValues: offsets.map { ($0, WriteJournalEpoch.sectorHashes(overlay[$0]!)) }))
         try hook("group-before-record")
         previous = try store.appendGroup(file, group, previous: previous)
         try hook("group-recorded")
         for offset in offsets {
             try overlay[offset]!.withUnsafeBytes { try device.journalWrite($0, at: offset) }
         }
+        // Their records are durable: the device may get them now. Writing them out
+        // while the copy goes on, instead of all at the checkpoint, keeps the disk busy.
+        device.journalStartFlush()
         epochBytes += before.reduce(0) { $0 + $1.bytes.count }
         writtenBytes += overlayBytes
         skippedBytes += free.reduce(0) { $0 + overlay[$1]!.count }
@@ -340,12 +372,40 @@ final class JournaledIO {
         let scratch = UnsafeMutableRawBufferPointer.allocate(byteCount: Int(alignedEnd - start), alignment: Int(bs))
         defer { scratch.deallocate() }
         do {
-            try MetadataBlocks.forEach(start: start, length: scratch.count, blockSize: Int(bs), deviceSize: size) { at, skip, length in
-                try readBlock(into: UnsafeMutableRawBufferPointer(rebasing: scratch[skip..<skip + length]), at: at)
+            if scratch.count >= Self.directReadMinimum { try readRuns(into: scratch, at: start, blockSize: Int(bs), deviceSize: size) }
+            else {
+                try MetadataBlocks.forEach(start: start, length: scratch.count, blockSize: Int(bs), deviceSize: size) { at, skip, length in
+                    try readBlock(into: UnsafeMutableRawBufferPointer(rebasing: scratch[skip..<skip + length]), at: at)
+                }
             }
             memcpy(buffer, scratch.baseAddress!.advanced(by: Int(offset - start)), Int(count))
             return count
         } catch { return -1 }
+    }
+
+    /// File data comes in large reads. One block at a time through the cache
+    /// read a USB disk at about half its speed; blocks the journal has not
+    /// written since its last checkpoint read in one uncached run instead (the
+    /// device holds what the cache holds; nothing new enters the cache). Small
+    /// reads, mostly metadata read again and again, stay cached.
+    static let directReadMinimum = 256 * 1024
+    private func readRuns(into scratch: UnsafeMutableRawBufferPointer, at start: Int64, blockSize: Int, deviceSize: Int64) throws {
+        var run: (skip: Int, length: Int)?
+        func flushRun() throws {
+            guard let current = run else { return }
+            try device.journalReadRun(into: UnsafeMutableRawBufferPointer(rebasing: scratch[current.skip..<current.skip + current.length]),
+                                      at: start + Int64(current.skip))
+            run = nil
+        }
+        try MetadataBlocks.forEach(start: start, length: scratch.count, blockSize: blockSize, deviceSize: deviceSize) { at, skip, length in
+            if session?.unchangedSinceCheckpoint(at) ?? true {
+                if let current = run { run = (current.skip, current.length + length) } else { run = (skip, length) }
+            } else {
+                try flushRun()
+                try readBlock(into: UnsafeMutableRawBufferPointer(rebasing: scratch[skip..<skip + length]), at: at)
+            }
+        }
+        try flushRun()
     }
 
     func readBlock(into block: UnsafeMutableRawBufferPointer, at offset: Int64) throws {
@@ -358,7 +418,14 @@ final class JournaledIO {
         do {
             try pipeline.write(UnsafeRawBufferPointer(start: buffer, count: length), offset: offset,
                 blockSize: device.journalBlockSize, deviceSize: device.journalDeviceSize,
-                read: { at, block in try self.readBlock(into: block, at: at) },
+                read: { at, block in
+                    // Free space keeps nothing: zeros, rather than reading what may not be readable.
+                    if session.isFreeAndUnwritten(at, block.count) {
+                        _ = block.initializeMemory(as: UInt8.self, repeating: 0)
+                    } else {
+                        try self.readBlock(into: block, at: at)
+                    }
+                },
                 write: { at, block in try session.write(block, at: at) })
             return count
         } catch { session.stop(); return -1 }

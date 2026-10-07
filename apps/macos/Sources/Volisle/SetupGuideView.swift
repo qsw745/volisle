@@ -1,11 +1,13 @@
 import SwiftUI
 import AppKit
+import FSKit
 import VolisleCore
 import ServiceManagement
 
 /// System Settings panes for the three switches only the user can turn on.
 enum SetupLinks {
     static func fileSystemExtensions() {
+        if #available(macOS 27.0, *), FSClient.shared.openFileSystemExtensionsSettings() { return }
         // Opens the File System Extensions list directly (verified on macOS 26.6).
         let direct = URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences?extensionPointIdentifier=com.apple.fskit.fsmodule")!
         if !NSWorkspace.shared.open(direct) { SMAppService.openSystemSettingsLoginItems() }
@@ -105,7 +107,7 @@ struct SetupStepsView: View {
         case .backgroundComponent:
             String(localized: "点下面的按钮，系统设置会打开“登录项与扩展”。在“允许在后台”里找到“盘屿”，打开右边的开关。系统可能要求输入这台 Mac 的登录密码。")
         case .fileSystemExtension:
-            String(localized: "点下面的按钮，系统设置会打开“文件系统扩展”列表。打开“盘屿 NTFS”右边的开关，再点“完成”。在“按 App”页面里盘屿下面的“FSKit Modules”开关不用管。")
+            String(localized: "点下面的按钮，系统设置会打开“文件系统扩展”列表。打开“盘屿 NTFS”（有的系统显示为“Volisle NTFS”）右边的开关，再点“完成”。在“按 App”页面里盘屿下面的“FSKit Modules”开关不用管。")
         case .fullDiskAccess:
             String(localized: "点下面的按钮，系统设置会打开“完全磁盘访问”。找到“盘屿”，打开右边的开关。列表里没有盘屿时，点列表下方的“+”，在“应用程序”里选择“盘屿”。如果系统提示退出并重新打开，选“稍后”即可。")
         }
@@ -174,6 +176,7 @@ struct SetupGuideView: View {
                     Text(progress.isComplete ? "设置完成" : "欢迎使用盘屿").font(.title2.weight(.semibold))
                     Text(progress.isComplete
                          ? String(localized: "插入 NTFS 移动硬盘或 U 盘，盘屿会自动开启读写，在 Finder 里直接使用就行。")
+                         : 3 - progress.doneCount == 1 ? String(localized: "还差最后 1 步。这个开关 macOS 要求你亲自打开，只需设置一次。")
                          : String(localized: "还差 \(3 - progress.doneCount) 步。这几个开关 macOS 要求你亲自打开，只需设置一次。"))
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }

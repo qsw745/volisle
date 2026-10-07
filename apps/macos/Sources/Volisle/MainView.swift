@@ -10,6 +10,7 @@ struct MainView: View {
     var manualMount: ManualMountController
     var mountCycle: MountCycleClient
     var helperService: HelperServiceController
+    var copies: CopyQueue
     var refreshRuntime: () async -> Void
     @State private var showSetup = false
     @State private var setupOffered = false
@@ -23,11 +24,15 @@ struct MainView: View {
     @State private var recovering = false
     @State private var ejecting: VolumeSnapshot?
     @State private var markerTarget: CheckMarkerTarget?
+    /// The disk whose read-write conditions are shown ("Can't write to this disk?").
+    @State private var checkingDisk: VolumeSnapshot?
     @State private var markerClearer = CheckMarkerClearer()
     @State private var markerResult: String?
+    @State private var showCopies = false
     @State private var bitLocker = BitLockerController()
     /// A Windows-disk assistant: other file systems belong to Finder and Disk Utility.
-    private var volumes: [VolumeSnapshot] { discovery.volumes.filter { $0.isNTFS || bitLocker.isBitLocker($0) } }
+    /// NTFS that another driver mounted is listed too, with how to hand it over.
+    private var volumes: [VolumeSnapshot] { discovery.volumes.filter { $0.isNTFS || $0.foreignDriver != nil || bitLocker.isBitLocker($0) } }
     /// Partitions macOS could not read that may be BitLocker; asked again when the helper connects.
     private var bitLockerCandidates: [String] {
         discovery.volumes.filter(\.isUnrecognizedWindows).map { $0.identity.connection.uuidString } + [String(describing: helperService.state), "\(showErase)"]
@@ -41,7 +46,13 @@ struct MainView: View {
         if let error = errors.compactMap({ $0 }).first { return error }
         if let notice = actions.notice { return notice }
         if let notice = mountCycle.notice { return named(notice) }
-        return manualMount.notice
+        return manualMount.notice ?? copiesWaiting
+    }
+    /// Copies waiting for a disk that is not connected right now.
+    private var copiesWaiting: String? {
+        let present = Set(discovery.volumes.compactMap(\.identity.resumeKey))
+        guard let job = copies.jobs.first(where: { !$0.progress.finished && $0.progress.pause == .disk && !present.contains($0.plan.diskKey) }) else { return nil }
+        return String(localized: "“\(job.plan.volumeName)”上的拷贝已暂停：插回这块盘并开启读写后会自动继续。")
     }
     /// The disk the read-write session (and the bar's button) is about, when
     /// another one is selected, e.g. an unlocked BitLocker partition.
@@ -130,9 +141,15 @@ struct MainView: View {
                     }
                 } else if let selected {
                     let holder = writeHolder(for: selected)
-                    VolumeDetail(volume: selected, busy: recovering || (mountCycle.blocksActions && holder == nil) || actions.isBusy(selected) || autoMount.isBusy(selected) || manualMount.isBusy(selected),
+                    let ownCycleNeedsAttention = mountCycle.needsAttention
+                        && mountCycle.operation?.disk.bsdName == selected.bsdName
+                        && mountCycle.operation?.disk.registryID == selected.identity.mediaRegistryID
+                    // While another disk holds the read-write session, the shared barrier
+                    // makes every device look busy: only this disk's own work counts then.
+                    let ownWork = actions.activeDevices.contains(selected.deviceGroup) || autoMount.isBusy(selected) || manualMount.isBusy(selected)
+                    VolumeDetail(volume: selected, busy: recovering || ownWork || (holder == nil && (mountCycle.blocksActions || actions.isBusy(selected))),
                                  waitingFor: holder.map { WriteSlotWait(holder: $0, automatic: autoMount.preferences.isEnabled(selected.identity)) },
-                                 backgroundNeedsAttention: mountCycle.needsAttention,
+                                 backgroundNeedsAttention: ownCycleNeedsAttention,
                                  controlledWrite: mountCycle.isWritable(selected),
                                  testDirectory: PhysicalWriteAvailability.testDirectory(for: selected),
                                  requiresVerification: manualMount.requiresVerification(selected),
@@ -142,8 +159,7 @@ struct MainView: View {
                                      else { await manualMount.verifyRecovery(selected) }
                                  } },
                                  capability: engineStatus.capability, checkingEngine: engineStatus.isChecking, enableWriting: {
-                        if DailyWriteAvailability.allows(selected) || PhysicalWriteAvailability.testDirectory(for: selected) != nil { writingVolume = selected }
-                        else { Task { await manualMount.enable(selected) } }
+                        enableWriting(selected)
                     }, openFinder: {
                         if mountCycle.isWritable(selected) {
                             Task {
@@ -158,7 +174,15 @@ struct MainView: View {
                         // Like Finder: one volume ejects directly; confirm only when siblings go too.
                         if discovery.volumes.filter({ $0.deviceGroup == selected.deviceGroup }).count > 1 { ejecting = selected }
                         else { eject(selected) }
-                    }, needsCheck: markedNeedsCheck(selected), checkOnMac: { markerTarget = checkTarget(for: selected) })
+                    }, needsCheck: markedNeedsCheck(selected), checkOnMac: { markerTarget = checkTarget(for: selected) },
+                       writeRefusal: DailyWriteAvailability.refusal(selected)?.errorDescription,
+                       copyJobs: copies.jobs.filter { $0.plan.diskKey == selected.identity.resumeKey },
+                       copies: copies, copyToDisk: { urls in startCopy(to: selected, sources: urls) },
+                       openCopiedFiles: { job in revealCopy(job, on: selected) },
+                       checkDisk: { checkingDisk = selected },
+                       writeRecoveryMessage: ownCycleNeedsAttention ? mountCycle.lastError : nil,
+                       restoreReadOnly: ownCycleNeedsAttention && mountCycle.canRecover && mountCycle.operation?.phase == .writeMounted
+                            ? { Task { await mountCycle.recover() } } : nil)
                 } else {
                     ContentUnavailableView {
                         Label(discovery.error == nil ? "插入 Windows 格式的磁盘" : "暂时无法读取磁盘", systemImage: "externaldrive.badge.plus")
@@ -173,17 +197,21 @@ struct MainView: View {
                 if let message = bottomMessage {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: mountCycle.lastError == nil && actions.lastError == nil && autoMount.lastError == nil && manualMount.lastError == nil ? "checkmark.circle" : "exclamationmark.circle")
-                        Text(message).lineLimit(4)
+                        // English runs longer than Chinese: room for the whole advice, and copyable.
+                        Text(message).lineLimit(7).textSelection(.enabled)
                         Spacer()
                         if let target = checkMarkerTarget {
                             Button("在 Mac 上检查…") { markerTarget = target }
                         }
+                        if message == copiesWaiting {
+                            Button("管理拷贝…") { showCopies = true }
+                        }
                         if mountCycle.isBusy || markerClearer.isWorking { ProgressView().controlSize(.small) }
-                        else if mountCycle.needsAttention || mountCycle.canRecover {
+                        else if !mountCycle.requiresRestart && (mountCycle.needsAttention || mountCycle.canRecover) {
                             Button(mountCycle.canRecover && mountCycle.operation?.phase == .writeMounted
                                    ? cycleDiskName.map { String(localized: "将“\($0)”恢复只读") } ?? String(localized: "恢复只读")
                                    : String(localized: "重新核验")) { Task { await mountCycle.recover() } }
-                        } else {
+                        } else if !mountCycle.needsAttention {
                             Button("关闭", systemImage: "xmark") { actions.clearMessage(); autoMount.clearMessage(); manualMount.clearMessage(); mountCycle.clearMessage() }.labelStyle(.iconOnly).buttonStyle(.plain)
                         }
                     }.font(.callout).padding(14).background(.bar)
@@ -233,7 +261,10 @@ struct MainView: View {
         // Disk Arbitration does not report the helper's BitLocker mounts; Finder ejects do reach here.
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in bitLocker.refreshMounts() }
         .onReceive(NotificationCenter.default.publisher(for: .volisleCloseSheetsForQuit)) { _ in
-            showSetup = false; showDetails = false
+            showSetup = false; showDetails = false; showCopies = false; checkingDisk = nil
+            if !recovering { showRecovery = false }  // erasing closes itself when it is not working
+            // Open confirmations hold a quit back as sheets do.
+            writingVolume = nil; checkingVolume = nil; ejecting = nil; markerTarget = nil
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in bitLocker.refreshMounts() }
         // Mounts made outside this window (another unlock, a command line) send no notification.
@@ -296,6 +327,13 @@ struct MainView: View {
         .alert("检查完成", isPresented: Binding(get: { markerResult != nil }, set: { if !$0 { markerResult = nil } })) {
             Button("好", role: .cancel) { markerResult = nil }
         } message: { Text(markerResult ?? "") }
+        .sheet(item: $checkingDisk) { volume in
+            DiskCheckView(volumeName: volume.name, deviceModel: volume.deviceName,
+                          items: { readiness(volume, diskErrors: $0) }, perform: { perform($0, for: volume) },
+                          diagnosticsReport: { .init(report: .snapshot(discovery: discovery, engineStatus: engineStatus, mountCycle: mountCycle,
+                                                                       helperService: helperService, autoMount: autoMount),
+                                                     models: DiagnosticReport.diskModels(discovery.volumes)) })
+        }
         .sheet(isPresented: $showSetup) {
             SetupGuideView(helperService: helperService, engineStatus: engineStatus, refreshRuntime: refreshRuntime)
         }
@@ -303,15 +341,18 @@ struct MainView: View {
         .onChange(of: setupReason, initial: true) { offerSetup() }
         .onChange(of: helperService.hasChecked) { offerSetup() }
         .onChange(of: engineStatus.checkedAt) { offerSetup() }
+        .sheet(isPresented: $showCopies) {
+            CopyManagerSheet(queue: copies, presentVolumes: Set(discovery.volumes.compactMap(\.identity.resumeKey)))
+        }
         .sheet(isPresented: $showErase) {
-            EraseDiskView(discovery: discovery, mountCycle: mountCycle)
+            EraseDiskView(discovery: discovery, mountCycle: mountCycle,
+                          preferredDisk: selected.flatMap { $0.bsdName.firstMatch(of: /^disk\d+/).map { String($0.output) } })
         }
         .sheet(isPresented: $showRecovery) {
             RecoveryView(discovery: discovery, preferredVolume: selection, isExporting: $recovering)
         }
         .sheet(isPresented: $showDetails) {
-            if let selected { VolumeInfoView(volume: selected, engineStatus: engineStatus, bitLocker: bitLocker.isBitLocker(selected)) }
-            else { Text("磁盘已断开").padding(40) }
+            VolumeInfoView(volume: selected, engineStatus: engineStatus, bitLocker: selected.map(bitLocker.isBitLocker) ?? false)
         }
     }
     private func offerSetup() {
@@ -334,6 +375,37 @@ struct MainView: View {
             return helperService.fullDiskAccess == false ? String(localized: "还需允许盘屿读取磁盘：在“系统设置 → 隐私与安全性 → 完全磁盘访问”中打开“盘屿”。") : nil
         }
     }
+    private func enableWriting(_ selected: VolumeSnapshot) {
+        if let refusal = DailyWriteAvailability.refusal(selected) { operationError = refusal.errorDescription }
+        else if DailyWriteAvailability.allows(selected) || PhysicalWriteAvailability.testDirectory(for: selected) != nil { writingVolume = selected }
+        else { Task { await manualMount.enable(selected) } }
+    }
+    /// The conditions for writing to this disk, from the live state.
+    private func readiness(_ volume: VolumeSnapshot, diskErrors: DiskReadiness.DiskErrors) -> [DiskReadiness.Item] {
+        let current = discovery.volumes.first { $0.identity == volume.identity } ?? volume
+        let refusal = mountCycle.lastRefusal.flatMap { op in
+            op.disk.bsdName == current.bsdName && op.disk.registryID == current.identity.mediaRegistryID ? op.failure : nil
+        }
+        return DiskReadiness.items(.init(
+            helper: helperService.state, helperError: helperService.lastError, fullDiskAccess: helperService.fullDiskAccess,
+            extensionAvailable: engineStatus.capability.available, extensionReason: engineStatus.capability.reason,
+            isNTFS: current.isNTFS, isUnrecognizedWindows: current.isUnrecognizedWindows, foreignDriver: current.foreignDriver?.name,
+            designRefusal: DailyWriteAvailability.refusal(current)?.errorDescription, writeHolder: writeHolder(for: current),
+            writable: mountCycle.isWritable(current), lastFailure: refusal, diskErrors: diskErrors))
+    }
+    private func perform(_ action: DiskReadiness.Action, for volume: VolumeSnapshot) {
+        let current = discovery.volumes.first { $0.identity == volume.identity } ?? volume
+        switch action {
+        case .approveHelper: helperService.openApprovalSettings()
+        case .setUpHelper: Task { await helperService.register() }
+        case .reconnectHelper: Task { await helperService.refresh() }
+        case .fullDiskAccess: SetupLinks.fullDiskAccess()
+        case .fileSystemExtensions: SetupLinks.fileSystemExtensions()
+        case .enableWriting, .retry: enableWriting(current)
+        case .checkOnMac: markerTarget = checkTarget(for: current)
+        case .exportDiagnostics: break  // the sheet shows the preview itself
+        }
+    }
     /// Only one NTFS disk is read-write at a time. While another one holds that
     /// slot, name it so this disk does not look stuck "processing".
     private func writeHolder(for volume: VolumeSnapshot) -> String? {
@@ -348,8 +420,9 @@ struct MainView: View {
             return bitLocker.mountURL(for: volume) == nil ? String(localized: "BitLocker · 已锁定")
                 : bitLocker.isWritable(volume) ? String(localized: "BitLocker · 可读写") : String(localized: "BitLocker · 只读")
         }
+        if let foreign = volume.foreignDriver { return "NTFS · " + String(localized: "由 \(foreign.name) 接管") }
         let state = mountCycle.isWritable(volume) ? String(localized: "可读写") : volume.mountState == .readOnly ? String(localized: "只读") : volume.mountState == .unmounted ? String(localized: "未挂载") : ""
-        return state.isEmpty ? volume.fileSystem.uppercased() : volume.fileSystem.uppercased() + " · " + state
+        return state.isEmpty ? volume.displayFileSystem : volume.displayFileSystem + " · " + state
     }
     private func clearCheckMarker(_ volume: CheckMarkerTarget) async {
         do {
@@ -382,11 +455,81 @@ struct MainView: View {
                 let writing = discovery.volumes.first { $0.deviceGroup == volume.deviceGroup && $0.bsdName == mountCycle.operation?.disk.bsdName }
                 try await mountCycle.prepareForEject(writing ?? volume); await actions.perform(.ejectDevice, on: volume.identity)
             }
-            catch { operationError = error.localizedDescription }
+            catch {
+                // Disk operations pause while another disk is read-write; say so instead of "busy".
+                let other = writeHolder(for: volume)
+                operationError = other.map { String(localized: "“\($0)”正在读写，期间不能用盘屿推出其他磁盘。请在 Finder 中推出“\(volume.name)”，或先推出“\($0)”。") }
+                    ?? error.localizedDescription
+            }
         }
     }
+    private func revealCopy(_ job: CopyQueue.Job, on volume: VolumeSnapshot) {
+        Task {
+            do {
+                guard let current = discovery.revalidate(volume.identity), current.identity.resumeKey == job.plan.diskKey else {
+                    throw VolumeError.disconnected
+                }
+                let root: URL
+                if mountCycle.isWritable(current) {
+                    root = try await mountCycle.verifiedWritableURL(for: current)
+                } else {
+                    guard let mounted = current.mountURL else { throw VolumeError.disconnected }
+                    root = mounted
+                }
+                try FinderService.revealCopy(job, root: root)
+                copies.dismiss(job.id)
+            } catch { operationError = error.localizedDescription }
+        }
+    }
+
+    /// "Copy to This Disk": what (unless dropped), where on the disk, then queue it.
+    private func startCopy(to volume: VolumeSnapshot, sources dropped: [URL]?) {
+        guard mountCycle.isWritable(volume), let root = mountCycle.writableURL, let session = mountCycle.operation?.id else { return }
+        guard let key = volume.identity.resumeKey else { operationError = CopyPickerError.noVolumeID.errorDescription; return }
+        guard let sources = dropped ?? CopyPicker.sources() else { return }
+        let destination: String
+        do {
+            guard let chosen = try CopyPicker.destination(root: root, volumeName: volume.name) else { return }
+            destination = chosen
+        } catch { operationError = error.localizedDescription; return }
+        let folder = destination.isEmpty ? root : root.appendingPathComponent(destination)
+        let targets = sources.map { folder.appendingPathComponent($0.lastPathComponent) }
+        if zip(sources, targets).contains(where: { $0.resolvingSymlinksInPath().path == $1.resolvingSymlinksInPath().path }) {
+            operationError = String(localized: "不能把项目拷贝到它自己所在的位置。")
+            return
+        }
+        let existing = targets.filter { (try? $0.checkResourceIsReachable()) == true || (try? FileManager.default.destinationOfSymbolicLink(atPath: $0.path)) != nil }
+        if let first = existing.first, !Self.confirm(String(localized: "目标文件夹里已有同名项目"),
+            String(localized: "有 \(existing.count) 个同名项目（如“\(first.lastPathComponent)”）。继续会用这次拷贝的内容替换同名文件，同名文件夹会合并。"),
+            action: String(localized: "替换")) { return }
+        Task {
+            do {
+                let (plan, available) = try await copies.plan(sources: sources, diskKey: key, volumeName: volume.name, destination: destination, root: root)
+                if let available, plan.totalBytes > available, !Self.confirm(String(localized: "盘上的可用空间可能不够"),
+                    String(localized: "要拷贝 \(ByteCountFormatter.string(fromByteCount: plan.totalBytes, countStyle: .file))，盘上可用 \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file))。替换同名文件会腾出一些空间；空间不够时拷贝会停下，删掉文件后可以继续。"),
+                    action: String(localized: "仍然拷贝")) { return }
+                let verifiedRoot = try await mountCycle.verifiedWritableURL(for: volume)
+                guard mountCycle.operation?.id == session, verifiedRoot == root else { throw VolumeError.identityChanged }
+                try await copies.enqueue(plan)
+            } catch { operationError = error.localizedDescription }
+        }
+    }
+
+    /// Cancel is the default (Return); the action is marked destructive.
+    private static func confirm(_ title: String, _ text: String, action: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: String(localized: "取消"))
+        let button = alert.addButton(withTitle: action)
+        button.hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    /// An empty list keeps the choice, in case the same disk comes back.
     private func selectIfNeeded(_ ids: [VolumeIdentity]) {
-        if selection == nil || !ids.contains(selection!) { selection = ids.first }
+        guard let first = ids.first, selection.map({ !ids.contains($0) }) ?? true else { return }
+        selection = first
     }
 }
 
@@ -420,8 +563,21 @@ struct VolumeDetail: View {
     /// The last write attempt was refused because NTFS marks the disk "needs check".
     var needsCheck = false
     var checkOnMac: () -> Void = {}
+    /// Why this disk stays read-only by design (write protected, not USB…).
+    var writeRefusal: String? = nil
+    /// Copies onto this disk that Volisle runs (they continue after an unplug).
+    var copyJobs: [CopyQueue.Job] = []
+    var copies: CopyQueue? = nil
+    /// "Copy to This Disk": nil asks for the items; dropped items come as URLs.
+    var copyToDisk: (([URL]?) -> Void)? = nil
+    var openCopiedFiles: ((CopyQueue.Job) -> Void)? = nil
+    /// Shows the read-write conditions of this disk, one by one.
+    var checkDisk: (() -> Void)? = nil
+    var writeRecoveryMessage: String? = nil
+    var restoreReadOnly: (() -> Void)? = nil
     private var state: String {
-        if backgroundNeedsAttention { return String(localized: "等待后台核验") }
+        if let foreign = volume.foreignDriver { return String(localized: "由 \(foreign.name) 接管") }
+        if backgroundNeedsAttention { return String(localized: "暂时无法写入") }
         if controlledWrite { return testDirectory == nil ? String(localized: "可读写") : String(localized: "可读写（测试目录）") }
         if requiresVerification && !verifyingRecovery { return String(localized: "状态待核验") }
         if busy { return String(localized: "正在处理，请稍候…") }
@@ -440,7 +596,7 @@ struct VolumeDetail: View {
                         .symbolRenderingMode(.hierarchical).foregroundStyle(.blue).accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 7) {
                         Text(volume.name).font(.title.weight(.semibold)).textSelection(.enabled)
-                        Text("\(volume.fileSystem.uppercased()) · \(state)").font(.callout).foregroundStyle(.secondary)
+                        Text("\(volume.displayFileSystem) · \(state)").font(.callout).foregroundStyle(.secondary)
                     }
                 }
                 VStack(alignment: .leading, spacing: 10) {
@@ -451,6 +607,10 @@ struct VolumeDetail: View {
                     } else { Text("挂载后可查看可用空间").font(.caption).foregroundStyle(.secondary) }
                 }
                 HStack(spacing: 12) {
+                    if let restoreReadOnly {
+                        Button("恢复只读", systemImage: "arrow.uturn.backward") { restoreReadOnly() }
+                            .disabled(verifyingRecovery)
+                    }
                     if requiresVerification {
                         Button("检查磁盘状态", systemImage: "arrow.clockwise") { verifyRecovery() }
                             .disabled(verifyingRecovery)
@@ -458,12 +618,16 @@ struct VolumeDetail: View {
                     Button("打开 Finder", systemImage: "folder") { openFinder() }
                         .keyboardShortcut("o")
                         .buttonStyle(.borderedProminent).disabled(!controlledWrite && (volume.mountURL == nil || busy))
+                    if controlledWrite, let copyToDisk {
+                        Button("拷贝到这块盘…", systemImage: "doc.on.doc") { copyToDisk(nil) }
+                            .help("由盘屿拷贝：拔线后插回，会核对已拷的部分并从断点接着拷。也可以把文件拖到这里。")
+                    }
                     if volume.isNTFS && volume.mountState != .readWrite && !requiresVerification && !controlledWrite {
                         Button(testDirectory == nil ? "启用读写" : "启用测试读写", systemImage: "lock.open") { enableWriting() }
-                            .disabled(busy || waitingFor != nil || checkingEngine || !capability.available || (!capability.finderReadWrite && testDirectory == nil))
+                            .disabled(busy || waitingFor != nil || checkingEngine || writeRefusal != nil || !capability.available || (!capability.finderReadWrite && testDirectory == nil))
                             .help(waitingFor?.message ?? (testDirectory == nil ? capability.reason : String(localized: "仅写入本次专用测试目录，完成后恢复只读。")))
                     }
-                    if needsCheck && !controlledWrite {
+                    if volume.isNTFS && needsCheck && !controlledWrite {
                         Button("在 Mac 上检查…", systemImage: "checkmark.shield") { checkOnMac() }.disabled(busy)
                     }
                     // Disk operations pause while another disk is read-write; Finder can still eject this one.
@@ -473,7 +637,12 @@ struct VolumeDetail: View {
                         ProgressView().controlSize(.small).accessibilityLabel("正在操作磁盘")
                     }
                 }.controlSize(.large)
-                if volume.isNTFS, needsCheck, !controlledWrite, waitingFor == nil {
+                if volume.isNTFS, backgroundNeedsAttention {
+                    Label(writeRecoveryMessage ?? String(localized: "磁盘当前无法写入，请按恢复提示处理。"), systemImage: "exclamationmark.circle")
+                        .font(.callout).foregroundStyle(.orange).textSelection(.enabled)
+                } else if volume.isNTFS, let writeRefusal, !controlledWrite {
+                    Label(writeRefusal, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
+                } else if volume.isNTFS, needsCheck, !controlledWrite, waitingFor == nil {
                     Label("这块盘被标记为需要检查，为保护数据暂时只读。可以点上面的“在 Mac 上检查…”，也可以在 Windows 中检查后安全弹出再插回。", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
                 } else if volume.isNTFS, let waitingFor {
@@ -482,42 +651,41 @@ struct VolumeDetail: View {
                 } else if volume.isNTFS {
                     Label(controlledWrite || volume.mountState == .readWrite ? (testDirectory == nil ? String(localized: "可以直接在 Finder 和其他应用中新建、编辑和保存文件。") : String(localized: "本次仅开放测试目录；完成后请恢复只读。")) : (checkingEngine ? String(localized: "正在检查扩展状态…") : (testDirectory == nil ? capability.reason : String(localized: "此测试版仅为当前磁盘开放受限读写。"))), systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
+                } else if let foreign = volume.foreignDriver {
+                    // Another driver answers for this mount: the Finder errors there are not Volisle's.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(ForeignNTFSDriver.handOver(foreign.name), systemImage: "exclamationmark.triangle")
+                            .font(.callout).foregroundStyle(.orange).textSelection(.enabled)
+                        Button("打开文件系统扩展设置") { SetupLinks.fileSystemExtensions() }.buttonStyle(.link)
+                    }
                 } else if volume.mountState == .unmounted {
                     Text("这个卷尚未挂载，可前往“磁盘工具”查看。")
                         .font(.callout).foregroundStyle(.secondary)
                 }
+                if let checkDisk, (volume.isNTFS || volume.isUnrecognizedWindows || volume.foreignDriver != nil) && !controlledWrite {
+                    Button("读写不了？检查一下", systemImage: "stethoscope") { checkDisk() }
+                        .buttonStyle(.link).help("逐项检查这块盘开启读写需要的条件，并给出处理办法。")
+                }
+                if let copies, !copyJobs.isEmpty {
+                    CopyJobsSection(jobs: copyJobs, queue: copies, diskPresent: true, diskWritable: controlledWrite,
+                                    diskNeedsRecovery: backgroundNeedsAttention, diskReadOnly: volume.mountState == .readOnly,
+                                    openCopiedFiles: openCopiedFiles)
+                }
             }.padding(36).frame(maxWidth: 660, alignment: .leading).frame(maxWidth: .infinity)
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            guard controlledWrite, let copyToDisk, !files.isEmpty else { return false }
+            // The panels that follow must not run inside the drop itself.
+            DispatchQueue.main.async { copyToDisk(files) }
+            return true
         }
     }
 }
 
-private func formatBytes(_ value: Int64?) -> String {
+func formatBytes(_ value: Int64?) -> String {
     guard let value, value >= 0 else { return String(localized: "未知") }
     return ByteCountFormatter.string(fromByteCount: value, countStyle: .decimal)
-}
-
-private struct VolumeInfoView: View {
-    let volume: VolumeSnapshot
-    let engineStatus: EngineStatus
-    let bitLocker: Bool
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack { Text("磁盘详情").font(.title2.weight(.semibold)); Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.cancelAction) }
-            LabeledContent("名称", value: volume.name)
-            LabeledContent("文件系统", value: bitLocker ? String(localized: "BitLocker（NTFS）") : volume.fileSystem.uppercased())
-            LabeledContent("设备", value: volume.deviceName)
-            LabeledContent("容量", value: formatBytes(volume.totalBytes))
-            LabeledContent("盘屿读写引擎", value: engineStatus.title)
-            if volume.mountState != .readWrite {
-                Text("读写状态来自系统。盘屿启用读写前会先检查磁盘。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if volume.fileSystem.lowercased() == "apfs" {
-                Text("APFS 卷可能共享容器空间，各卷容量不能直接相加。").font(.caption).foregroundStyle(.secondary)
-            }
-        }.padding(24).frame(width: 420)
-    }
 }
 
 /// What the "Check on This Mac" button acts on: a partition name, plus what the

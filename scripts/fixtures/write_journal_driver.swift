@@ -13,6 +13,11 @@ final class ImageDevice: JournalBlockDevice {
     var writes = 0, flushes = 0
     var fault = "none", target = 0
     var written: [Int64] = []
+    /// UNREADABLE_FREE: blocks that were free when the session started read as
+    /// bad sectors do (seen on a real USB disk, 2026-10-07): every read fails
+    /// until the block is written, which a drive answers by remapping.
+    var unreadable = Set<Int64>()
+    var unreadableReads = 0
     /// VOLATILE_LOSS=middle|scatter: a drive cache that loses power. Writes the
     /// last checkpoint flush "made durable" are partly undone at a crash.
     let loss = ProcessInfo.processInfo.environment["VOLATILE_LOSS"]
@@ -25,13 +30,25 @@ final class ImageDevice: JournalBlockDevice {
         var info = stat(); fstat(fd, &info)
         journalBlockSize = blockSize; journalDeviceSize = Int64(info.st_size)
     }
+    private func checkReadable(_ offset: Int64, _ count: Int) throws {
+        guard !unreadable.isEmpty else { return }
+        let size = Int64(journalBlockSize)
+        var block = offset / size * size
+        while block < offset + Int64(count) {
+            if unreadable.contains(block) { unreadableReads += 1; throw POSIXError(.EIO) }
+            block += size
+        }
+    }
     func journalRead(into block: UnsafeMutableRawBufferPointer, at offset: Int64) throws {
+        try checkReadable(offset, block.count)
         guard Darwin.pread(fd, block.baseAddress, block.count, off_t(offset)) == block.count else { throw POSIXError(.EIO) }
     }
     func journalReadRun(into buffer: UnsafeMutableRawBufferPointer, at offset: Int64) throws {
+        try checkReadable(offset, buffer.count)
         guard Darwin.pread(fd, buffer.baseAddress, buffer.count, off_t(offset)) == buffer.count else { throw POSIXError(.EIO) }
     }
     func journalWrite(_ block: UnsafeRawBufferPointer, at offset: Int64) throws {
+        unreadable.remove(offset)
         writes += 1; written.append(offset)
         let hit = writes == target
         if hit && fault == "fail" { throw POSIXError(.EIO) }
@@ -105,6 +122,26 @@ func attachFreeSpace(_ volume: OpaquePointer, _ session: WriteJournalSession, _ 
     session.freeSpace = map
 }
 
+/// Blocks all of whose clusters are free in the bitmap on the image.
+func freeBlocks(_ map: FreeSpaceMap, _ device: ImageDevice) -> Set<Int64> {
+    var bitmap = Data()
+    for run in map.runs {
+        var chunk = Data(count: Int(run.length))
+        guard chunk.withUnsafeMutableBytes({ Darwin.pread(device.fd, $0.baseAddress, Int(run.length), off_t(run.offset)) }) == Int(run.length) else { fail("bitmap read") }
+        bitmap.append(chunk)
+    }
+    let size = Int64(device.journalBlockSize), perBlock = size / map.clusterSize
+    guard perBlock > 0 else { fail("cluster larger than block") }
+    var blocks = Set<Int64>()
+    var block: Int64 = 0
+    while (block + 1) * perBlock <= map.clusters {
+        let first = block * perBlock
+        if (first..<first + perBlock).allSatisfy({ bitmap[Int($0 / 8)] & UInt8(1 << ($0 % 8)) == 0 }) { blocks.insert(block * size) }
+        block += 1
+    }
+    return blocks
+}
+
 /// Each MiB distinct; the Python checks compute the same bytes.
 func pattern(_ index: Int) -> Data {
     var data = Data(count: 1048576)
@@ -165,6 +202,10 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
             guard let volume = nk_mount_io(&nkio, nil, 0) else { fail("mount") }
             if ProcessInfo.processInfo.environment["KEEP_ALL_BEFORE"] == nil && bitLockerKey == nil { attachFreeSpace(volume, session, device) }
             try checkpoint(volume, io)                     // checkpoint A
+            if ProcessInfo.processInfo.environment["UNREADABLE_FREE"] != nil {
+                guard let map = session.freeSpace else { fail("no free space map") }
+                device.unreadable = freeBlocks(map, device)
+            }
             if fault == "checkpoint-crash" || fault.hasPrefix("journal-") {
                 var hits = 0
                 session.boundary = { name in
@@ -204,6 +245,21 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
                         do { try checkpoint(volume, io) } catch { result = -1 }
                     }
                 }
+            case "odd":
+                // A copy whose pieces end inside cache blocks (the kernel's do): most
+                // pieces leave the rest of their last block still free space.
+                let mebibytes = Int(ProcessInfo.processInfo.environment["BIG_MIB"] ?? "24")!
+                let piece = Int(ProcessInfo.processInfo.environment["PIECE"] ?? "200704")!
+                var data = Data()
+                for index in 0..<mebibytes { data.append(pattern(index)) }
+                result = nk_create(volume, "/", "big")
+                var offset = 0
+                while result == 0 && offset < data.count {
+                    let count = min(piece, data.count - offset)
+                    let wrote = data.withUnsafeBytes { nk_write(volume, "/big", Int64(offset), Int64(count), $0.baseAddress! + offset) }
+                    if wrote != Int64(count) { result = -1 }
+                    offset += count
+                }
             case "reuse":
                 // A file older than the retention window is deleted inside it and
                 // its clusters reused: rolling back to the window start must find
@@ -233,9 +289,11 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
             if result == 0 { FileHandle.standardError.write(Data("COMMITTED\n".utf8)) }
             if result != 0 {
                 _ = nk_umount(volume)
-                print("{\"failed\":true,\"deviceWrites\":\(device.writes - before),\"engineWrites\":\(counting.pwrites - pwritesBefore)}")
+                print("{\"failed\":true,\"deviceWrites\":\(device.writes - before),\"engineWrites\":\(counting.pwrites - pwritesBefore),\"unreadableReads\":\(device.unreadableReads)}")
                 return
             }
+            // Interrupted cleanup: the session record is gone, the epochs are not.
+            if fault == "finish-crash" { WriteJournalStore.afterSessionRemoved = { _exit(86) } }
             // A failed clean unmount keeps every record for the next connection.
             guard nk_umount(volume) == 0,
                   (try? WriteJournalCoordinator.finish(store: store, io: io, lock: lock)) != nil else {
@@ -243,7 +301,7 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
                 return
             }
             if fault == "after-finish-crash" { _exit(86) }
-            print("{\"failed\":false,\"deviceWrites\":\(device.writes - before),\"engineWrites\":\(counting.pwrites - pwritesBefore),\"skipped\":\(session.skippedBytes)}")
+            print("{\"failed\":false,\"deviceWrites\":\(device.writes - before),\"engineWrites\":\(counting.pwrites - pwritesBefore),\"skipped\":\(session.skippedBytes),\"unreadableReads\":\(device.unreadableReads),\"unreadableLeft\":\(device.unreadable.count)}")
         case "facts":
             // facts <image> <dir>: the volume as recovery reads it (flags only).
             do { let facts = try WriteJournalCoordinator.volumeFacts(io); print("{\"flags\":\(facts.flags)}") }

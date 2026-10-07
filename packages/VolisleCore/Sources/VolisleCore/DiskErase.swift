@@ -177,19 +177,43 @@ public protocol EraseCommandRunner: Sendable {
 }
 
 public struct ProcessEraseRunner: EraseCommandRunner {
-    public init() {}
+    /// A disk that stops answering must not hang the sheet (and quitting) for ever.
+    public let timeout: TimeInterval
+    public init(timeout: TimeInterval = 300) { self.timeout = timeout }
+    private final class Box: @unchecked Sendable { var data = Data() }
+    /// Standard output alone on success (a warning on standard error made
+    /// `diskutil list -plist` unparsable); both when the command failed.
     public func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-        await withCheckedContinuation { continuation in
+        let timeout = self.timeout
+        return await withCheckedContinuation { continuation in
             DispatchQueue.global().async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: executable)
                 process.arguments = arguments
-                let pipe = Pipe()
-                process.standardOutput = pipe; process.standardError = pipe
+                let out = Pipe(), err = Pipe()
+                process.standardOutput = out; process.standardError = err
                 do { try process.run() } catch { continuation.resume(returning: (-1, error.localizedDescription)); return }
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let watchdog = DispatchWorkItem {
+                    guard process.isRunning else { return }
+                    process.terminate()
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+                        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                    }
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+                let errors = Box(), reading = DispatchGroup()
+                reading.enter()
+                DispatchQueue.global().async { errors.data = err.fileHandleForReading.readDataToEndOfFile(); reading.leave() }
+                let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                reading.wait()
                 process.waitUntilExit()
-                continuation.resume(returning: (process.terminationStatus, String(decoding: data, as: UTF8.self)))
+                watchdog.cancel()
+                let errorText = String(decoding: errors.data, as: UTF8.self)
+                if process.terminationReason == .uncaughtSignal {
+                    continuation.resume(returning: (-1, output + errorText + "\n" + String(localized: "命令长时间没有完成，已停止。")))
+                } else {
+                    continuation.resume(returning: (process.terminationStatus, process.terminationStatus == 0 ? output : output + errorText))
+                }
             }
         }
     }
@@ -264,6 +288,11 @@ public enum EraseError: Error, Equatable, LocalizedError {
             throw .confirmationMismatch
         }
         do { try await prepare() } catch { throw .failed(error.localizedDescription) }
+        // Ending a session can take a while: the disk must still be the one confirmed.
+        let prepared = await loadCatalog()
+        guard prepared.first(where: { $0.bsdName == target.bsdName })?.identity == current.identity else {
+            targets = prepared; throw .changed
+        }
         let partition: String
         switch scope {
         case .partition(let bsd):

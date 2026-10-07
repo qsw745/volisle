@@ -1,6 +1,10 @@
 import Foundation
 import Darwin
 
+public struct MountCycleIntentUnreadable: LocalizedError, Equatable {
+    public var errorDescription: String? { String(localized: "上次磁盘请求的本机记录无法读取，重启 Mac 后盘屿会自动核对并解除暂停。") }
+}
+
 /// A user-owned pending ID, not authority to mutate a disk. The daemon always
 /// resolves its own persisted record and original device for recovery.
 @MainActor public final class FileMountCycleIntentStore: MountCycleIntentStore {
@@ -17,16 +21,33 @@ import Darwin
         defer { close(fd) }
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
-              info.st_uid == geteuid(), info.st_nlink == 1, info.st_size > 0, info.st_size <= 4096 else {
+              info.st_uid == geteuid(), info.st_nlink == 1 else {
             throw HelperServiceError.invalidReply
         }
-        var bytes = [UInt8](repeating: 0, count: Int(info.st_size))
-        guard bytes.withUnsafeMutableBytes({ Darwin.read(fd, $0.baseAddress, $0.count) }) == bytes.count else {
-            throw HelperServiceError.invalidReply
+        if let value = Self.decode(fd, size: info.st_size) { return value }
+        // Its request may still be queued for the daemon in this boot, so only a
+        // record from an earlier boot is set aside; the daemon's own records then
+        // say what ran.
+        guard info.st_mtimespec.tv_sec < Self.bootTime() else { throw MountCycleIntentUnreadable() }
+        guard rename(file.path, directory.appendingPathComponent("pending-readonly-check.invalid.json").path) == 0 else {
+            throw HelperServiceError.unavailable
         }
-        let value = try JSONDecoder().decode(MountCycleIntent.self, from: Data(bytes))
-        try value.validate()
+        try syncDirectory()
+        return nil
+    }
+    private static func decode(_ fd: Int32, size: off_t) -> MountCycleIntent? {
+        guard size > 0, size <= 4096 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: Int(size))
+        guard bytes.withUnsafeMutableBytes({ Darwin.read(fd, $0.baseAddress, $0.count) }) == bytes.count,
+              let value = try? JSONDecoder().decode(MountCycleIntent.self, from: Data(bytes)),
+              (try? value.validate()) != nil else { return nil }
         return value
+    }
+    /// 0 when unknown, which keeps an unreadable record blocking.
+    private static func bootTime() -> Int {
+        var value = timeval(), size = MemoryLayout<timeval>.size
+        guard sysctlbyname("kern.boottime", &value, &size, nil, 0) == 0 else { return 0 }
+        return value.tv_sec
     }
     public func save(_ intent: MountCycleIntent) throws {
         try intent.validate()

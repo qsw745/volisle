@@ -30,7 +30,7 @@ public enum HelperPackage {
 }
 
 @MainActor @Observable public final class HelperServiceController {
-    public enum State: Equatable { case unavailable, notRegistered, requiresApproval, connected, failed }
+    public enum State: Equatable, Sendable { case unavailable, notRegistered, requiresApproval, connected, failed }
     public private(set) var state: State = .unavailable
     public private(set) var isBusy = false
     public private(set) var lastError: String?

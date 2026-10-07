@@ -4,7 +4,7 @@ import CryptoKit
 import Darwin
 
 enum WriteJournalError: Error, Equatable {
-    case invalid, unavailable, corrupt, capacity, failed, busy, foreignChange
+    case invalid, unavailable, corrupt, unsupportedFormat, capacity, failed, busy, foreignChange
 }
 
 /// Per-volume session facts, written before the first write of a session.
@@ -34,6 +34,30 @@ struct WriteJournalEpoch {
     struct Group {
         var before: [(offset: Int64, bytes: Data)]
         var after: [(offset: Int64, sha256: Data)]
+        /// Each written block's 512-byte sectors, hashed: a block the drive left
+        /// half written is then still recognised as this host's own write.
+        /// Empty in records written before these were kept.
+        var afterSectors: [Int64: [UInt64]] = [:]
+    }
+    static let sectorSize = 512
+
+    /// The first 8 bytes of each sector's SHA-256.
+    static func sectorHashes(_ block: Data) -> [UInt64] {
+        var hashes: [UInt64] = []
+        hashes.reserveCapacity((block.count + sectorSize - 1) / sectorSize)
+        block.withUnsafeBytes { raw in
+            var at = 0
+            while at < raw.count {
+                let end = min(at + sectorSize, raw.count)
+                hashes.append(sectorHash(UnsafeRawBufferPointer(rebasing: raw[at..<end])))
+                at = end
+            }
+        }
+        return hashes
+    }
+
+    static func sectorHash(_ sector: UnsafeRawBufferPointer) -> UInt64 {
+        SHA256.hash(data: sector).withUnsafeBytes { digest in digest.prefix(8).reduce(0) { $0 << 8 | UInt64($1) } }
     }
     let header: Header
     var groups: [Group]
@@ -46,7 +70,8 @@ struct WriteJournalEpoch {
 /// extension's own user account, which can already write the device.
 final class WriteJournalStore {
     static let maximumFrame = 64 * 1024 * 1024
-    private enum FrameType: UInt8 { case header = 1, group = 2, checkpoint = 3 }
+    /// `sectorGroup`: a group that also carries its blocks' sector hashes.
+    private enum FrameType: UInt8 { case header = 1, group = 2, checkpoint = 3, sectorGroup = 4 }
     let url: URL
     private let directory: Int32
     private let key: SymmetricKey
@@ -67,26 +92,60 @@ final class WriteJournalStore {
     deinit { Darwin.close(directory) }
 
     private static func loadKey(_ directory: Int32) throws -> Data {
-        let existing = openat(directory, "key.bin", O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        if existing >= 0 {
-            defer { Darwin.close(existing) }
-            let data = try readAll(existing, limit: 32)
-            guard data.count == 32 else { throw WriteJournalError.corrupt }
-            return data
+        for _ in 0..<2 {
+            if let key = try readKey(directory) { return key }
+            // A missing key with existing records must never mint a fresh key.
+            guard try noRecords(directory) else { throw WriteJournalError.corrupt }
+            if let key = try createKey(directory) { return key }
         }
-        guard errno == ENOENT else { throw WriteJournalError.unavailable }
-        // A missing key with existing records must never mint a fresh key.
-        guard try listNames(directory).allSatisfy({ $0.hasSuffix(".lock") || $0 == supersededName }) else { throw WriteJournalError.corrupt }
+        throw WriteJournalError.unavailable
+    }
+
+    /// Nil when there is none. Before 0.7 the key was written in place, so a host
+    /// that filled up or a kill could leave it short: such a file is replaced,
+    /// but only while no record depends on it.
+    private static func readKey(_ directory: Int32) throws -> Data? {
+        let fd = openat(directory, "key.bin", O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else {
+            if errno == ENOENT { return nil }
+            throw WriteJournalError.unavailable
+        }
+        let data: Data
+        do { data = try readAll(fd, limit: 32) } catch { Darwin.close(fd); throw error }
+        Darwin.close(fd)
+        if data.count == 32 { return data }
+        guard try noRecords(directory), unlinkat(directory, "key.bin", 0) == 0 || errno == ENOENT else {
+            throw WriteJournalError.corrupt
+        }
+        return nil
+    }
+
+    /// Written aside and renamed into place, so key.bin is never seen half
+    /// written. Nil when another volume's instance created it first.
+    private static func createKey(_ directory: Int32) throws -> Data? {
         var key = Data(count: 32)
         guard key.withUnsafeMutableBytes({ SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }) == errSecSuccess else {
             throw WriteJournalError.unavailable
         }
-        let fd = openat(directory, "key.bin", O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        let temporary = "key-" + UUID().uuidString + ".tmp"
+        let fd = openat(directory, temporary, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw WriteJournalError.unavailable }
-        defer { Darwin.close(fd) }
+        defer { Darwin.close(fd); _ = unlinkat(directory, temporary, 0) }
         try writeAll(fd, key)
-        guard fcntl(fd, F_FULLFSYNC) == 0, fsync(directory) == 0 else { throw WriteJournalError.unavailable }
+        guard fcntl(fd, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
+        guard renameatx_np(directory, temporary, directory, "key.bin", UInt32(RENAME_EXCL)) == 0 else {
+            if errno == EEXIST { return nil }
+            throw WriteJournalError.unavailable
+        }
+        guard fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
         return key
+    }
+
+    /// Nothing that a key authenticates: locks, the archive, and leftovers of key creation.
+    private static func noRecords(_ directory: Int32) throws -> Bool {
+        try listNames(directory).allSatisfy {
+            $0 == "key.bin" || $0.hasSuffix(".lock") || $0 == supersededName || ($0.hasPrefix("key-") && $0.hasSuffix(".tmp"))
+        }
     }
 
     // MARK: session record
@@ -101,8 +160,11 @@ final class WriteJournalStore {
         guard HMAC<SHA256>.isValidAuthenticationCode(mac, authenticating: Data("session|".utf8) + body, using: key) else {
             throw WriteJournalError.corrupt
         }
-        let record = try JSONDecoder().decode(WriteJournalSessionRecord.self, from: body)
-        guard record.version == 1, record.serial == serial, record.bootSector.count == 512 else { throw WriteJournalError.corrupt }
+        let record: WriteJournalSessionRecord
+        do { record = try JSONDecoder().decode(WriteJournalSessionRecord.self, from: body) }
+        catch { throw WriteJournalError.corrupt }
+        guard record.serial == serial, record.bootSector.count == 512 else { throw WriteJournalError.corrupt }
+        guard record.version == 1 else { throw WriteJournalError.unsupportedFormat }
         return record
     }
 
@@ -121,14 +183,30 @@ final class WriteJournalStore {
               fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
     }
 
-    /// Only after the device holds everything the records describe.
+    /// Only after the device holds everything the records describe. The session
+    /// goes first: without it nothing is replayed, so an interruption leaves only
+    /// orphan epochs (removed by the next session), never a partial set that
+    /// recovery would roll back.
     func removeAll(serial: String) throws {
-        for name in try Self.listNames(directory) where name.hasPrefix(serial + "-") && name.hasSuffix(".epoch") {
-            guard unlinkat(directory, name, 0) == 0 || errno == ENOENT else { throw WriteJournalError.unavailable }
-        }
-        guard fsync(directory) == 0 else { throw WriteJournalError.unavailable }
         guard unlinkat(directory, serial + ".session", 0) == 0 || errno == ENOENT,
               fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
+        #if VOLISLE_WRITE_JOURNAL_TESTING
+        Self.afterSessionRemoved?()
+        #endif
+        try removeOrphanEpochs(serial: serial)
+    }
+    #if VOLISLE_WRITE_JOURNAL_TESTING
+    nonisolated(unsafe) static var afterSessionRemoved: (() -> Void)?
+    #endif
+
+    /// Epochs with no session record describe nothing that can be recovered.
+    func removeOrphanEpochs(serial: String) throws {
+        var removed = false
+        for name in try Self.listNames(directory) where name.hasPrefix(serial + "-") && name.hasSuffix(".epoch") {
+            guard unlinkat(directory, name, 0) == 0 || errno == ENOENT else { throw WriteJournalError.unavailable }
+            removed = true
+        }
+        if removed { guard fsync(directory) == 0 else { throw WriteJournalError.unavailable } }
     }
 
     static let supersededName = "superseded"
@@ -168,15 +246,19 @@ final class WriteJournalStore {
     func epochName(serial: String, epoch: UInt64) -> String { String(format: "%@-%016llx.epoch", serial, epoch) }
 
     func createEpoch(serial: String, header: WriteJournalEpoch.Header) throws -> (Int32, Data) {
-        let fd = openat(directory, epochName(serial: serial, epoch: header.epoch),
-                        O_RDWR | O_CREAT | O_EXCL | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        let name = epochName(serial: serial, epoch: header.epoch)
+        let fd = openat(directory, name, O_RDWR | O_CREAT | O_EXCL | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw WriteJournalError.unavailable }
         do {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
             let mac = try append(fd, type: .header, payload: try encoder.encode(header), previous: Data(count: 32))
             guard fcntl(fd, F_FULLFSYNC) == 0, fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
             return (fd, mac)
-        } catch { Darwin.close(fd); throw error }
+        } catch {
+            // No group was recorded under it, so nothing on the device depends on it.
+            Darwin.close(fd); _ = unlinkat(directory, name, 0)
+            throw error
+        }
     }
 
     func appendGroup(_ fd: Int32, _ group: WriteJournalEpoch.Group, previous: Data) throws -> Data {
@@ -186,8 +268,15 @@ final class WriteJournalStore {
             payload.appendInteger(item.offset); payload.appendInteger(UInt32(item.bytes.count)); payload.append(item.bytes)
         }
         payload.appendInteger(UInt32(group.after.count))
-        for item in group.after { payload.appendInteger(item.offset); payload.append(item.sha256) }
-        let mac = try append(fd, type: .group, payload: payload, previous: previous)
+        let sectors = !group.afterSectors.isEmpty
+        for item in group.after {
+            payload.appendInteger(item.offset); payload.append(item.sha256)
+            guard sectors else { continue }
+            let hashes = group.afterSectors[item.offset] ?? []
+            payload.appendInteger(UInt32(hashes.count))
+            for hash in hashes { payload.appendInteger(hash) }
+        }
+        let mac = try append(fd, type: sectors ? .sectorGroup : .group, payload: payload, previous: previous)
         guard fcntl(fd, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
         return mac
     }
@@ -218,22 +307,40 @@ final class WriteJournalStore {
     }
 
     /// Returns every epoch of `serial`. A torn final frame is dropped; any
-    /// other damage, or a header from another session, is corruption.
+    /// other damage, or a header from another session, is corruption. An epoch
+    /// whose header never became complete (the host filled up, or the process
+    /// died while creating it) recorded no group, so no device write depends on
+    /// it: it is removed instead of blocking recovery forever.
     func epochs(serial: String, session: UUID) throws -> [WriteJournalEpoch] {
         let names = try Self.listNames(directory).filter { $0.hasPrefix(serial + "-") && $0.hasSuffix(".epoch") }.sorted()
-        return try names.map { name in
+        var result: [WriteJournalEpoch] = []
+        var empty: [String] = []
+        for name in names {
             let fd = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
             guard fd >= 0 else { throw WriteJournalError.unavailable }
             defer { Darwin.close(fd) }
-            return try parse(Self.readAll(fd, limit: 2 * 1024 * 1024 * 1024), name: name, session: session)
+            if let epoch = try parse(Self.readAll(fd, limit: 2 * 1024 * 1024 * 1024), name: name, session: session) {
+                result.append(epoch)
+            } else {
+                empty.append(name)
+            }
         }
+        // A refusal keeps the entire record set. Only clean up incomplete
+        // headers once every epoch has been authenticated and understood.
+        for name in empty {
+            guard unlinkat(directory, name, 0) == 0 || errno == ENOENT,
+                  fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
+        }
+        return result
     }
 
-    private func parse(_ data: Data, name: String, session: UUID) throws -> WriteJournalEpoch {
+    /// Nil when not even the header frame is complete.
+    private func parse(_ data: Data, name: String, session: UUID) throws -> WriteJournalEpoch? {
         var at = 0, previous = Data(count: 32)
         var header: WriteJournalEpoch.Header?
         var groups: [WriteJournalEpoch.Group] = []
         var checkpointed = false
+        var unsupported = false
         while at < data.count {
             guard data.count - at >= 5 else { break }  // torn tail
             let length = Int(data.readInteger(UInt32.self, at: at + 1))
@@ -242,20 +349,28 @@ final class WriteJournalStore {
             let frame = data.subdata(in: at..<at + 5 + length)
             let mac = data.subdata(in: at + 5 + length..<end)
             guard HMAC<SHA256>.isValidAuthenticationCode(mac, authenticating: previous + frame, using: key),
-                  !checkpointed, let type = FrameType(rawValue: frame[frame.startIndex]) else {
+                  !checkpointed else {
                 // A complete but invalid frame, or data after a checkpoint.
                 throw WriteJournalError.corrupt
+            }
+            guard let type = FrameType(rawValue: frame[frame.startIndex]) else {
+                // Keep authenticating the rest: a bad MAC or known structural
+                // error must not be mistaken for a newer journal format.
+                unsupported = true; previous = mac; at = end
+                continue
             }
             let payload = frame.subdata(in: 5..<frame.count)
             switch type {
             case .header:
-                guard header == nil else { throw WriteJournalError.corrupt }
-                let decoded = try JSONDecoder().decode(WriteJournalEpoch.Header.self, from: payload)
+                guard at == 0, header == nil else { throw WriteJournalError.corrupt }
+                let decoded: WriteJournalEpoch.Header
+                do { decoded = try JSONDecoder().decode(WriteJournalEpoch.Header.self, from: payload) }
+                catch { throw WriteJournalError.corrupt }
                 guard decoded.session == session else { throw WriteJournalError.corrupt }
                 header = decoded
-            case .group:
+            case .group, .sectorGroup:
                 guard header != nil else { throw WriteJournalError.corrupt }
-                groups.append(try Self.decodeGroup(payload))
+                groups.append(try Self.decodeGroup(payload, sectors: type == .sectorGroup))
             case .checkpoint:
                 guard let header, payload.count == 8, payload.readInteger(UInt64.self, at: 0) == header.epoch else {
                     throw WriteJournalError.corrupt
@@ -264,13 +379,16 @@ final class WriteJournalStore {
             }
             previous = mac; at = end
         }
+        // Frames are parsed in order and the first must be the header.
+        if at == 0 { return nil }
         guard let header, name == epochName(serial: String(name.prefix { $0 != "-" }), epoch: header.epoch) else {
             throw WriteJournalError.corrupt
         }
+        guard !unsupported else { throw WriteJournalError.unsupportedFormat }
         return .init(header: header, groups: groups, checkpointed: checkpointed, name: name)
     }
 
-    private static func decodeGroup(_ payload: Data) throws -> WriteJournalEpoch.Group {
+    private static func decodeGroup(_ payload: Data, sectors: Bool) throws -> WriteJournalEpoch.Group {
         var at = 0
         func need(_ count: Int) throws { guard count >= 0, payload.count - at >= count else { throw WriteJournalError.corrupt } }
         try need(4); let befores = Int(payload.readInteger(UInt32.self, at: at)); at += 4
@@ -283,7 +401,12 @@ final class WriteJournalStore {
         try need(4); let afters = Int(payload.readInteger(UInt32.self, at: at)); at += 4
         for _ in 0..<afters {
             try need(40)
-            group.after.append((payload.readInteger(Int64.self, at: at), payload.subdata(in: at + 8..<at + 40))); at += 40
+            let offset = payload.readInteger(Int64.self, at: at)
+            group.after.append((offset, payload.subdata(in: at + 8..<at + 40))); at += 40
+            guard sectors else { continue }
+            try need(4); let count = Int(payload.readInteger(UInt32.self, at: at)); at += 4
+            try need(count * 8)
+            group.afterSectors[offset] = (0..<count).map { payload.readInteger(UInt64.self, at: at + $0 * 8) }; at += count * 8
         }
         guard at == payload.count else { throw WriteJournalError.corrupt }
         return group

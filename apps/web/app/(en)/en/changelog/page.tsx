@@ -3,6 +3,25 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.8.0 · October 6, 2026</h2><ul>
+<li>New: resumable copies. On a disk with write access, choose Copy to This Disk… (or drag items into the Volisle window). After a disconnection, ejection or app exit, Volisle checks the existing content before continuing once the disk is connected again and write access has been safely restored.</li>
+<li>Before continuing, Volisle compares what is already on the disk with the originals block by block and carries on from where they match; files finished in the minute or so before an unplug are checked again, and anything rolled back is copied again. A file takes its name on the disk only once it’s complete, and a file it replaces stays intact until then. If a file can’t be read or the disk refuses a name, the copy pauses and you can skip that item.</li>
+<li>Help now explains what to do if a disk was unplugged during a copy: when to choose Skip or Replace in Finder, and how to resume by file with rsync.</li>
+<li>Fixed: after a disk was unplugged in the middle of a copy, some USB drives stayed read-only when connected again (“the file system extension didn’t turn on writing”). Volisle now recognizes partially written data from an interrupted write and restores the last consistent state before enabling write access when safety checks pass. If the checks fail, the disk stays read-only and Volisle explains why.</li>
+<li>Fixed: if a write fails while you are pausing a copy, your pause choice is kept. Click Continue to resume after the disk recovers. Paused progress now explains the size of completed files and that unfinished content will be checked before continuing.</li>
+<li>If this version cannot read the format of write recovery records, Volisle now explains the incompatibility, keeps the disk read-only and preserves the original records for recovery with a compatible version.</li>
+<li>If a disk can’t be written to, select it and click “Can’t write? Check why” to check the background component, Full Disk Access, the file system extension, the disk itself and why the last attempt failed, with what to do for each; messages now also name the actual reason. Exported diagnostics include recent operation results and Volisle’s activity log with paths, names and identifiers removed, so a report shows where things stopped.</li>
+</ul>
+<h2>0.7.0 · October 6, 2026</h2><ul>
+<li>Stable release: a full review fixed a set of rare problems that could leave a disk read-only for good, stuck, or impossible to eject. Updating is recommended for everyone.</li>
+<li>File names now work both ways with Windows: names with ? : * &quot; &lt; &gt; | \ or ending in a space or period open and delete normally in Windows, and names written by other systems with accented letters or East Asian characters, which listed but wouldn’t open, now open.</li>
+<li>After a disk read or write error while writing, Restore Read-Only now works and writing can be turned on again, instead of getting stuck verifying or failing to eject.</li>
+<li>Check on This Mac no longer reports a read error (a bad sector, or an unstable cable or port) as damaged file records, and adds a line of technical details when a check doesn’t pass; it no longer clears the flag when Windows maintenance didn’t finish, and disks with directory junctions can now be checked.</li>
+<li>Faster: large files read at about 100 MB/s and write at about 50 MB/s, folders with tens of thousands of files open at once, and deleting many files is dozens of times faster.</li>
+<li>Copying files with the hidden attribute no longer stops partway; messages such as no space, name already exists, and folder not empty are more precise; new dot files are hidden in Windows too.</li>
+<li>With a BitLocker disk unlocked, updates and quitting Volisle work normally, and BitLocker disks can be ejected from the menu bar; Erase selects the disk chosen in the sidebar and shows its size and device name.</li>
+<li>Disks that can only be read (write-protected, not USB, or without a partition table) now say why; refreshing the disk list no longer turns writing back on for a disk you set to read-only; launching at login no longer opens the main window.</li>
+</ul>
 <h2>0.6.1 · October 5, 2026</h2><ul>
 <li>Fixes a drive that was unplugged and quickly reconnected sometimes not getting write access, and sometimes disappearing from Finder until Volisle was reopened. Volisle now waits for macOS to finish mounting the drive first; if turning on writing still fails, the drive stays available read-only.</li>
 </ul>
