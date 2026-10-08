@@ -94,6 +94,10 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
     case interruptedWriteUnsupportedFormat
     /// The disk or card reader reports itself write-protected.
     case writeProtected
+    /// Replaying a Windows log on the Mac: Windows maintenance is pending, the
+    /// log cannot be replayed, the replay or the check after it failed and the
+    /// disk was put back exactly as it was, or putting it back failed too.
+    case windowsMaintenancePending, windowsLogUnreadable, windowsLogReplayRestored, windowsLogRestoreFailed
     public var errorDescription: String? {
         switch self {
         case .mountFailed: String(localized: "盘屿没能以读写方式挂载这块盘，磁盘仍可只读使用，数据不受影响。请重启 Mac 后重新插入；仍然出现时，请在设置 → 支持中导出诊断并反馈。")
@@ -102,6 +106,10 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
         case .interruptedWriteRetry: String(localized: "这块盘上次读写时被直接断开，盘屿这次没能完成恢复，磁盘保持只读，数据不受影响。请拔下后重新插入再试；仍然出现时，请在设置 → 支持中导出诊断并反馈。")
         case .interruptedWriteUnsupportedFormat: String(localized: "这台 Mac 上的写入恢复记录使用了当前盘屿不支持的格式，磁盘保持只读，原记录已保留。请使用支持该记录的盘屿版本恢复；需要帮助时，在设置 → 支持中导出诊断并反馈。")
         case .writeProtected: String(localized: "这块盘处于写保护状态，只能读取。请检查磁盘或读卡器上的写保护（锁定）开关，拨开后重新插入。")
+        case .windowsMaintenancePending: String(localized: "Windows 在这块盘上还有没做完的维护（例如被中断的磁盘检查），只有 Windows 能完成，盘屿没有做任何修改。请接回 Windows 打开一次，安全弹出后再插回。")
+        case .windowsLogUnreadable: String(localized: "这块盘的 NTFS 日志读不出来或无法按顺序补写，盘屿不能代替 Windows 恢复，没有做任何修改。请接回 Windows 打开一次，用“安全删除硬件”弹出后再插回。")
+        case .windowsLogReplayRestored: String(localized: "补写或之后的检查没有通过，盘屿已经把这块盘原样还原，没有留下任何改动。盘里的文件仍可只读打开和拷出；请接回 Windows 打开一次，安全弹出后再插回。")
+        case .windowsLogRestoreFailed: String(localized: "补写中途失败，而且没能完全还原。请不要在 Mac 上继续写入这块盘，尽快接回 Windows，在“属性 → 工具 → 检查”中检查磁盘。")
         case .notBitLocker: String(localized: "这个分区不是 BitLocker 加密分区。")
         case .bitLockerWrongSecret: String(localized: "密码或恢复密钥不正确。")
         case .bitLockerUnsupported: String(localized: "暂不支持这块盘的加密方式。盘屿可以打开已完成加密、用密码或恢复密钥保护的 BitLocker 盘（XTS-AES、AES-CBC）；Windows 7 默认的“带扩散器的 AES”不支持，正在加密或解密中的盘请等 Windows 完成后再试。")
@@ -117,7 +125,7 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
         case .busy: String(localized: "磁盘正被其他程序使用，暂时无法完成。请关闭正在使用盘内文件的应用后重试；磁盘仍可正常使用，数据不受影响。")
         case .ntfsDirty: String(localized: "这块盘被标记为需要检查，为保护数据暂时只读。可以点右边的“在 Mac 上检查…”，没有发现问题就会清除标记并开启读写；也可以在 Windows 中检查磁盘（属性 → 工具 → 检查），安全弹出后再插回。")
         case .windowsHibernated: String(localized: "这块盘来自处于休眠或“快速启动”状态的 Windows，为保护数据暂时只读。请在 Windows 中完全关机后再插回。")
-        case .windowsLogUnclean: String(localized: "这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。请接回 Windows，用“安全删除硬件”弹出后再插回。")
+        case .windowsLogUnclean: String(localized: "这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点“在 Mac 上恢复…”。")
         }
     }
     /// `mount` reports the file system component's refusal on stderr. Only

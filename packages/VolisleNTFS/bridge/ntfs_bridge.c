@@ -1446,6 +1446,7 @@ int nk_format(const nk_io *io, const char *label, int sector_size, char *errbuf,
     return 0;
 }
 #include "check_marker.inc"
+#include "windows_log.inc"
 #endif /* NK_WITH_FORMAT */
 
 #include "bitlocker.inc"

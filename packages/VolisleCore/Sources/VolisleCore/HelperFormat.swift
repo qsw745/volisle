@@ -90,6 +90,17 @@ public protocol PartitionMaintenanceEngine: Sendable {
     /// `descriptor` is open read-only. Unlocks with the user's secret and
     /// returns the volume master key as 64 lowercase hex digits.
     func bitLockerKey(descriptor: Int32, blockSize: Int, byteCount: UInt64, kind: BitLockerSecretKind, secret: String) throws -> String
+    /// `descriptor` is open read-only: what a disk Windows let go of without
+    /// Safe Removal shows, and whether its log replays in simulation.
+    /// (Requirements, not just extension methods: otherwise a call through
+    /// `any PartitionMaintenanceEngine` reaches the default and never the helper's.)
+    func examineWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> WindowsLogExamination
+    /// Replays that log, saving every overwritten range to `undoFile` first;
+    /// on a failed result the disk is put back from it.
+    func recoverWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> WindowsLogRecoveryResult
+    /// When the log does not replay: resets it after a read-only check that the
+    /// disk holds together without it; restores from `undoFile` on failure.
+    func discardWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> WindowsLogRecoveryResult
 }
 
 public enum HelperMaintenanceEngine {

@@ -1,0 +1,14 @@
+盘屿 0.8.3 · Volisle 0.8.3
+
+· 新功能：在 Mac 上恢复。在 Windows 上没点“安全删除硬件”就拔下的盘，插到 Mac 后可以点“在 Mac 上恢复…”：盘屿先只读检查，确认后像 Windows 下次插上时那样，把没写完的改动补上；补不了时，检查确认盘上数据完整、并经你同意放弃 Windows 最后没写完的改动后，再开启读写。每次改动前都先备份，任何一步不通过都会原样还原。手边有 Windows 时，仍建议接回 Windows 安全弹出。
+· 新功能：设置中新增“拷贝期间不让 Mac 自动睡眠”（默认打开）。
+· 安装窗口重新设计，把盘屿拖到 Applications 即可安装。
+· 被 TT NTFS、xntfs、macFUSE 等其他 NTFS 工具接管的盘，会显示由谁接管，并分三步说明怎样交给盘屿。
+· “在 Mac 上检查”增加空间占用核对，检查更严格。
+· 后台组件连接不上时会自动重试；诊断报告附带后台服务的运行状态，便于排查。
+· New: Recover on This Mac. For a disk unplugged from Windows without “Safely Remove Hardware”, click “Recover on This Mac…”: Volisle checks it read-only first, then completes the unfinished changes the way Windows would; if they can’t be replayed, it turns on writing only after confirming the disk is consistent and you agree to give up Windows’ last unfinished changes. Everything changed is backed up first, and the disk is put back if any step fails. When a Windows PC is at hand, ejecting the disk there is still the safest fix.
+· New: “Keep the Mac awake while copying” in Settings (on by default).
+· A redesigned installer window: drag Volisle to Applications to install.
+· Disks taken by another NTFS tool (TT NTFS, xntfs, macFUSE and others) now show which tool has them and three steps to hand them to Volisle.
+· “Check on This Mac” now also checks how disk space is allocated.
+· The background component is retried when it can’t be reached, and diagnostics include the background service’s state.

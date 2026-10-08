@@ -27,6 +27,9 @@ struct MainView: View {
     /// The disk whose read-write conditions are shown ("Can't write to this disk?").
     @State private var checkingDisk: VolumeSnapshot?
     @State private var markerClearer = CheckMarkerClearer()
+    /// "Recover on This Mac" for a disk Windows let go of without Safe Removal.
+    @State private var windowsLog = WindowsLogRecoverer()
+    @State private var windowsLogTarget: CheckMarkerTarget?
     @State private var markerResult: String?
     @State private var showCopies = false
     @State private var bitLocker = BitLockerController()
@@ -40,6 +43,7 @@ struct MainView: View {
     private var selected: VolumeSnapshot? { volumes.first { $0.id == selection } }
     private var bottomMessage: String? {
         if markerClearer.isWorking { return String(localized: "正在 Mac 上检查磁盘，请勿拔出…") }
+        if windowsLog.phase == .recovering { return String(localized: "正在 Mac 上恢复磁盘，请勿拔出…") }
         if let error = mountCycle.lastError { return named(error) }
         if mountCycle.isBusy { return named(String(localized: "正在检查磁盘，请稍候…")) }
         let errors: [String?] = [actions.lastError, autoMount.lastError, manualMount.lastError]
@@ -82,6 +86,20 @@ struct MainView: View {
     private func markedNeedsCheck(_ volume: VolumeSnapshot) -> Bool {
         guard let refusal = mountCycle.lastRefusal, refusal.failure == .ntfsDirty else { return false }
         return refusal.disk.bsdName == volume.bsdName && refusal.disk.registryID == volume.identity.mediaRegistryID
+    }
+    /// Refused because Windows let it go without Safe Removal (a plain NTFS
+    /// partition: the replay does not reach inside BitLocker).
+    private func unpluggedFromWindows(_ volume: VolumeSnapshot) -> Bool {
+        guard let refusal = mountCycle.lastRefusal, refusal.failure == .windowsLogUnclean,
+              CheckMarkerClearer.applies(to: volume) else { return false }
+        return refusal.disk.bsdName == volume.bsdName && refusal.disk.registryID == volume.identity.mediaRegistryID
+    }
+    /// The bottom bar's "Recover on This Mac…", from the refused operation itself.
+    private var windowsLogBarTarget: CheckMarkerTarget? {
+        guard !windowsLog.isWorking, bottomMessage == HelperDiskFailure.windowsLogUnclean.errorDescription,
+              let bsd = mountCycle.operation?.disk.bsdName ?? selected?.bsdName, CheckMarkerClearer.applies(toPartition: bsd),
+              let volume = discovery.volumes.first(where: { $0.bsdName == bsd }), CheckMarkerClearer.applies(to: volume) else { return nil }
+        return checkTarget(for: volume)
     }
     private func checkTarget(for volume: VolumeSnapshot) -> CheckMarkerTarget {
         CheckMarkerTarget(bsdName: volume.bsdName, name: volume.name, volumeUUID: volume.identity.volumeUUID)
@@ -175,6 +193,7 @@ struct MainView: View {
                         if discovery.volumes.filter({ $0.deviceGroup == selected.deviceGroup }).count > 1 { ejecting = selected }
                         else { eject(selected) }
                     }, needsCheck: markedNeedsCheck(selected), checkOnMac: { markerTarget = checkTarget(for: selected) },
+                       unpluggedFromWindows: unpluggedFromWindows(selected), recoverOnMac: { windowsLogTarget = checkTarget(for: selected) },
                        writeRefusal: DailyWriteAvailability.refusal(selected)?.errorDescription,
                        copyJobs: copies.jobs.filter { $0.plan.diskKey == selected.identity.resumeKey },
                        copies: copies, copyToDisk: { urls in startCopy(to: selected, sources: urls) },
@@ -203,10 +222,13 @@ struct MainView: View {
                         if let target = checkMarkerTarget {
                             Button("在 Mac 上检查…") { markerTarget = target }
                         }
+                        if let target = windowsLogBarTarget {
+                            Button("在 Mac 上恢复…") { windowsLogTarget = target }
+                        }
                         if message == copiesWaiting {
                             Button("管理拷贝…") { showCopies = true }
                         }
-                        if mountCycle.isBusy || markerClearer.isWorking { ProgressView().controlSize(.small) }
+                        if mountCycle.isBusy || markerClearer.isWorking || windowsLog.isWorking { ProgressView().controlSize(.small) }
                         else if !mountCycle.requiresRestart && (mountCycle.needsAttention || mountCycle.canRecover) {
                             Button(mountCycle.canRecover && mountCycle.operation?.phase == .writeMounted
                                    ? cycleDiskName.map { String(localized: "将“\($0)”恢复只读") } ?? String(localized: "恢复只读")
@@ -265,6 +287,7 @@ struct MainView: View {
             if !recovering { showRecovery = false }  // erasing closes itself when it is not working
             // Open confirmations hold a quit back as sheets do.
             writingVolume = nil; checkingVolume = nil; ejecting = nil; markerTarget = nil
+            if !windowsLog.isWorking { windowsLogTarget = nil }  // a replay in progress finishes first
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in bitLocker.refreshMounts() }
         // Mounts made outside this window (another unlock, a command line) send no notification.
@@ -333,6 +356,9 @@ struct MainView: View {
                           diagnosticsReport: { .init(report: .snapshot(discovery: discovery, engineStatus: engineStatus, mountCycle: mountCycle,
                                                                        helperService: helperService, autoMount: autoMount),
                                                      models: DiagnosticReport.diskModels(discovery.volumes)) })
+        }
+        .sheet(item: $windowsLogTarget) { target in
+            WindowsLogRecoveryView(target: target, recoverer: windowsLog) { Task { await writeAfterRecovery(target) } }
         }
         .sheet(isPresented: $showSetup) {
             SetupGuideView(helperService: helperService, engineStatus: engineStatus, refreshRuntime: refreshRuntime)
@@ -403,6 +429,7 @@ struct MainView: View {
         case .fileSystemExtensions: SetupLinks.fileSystemExtensions()
         case .enableWriting, .retry: enableWriting(current)
         case .checkOnMac: markerTarget = checkTarget(for: current)
+        case .recoverOnMac: windowsLogTarget = checkTarget(for: current)
         case .exportDiagnostics: break  // the sheet shows the preview itself
         }
     }
@@ -441,6 +468,17 @@ struct MainView: View {
             }
         } catch {
             operationError = error.localizedDescription
+        }
+    }
+
+    /// After "Recover on This Mac": the partition was mounted again by the
+    /// system; turn writing back on as the button does (no refresh, which would
+    /// issue new connection IDs).
+    private func writeAfterRecovery(_ target: CheckMarkerTarget) async {
+        try? await Task.sleep(for: .seconds(2))
+        if let fresh = discovery.volumes.first(where: { $0.bsdName == target.bsdName && (target.volumeUUID == nil || $0.identity.volumeUUID == target.volumeUUID) }),
+           DailyWriteAvailability.allows(fresh) {
+            await mountCycle.startWrite(fresh, resolver: discovery)
         }
     }
 
@@ -563,6 +601,9 @@ struct VolumeDetail: View {
     /// The last write attempt was refused because NTFS marks the disk "needs check".
     var needsCheck = false
     var checkOnMac: () -> Void = {}
+    /// The last write attempt was refused because Windows let the disk go without Safe Removal.
+    var unpluggedFromWindows = false
+    var recoverOnMac: () -> Void = {}
     /// Why this disk stays read-only by design (write protected, not USB…).
     var writeRefusal: String? = nil
     /// Copies onto this disk that Volisle runs (they continue after an unplug).
@@ -630,6 +671,9 @@ struct VolumeDetail: View {
                     if volume.isNTFS && needsCheck && !controlledWrite {
                         Button("在 Mac 上检查…", systemImage: "checkmark.shield") { checkOnMac() }.disabled(busy)
                     }
+                    if volume.isNTFS && unpluggedFromWindows && !controlledWrite {
+                        Button("在 Mac 上恢复…", systemImage: "arrow.trianglehead.counterclockwise") { recoverOnMac() }.disabled(busy)
+                    }
                     // Disk operations pause while another disk is read-write; Finder can still eject this one.
                     Button("推出", systemImage: "eject") { eject() }.keyboardShortcut("e").disabled((busy && !controlledWrite) || waitingFor != nil)
                         .help(waitingFor == nil ? "" : "另一块磁盘读写期间，可在 Finder 中推出这块盘。")
@@ -645,6 +689,9 @@ struct VolumeDetail: View {
                 } else if volume.isNTFS, needsCheck, !controlledWrite, waitingFor == nil {
                     Label("这块盘被标记为需要检查，为保护数据暂时只读。可以点上面的“在 Mac 上检查…”，也可以在 Windows 中检查后安全弹出再插回。", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
+                } else if volume.isNTFS, unpluggedFromWindows, !controlledWrite, waitingFor == nil {
+                    Label("这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点上面的“在 Mac 上恢复…”。", systemImage: "info.circle")
+                        .font(.callout).foregroundStyle(.secondary)
                 } else if volume.isNTFS, let waitingFor {
                     Label(waitingFor.detail, systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
@@ -653,11 +700,7 @@ struct VolumeDetail: View {
                         .font(.callout).foregroundStyle(.secondary)
                 } else if let foreign = volume.foreignDriver {
                     // Another driver answers for this mount: the Finder errors there are not Volisle's.
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label(ForeignNTFSDriver.handOver(foreign.name), systemImage: "exclamationmark.triangle")
-                            .font(.callout).foregroundStyle(.orange).textSelection(.enabled)
-                        Button("打开文件系统扩展设置") { SetupLinks.fileSystemExtensions() }.buttonStyle(.link)
-                    }
+                    ForeignDriverSteps(driver: foreign.name, mounted: volume.mountURL != nil, eject: eject)
                 } else if volume.mountState == .unmounted {
                     Text("这个卷尚未挂载，可前往“磁盘工具”查看。")
                         .font(.callout).foregroundStyle(.secondary)
@@ -679,6 +722,43 @@ struct VolumeDetail: View {
             // The panels that follow must not run inside the drop itself.
             DispatchQueue.main.async { copyToDisk(files) }
             return true
+        }
+    }
+}
+
+/// A disk another NTFS driver holds: who answers for it, and the three steps
+/// to hand it to Volisle. Switching the other driver off is not enough on its
+/// own: the disk stays with it until it is ejected and connected again.
+struct ForeignDriverSteps: View {
+    let driver: String
+    let mounted: Bool
+    let eject: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("这块盘现在由“\(driver)”挂载，盘屿没有接管它，读写和权限都由“\(driver)”负责。", systemImage: "exclamationmark.triangle")
+                .font(.callout).foregroundStyle(.orange)
+            Text("想改用盘屿，按顺序做三步：").font(.callout.weight(.medium))
+            step(1, Text("推出这块盘")) {
+                Button("推出") { eject() }.disabled(!mounted)
+            }
+            step(2, Text("在“文件系统扩展”里关掉“\(driver)”（或退出这个工具）")) {
+                Button("打开文件系统扩展设置") { SetupLinks.fileSystemExtensions() }
+            }
+            step(3, Text("重新插上这块盘，盘屿会自动开启读写")) { EmptyView() }
+            Text("只关掉开关还不够：拔下重插之前，这块盘会一直挂在“\(driver)”上。两个工具都开着时，系统可能每次都把盘交给“\(driver)”。")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func step<Action: View>(_ number: Int, _ title: Text, @ViewBuilder action: () -> Action) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(verbatim: "\(number)").font(.callout.weight(.semibold)).foregroundStyle(.white)
+                .frame(width: 20, height: 20).background(.orange, in: Circle())
+            title.font(.callout).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            action().controlSize(.small)
         }
     }
 }

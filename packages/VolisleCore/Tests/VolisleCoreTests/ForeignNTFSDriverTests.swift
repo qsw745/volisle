@@ -29,8 +29,16 @@ struct ForeignNTFSDriverTests {
                                          mediaContent: "0FC63DAF-8483-4772-8E79-3D69D8477DE4") == nil)
     }
 
+    @Test func anyDriverNamedAfterNTFSIsShownByItsOwnName() {
+        // xntfs reports its own kind; no list to keep up to date.
+        let xntfs = ForeignNTFSDriver.detect(volumeKind: "xntfs", mountedType: "xntfs", mediaContent: nil)
+        #expect(xntfs?.kind == "xntfs" && xntfs?.name == "xntfs")
+        // Odd characters never reach the screen or the diagnostics.
+        #expect(ForeignNTFSDriver.detect(volumeKind: "bad ntfs!", mountedType: nil, mediaContent: nil) == nil)
+    }
+
     @Test func anUnknownDriverReportingNTFSIsStillShown() {
-        let other = ForeignNTFSDriver.detect(volumeKind: "somentfs", mountedType: "ntfs", mediaContent: basicData)
+        let other = ForeignNTFSDriver.detect(volumeKind: "somefs", mountedType: "ntfs", mediaContent: basicData)
         #expect(other?.kind == "other")
         #expect(other?.name == "其他 NTFS 工具")
     }

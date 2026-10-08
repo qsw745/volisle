@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import plistlib
@@ -48,10 +49,15 @@ def main():
     shutil.copytree(app, packaged, symlinks=True)
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(packaged)], check=True)
     shutil.copy2(guide, stage / '开始使用.md')
-    shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE')
-    (stage / 'Applications').symlink_to('/Applications')
+    shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE.txt')  # an extension gives Finder a text icon
     dmg = out / f'Volisle-{version}-arm64.dmg'
-    subprocess.run(['hdiutil', 'create', '-format', 'UDZO', '-fs', 'HFS+', '-volname', f'盘屿 {version}', '-srcfolder', str(stage), str(dmg)], check=True)
+    # The installer window (background, icon places, no toolbar) comes from
+    # scripts/dmg_settings.py; dmgbuild writes Finder's layout without driving Finder.
+    background = ROOT / 'assets/brand/dmg/background.tiff'
+    if not background.is_file(): parser.error('缺少安装窗口背景 assets/brand/dmg/background.tiff')
+    # dmgbuild adds the Applications link itself.
+    subprocess.run([sys.executable, '-m', 'dmgbuild', '-s', str(ROOT / 'scripts/dmg_settings.py'), '-D', f'stage={stage}',
+                    '-D', f'background={background}', f'盘屿 {version}', str(dmg)], check=True)
     subprocess.run(['hdiutil', 'verify', str(dmg)], check=True)
     mountpoint = Path(tempfile.mkdtemp(prefix='volisle-package-verify-', dir='/private/tmp'))
     device = None

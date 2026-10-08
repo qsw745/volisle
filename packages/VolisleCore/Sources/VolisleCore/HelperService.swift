@@ -40,6 +40,8 @@ public enum HelperPackage {
     /// False until the first status check finishes; `state` is a placeholder before.
     public private(set) var hasChecked = false
     private let service = SMAppService.daemon(plistName: HelperIdentity.plistName)
+    static let connectAttempts = 3
+    static let connectRetryDelay: Duration = .seconds(2)
     public init() {}
     public var summary: String {
         if isBusy { return String(localized: "正在检查…") }
@@ -110,8 +112,14 @@ public enum HelperPackage {
         case .notRegistered, .notFound: next = (.notRegistered, nil, nil)
         case .requiresApproval: next = (.requiresApproval, nil, nil)
         case .enabled:
-            do { next = (.connected, try await HelperRPC.systemStatus().fullDiskAccess, nil) }
-            catch { next = (.failed, nil, error.localizedDescription) }
+            // launchd starts the helper on the first request; a cold start
+            // (after a login or an update) can outlast one request's timeout.
+            next = (.failed, nil, nil)
+            for attempt in 0..<Self.connectAttempts {
+                if attempt > 0 { try? await Task.sleep(for: Self.connectRetryDelay) }
+                do { next = (.connected, try await HelperRPC.systemStatus().fullDiskAccess, nil); break }
+                catch { next = (.failed, nil, error.localizedDescription) }
+            }
         @unknown default: next = (.unavailable, nil, nil)
         }
         apply(next)

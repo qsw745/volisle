@@ -56,7 +56,7 @@ struct DiskCheckView: View {
                     Button(title(action)) {
                         if action == .exportDiagnostics { diagnostics = diagnosticsReport(); return }
                         // Those that go on in the main window close this first.
-                        if [.enableWriting, .retry, .checkOnMac].contains(action) { dismiss() }
+                        if [.enableWriting, .retry, .checkOnMac, .recoverOnMac].contains(action) { dismiss() }
                         perform(action)
                     }.controlSize(.small).padding(.top, 2)
                 }
@@ -95,6 +95,7 @@ struct DiskCheckView: View {
         case .enableWriting: String(localized: "启用读写")
         case .retry: String(localized: "重试")
         case .checkOnMac: String(localized: "在 Mac 上检查…")
+        case .recoverOnMac: String(localized: "在 Mac 上恢复…")
         case .exportDiagnostics: String(localized: "导出诊断…")
         }
     }
@@ -107,7 +108,7 @@ extension DiagnosticReport {
         DiagnosticReport(volumes: discovery.volumes, diskServiceRunning: discovery.isRunning, engine: engineStatus.capability,
                          lastOperation: mountCycle.operation, lastRefusal: mountCycle.lastRefusal,
                          helper: .init(state: "\(helperService.state)", fullDiskAccess: helperService.fullDiskAccess,
-                                       packageVerified: helperService.packageVerified),
+                                       packageVerified: helperService.packageVerified, launchd: HelperLaunchdState.read()),
                          automaticWrite: autoMount.preferences.automaticEnabled, history: OperationHistory.entries())
     }
 }

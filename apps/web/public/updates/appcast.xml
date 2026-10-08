@@ -1,26 +1,30 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.8.0</title><pubDate>Tue, 06 Oct 2026 13:07:55 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.8.0
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.8.2</title><pubDate>Wed, 07 Oct 2026 15:33:53 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.8.2
 
-· 新功能：续传拷贝。在可读写的盘上点“拷贝到这块盘…”（也可以把文件直接拖进盘屿窗口），由盘屿来拷；中途断开、推出或退出盘屿后，盘重新连接并安全恢复可写时，会先核对已有内容再继续拷贝。
-· 接着拷之前，会先把盘上已经拷好的部分和原文件逐块核对，从一致的地方接着写；拔线前一分多钟内拷完的文件也会重新核对，被退回的自动补齐。每个文件拷完整后才以正式文件名出现；覆盖同名文件时，旧文件在新文件拷完前保持原样。遇到读不出的文件或盘上不接受的名字会暂停，可以选择跳过这一项。
-· 帮助页新增“拷贝时拔了线怎么办”：用访达重新拷贝时怎样选“跳过”和“替换”，以及用 rsync 按文件续拷。
-· 修复：拷贝中途直接拔线后，部分 USB 硬盘插回时一直只读，提示“扩展没有开启写入”。现在盘屿能识别部分写入的中断数据；安全核对通过后，恢复到最后一致状态再开启读写，核对未通过时保持只读并说明原因。
-· 修复：手动暂停与写入错误同时发生时，保留用户的暂停选择，磁盘恢复后需点“继续”才会续传。暂停进度会说明已完成文件的大小，以及未完成部分会在继续时核对续传。
-· 当前版本无法识别写入恢复记录的格式时，会明确提示格式不兼容，保持磁盘只读并保留原记录，便于使用兼容版本恢复。
-· 读写不了时，选中磁盘点“读写不了？检查一下”，逐项检查后台组件、完全磁盘访问、文件系统扩展、磁盘本身和上次失败的原因，并给出处理办法；提示也会直接说明具体原因。导出的诊断附带最近的操作结果和盘屿的运行记录（已去掉路径、名称和标识），反馈时附上就能看出卡在哪一步。
+· 新功能：支持 macOS 15.4 及以上（此前要求 26.4）。已在 macOS 15.6.1 上验证自动读写、拷贝、拔线续传、恢复文件、抹掉和 BitLocker 加密盘；macOS 15 上的实体 USB 硬盘还没有实测，遇到问题请反馈。
+· 修复：用盘屿拷进 NTFS 盘的文件，有时拷完在访达里看不到。
+· 拷贝完成后点“打开文件”，会在访达里选中刚拷好的项目。
+· 关闭了“自动开启读写”时，拔线后插回，没拷完的任务也会为这块盘重新开启读写并接着拷。
+· 暂停拷贝后进度不再归零；续传时只显示一条进度，先核对已拷部分，再接着拷。
+· 同一个文件反复出现读写错误时，停止自动续传并说明原因，不再一直重试。
+· 盘被其他 NTFS 工具（如 TT NTFS、macFUSE / NTFS-3G、Paragon、Tuxera）接管时，盘屿会列出这块盘，说明由谁接管、怎样交给盘屿，不再没有任何提示。
+· “读写不了？检查一下”和诊断报告会读出硬盘自己报告的读写错误，分清是坏道还是数据线、接口、供电不稳。
+· 弹窗统一为系统设置的样式；开着读写检查、诊断、拷贝或恢复文件等窗口时也能正常退出盘屿；切回盘屿时不再整体刷新。
 
-对应源码：https://qisw.top/volisle/updates/Volisle-0.8.0-66-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.8.0
+对应源码：https://qisw.top/volisle/updates/Volisle-0.8.2-69-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.8.2
 
-· New: resumable copies. On a disk with write access, choose Copy to This Disk… (or drag items into the Volisle window). After a disconnection, ejection or app exit, Volisle checks the existing content before continuing once the disk is connected again and write access has been safely restored.
-· Before continuing, Volisle compares what is already on the disk with the originals block by block and carries on from where they match; files finished in the minute or so before an unplug are checked again, and anything rolled back is copied again. A file takes its name on the disk only once it’s complete, and a file it replaces stays intact until then. If a file can’t be read or the disk refuses a name, the copy pauses and you can skip that item.
-· Help now explains what to do if a disk was unplugged during a copy: when to choose Skip or Replace in Finder, and how to resume by file with rsync.
-· Fixed: after a disk was unplugged in the middle of a copy, some USB drives stayed read-only when connected again (“the file system extension didn’t turn on writing”). Volisle now recognizes partially written data from an interrupted write and restores the last consistent state before enabling write access when safety checks pass. If the checks fail, the disk stays read-only and Volisle explains why.
-· Fixed: if a write fails while you are pausing a copy, your pause choice is kept. Click Continue to resume after the disk recovers. Paused progress now explains the size of completed files and that unfinished content will be checked before continuing.
-· If this version cannot read the format of write recovery records, Volisle now explains the incompatibility, keeps the disk read-only and preserves the original records for recovery with a compatible version.
-· If a disk can’t be written to, select it and click “Can’t write? Check why” to check the background component, Full Disk Access, the file system extension, the disk itself and why the last attempt failed, with what to do for each; messages now also name the actual reason. Exported diagnostics include recent operation results and Volisle’s activity log with paths, names and identifiers removed, so a report shows where things stopped.
+· New: runs on macOS 15.4 or later (previously 26.4). Automatic write access, copying, resuming after an unplug, recovery files, formatting and BitLocker disks were verified on macOS 15.6.1; physical USB drives on macOS 15 haven’t been tested yet, so please report any problems.
+· Fixed: files copied onto an NTFS disk by Volisle sometimes didn’t appear in Finder.
+· When a copy finishes, click Show in Finder to select the copied items.
+· With automatic write access turned off, an unfinished copy now turns writing back on for its disk and continues after the disk is plugged in again.
+· Pausing a copy no longer resets its progress; when resuming, one progress bar shows the check of what was already copied, then the rest.
+· If the same file keeps failing to read or write, automatic resuming stops and Volisle explains why instead of retrying endlessly.
+· When another NTFS tool (such as TT NTFS, macFUSE / NTFS-3G, Paragon or Tuxera) has taken a disk, Volisle now lists it, says which tool has it and how to hand it over, instead of saying nothing.
+· “Can’t write? Check why” and diagnostics now read the errors the drive itself reports, telling bad sectors apart from an unsteady cable, port or power supply.
+· Dialogs now follow the System Settings style; Volisle quits normally while the write check, diagnostics, copy or recovery windows are open; switching back to Volisle no longer refreshes everything.
 
-Source code: https://qisw.top/volisle/updates/Volisle-0.8.0-66-source.tar.gz</description><sparkle:version>66</sparkle:version><sparkle:shortVersionString>0.8.0</sparkle:shortVersionString><sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.8.0-66-arm64.zip" length="4482135" type="application/octet-stream" sparkle:edSignature="/GNjrBwz7wShfn+KzYmbwpeELECpBrNQwR/JH9YKZhybbtmmc7KcXzKB+0k1cvc0hp6S6yUgwkZMba3rNNvkCg==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
-edSignature: R7UQ/wYlvUYSZOE4vqtdADmR8OyatuIWUs99dQfki9WZ1sjiGrQV9KOIJVqjPS3zvFq4AcB6ji53SSiYKVNFAA==
-length: 5499
+Source code: https://qisw.top/volisle/updates/Volisle-0.8.2-69-source.tar.gz</description><sparkle:version>69</sparkle:version><sparkle:shortVersionString>0.8.2</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.8.2-69-arm64.zip" length="4868125" type="application/octet-stream" sparkle:edSignature="9yssWk3OYJ+Cr9sKVzrxitRL8E5vk1k2it1R1EktXJ2WdGGnUfOMBc3Ho0dveOG76/KxpVG5tiZGo77Eiwy0BA==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
+edSignature: onkd0DpSFRxbz8sy3vSdYhVIAVFRspGyxfz6ziONUb0VTXvsBVvoWETGJXw75vz+JoFcrGA7dOOBFQklcFzQDg==
+length: 4053
 -->

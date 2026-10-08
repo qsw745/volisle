@@ -37,6 +37,10 @@ import VolisleCore
                     // Same request as "Check on This Mac"; the partition must be unmounted.
                     let items = try await HelperCheckMarkerClient.clear(partition: arguments[1])
                     FileHandle.standardOutput.write(Data("{\"checkedItems\":\(items)}\n".utf8))
+                } else if arguments.count == 2, arguments[0] == "--helper-windows-log-examine" {
+                    // Read-only; the partition must be unmounted first.
+                    let found = try await HelperWindowsLogClient.examine(partition: arguments[1])
+                    FileHandle.standardOutput.write(try JSONEncoder().encode(found) + Data("\n".utf8))
                 } else if arguments.count == 2, arguments[0] == "--helper-bitlocker-probe" {
                     let found = try await HelperBitLockerClient.isBitLocker(partition: arguments[1])
                     FileHandle.standardOutput.write(Data("{\"bitLocker\":\(found)}\n".utf8))

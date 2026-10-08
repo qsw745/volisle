@@ -12,6 +12,7 @@ struct SettingsView: View {
     @Bindable var updates: AppUpdates
     var refreshRuntime: () async -> Void
     @AppStorage("appearance") private var appearance = "system"
+    @AppStorage(CopySleepGuard.key) private var keepAwakeWhileCopying = true
     @State private var diagnostics: DiagnosticPresentation?
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
@@ -28,6 +29,9 @@ struct SettingsView: View {
                     }))
                     .disabled(!DailyWriteAvailability.enabled)
                 Text("首次授权后自动处理支持的外接磁盘。关闭窗口后仍在后台运行；关闭此开关不会中断已经启用的读写。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("拷贝期间不让 Mac 自动睡眠", isOn: $keepAwakeWhileCopying)
+                Text("用“拷贝到这块盘…”拷贝时，Mac 不会因为闲置而睡眠，屏幕仍会按系统设置关闭。合上笔记本或手动选择睡眠时仍会睡眠，拷贝随之暂停，醒来后磁盘重新开启读写就会接着拷。")
                     .font(.caption).foregroundStyle(.secondary)
                 Picker("外观", selection: $appearance) {
                     Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark")

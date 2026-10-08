@@ -33,6 +33,11 @@ public enum HelperIdentity {
     func formatPartition(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
     func clearCheckMarker(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
     func bitLocker(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
+    /// A disk Windows let go of without Safe Removal: read-only examination,
+    /// and replaying its log the way Windows would on its next mount.
+    func examineWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
+    func recoverWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
+    func discardWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
 }
 
 public struct HelperStatus: Codable, Equatable, Sendable {
@@ -208,6 +213,33 @@ private final class HelperStatusEndpoint: NSObject, VolisleHelperProtocol {
             } catch let refusal as CheckMarkerRefusal {
                 result = .init(items: nil, failure: refusal.failure, detail: refusal.detail)
             } catch { result = .init(items: nil, failure: .from(error)) }
+            reply((try? JSONEncoder().encode(result)) ?? Data())
+        }
+    }
+    func examineWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void) {
+        Task {
+            var result = HelperWindowsLogReply()
+            do { result.examination = try await HelperPartitionFormatter.examineWindowsLog(HelperDiskRequest.decode(request)) }
+            catch let refusal as CheckMarkerRefusal { result.failure = refusal.failure; result.detail = refusal.detail }
+            catch { result.failure = .from(error) }
+            reply((try? JSONEncoder().encode(result)) ?? Data())
+        }
+    }
+    func discardWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void) {
+        Task {
+            var result = HelperWindowsLogReply()
+            do { result.result = try await HelperPartitionFormatter.recoverWindowsLog(HelperDiskRequest.decode(request), discard: true) }
+            catch let refusal as CheckMarkerRefusal { result.failure = refusal.failure; result.detail = refusal.detail }
+            catch { result.failure = .from(error) }
+            reply((try? JSONEncoder().encode(result)) ?? Data())
+        }
+    }
+    func recoverWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void) {
+        Task {
+            var result = HelperWindowsLogReply()
+            do { result.result = try await HelperPartitionFormatter.recoverWindowsLog(HelperDiskRequest.decode(request)) }
+            catch let refusal as CheckMarkerRefusal { result.failure = refusal.failure; result.detail = refusal.detail }
+            catch { result.failure = .from(error) }
             reply((try? JSONEncoder().encode(result)) ?? Data())
         }
     }

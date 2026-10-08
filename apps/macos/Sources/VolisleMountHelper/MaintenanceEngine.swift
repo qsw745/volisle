@@ -13,6 +13,8 @@ private final class RawPartitionIO {
     let blockSize: Int
     let size: Int64
     private(set) var failed = false
+    /// When set, every write first saves what it overwrites.
+    var undo: PartitionUndoLog?
 
     init(descriptor: Int32, blockSize: Int, size: Int64) {
         self.descriptor = descriptor; self.blockSize = blockSize; self.size = size
@@ -55,6 +57,16 @@ private final class RawPartitionIO {
         defer { scratch.deallocate() }
         if offset != span.start || Int(count) != span.length {
             guard full(span.length, { pread(descriptor, scratch.baseAddress! + $0, span.length - $0, off_t(span.start) + off_t($0)) }) else {
+                failed = true; return -1
+            }
+        }
+        if let undo {
+            // The before-image must be on disk before the block changes.
+            if offset == span.start && Int(count) == span.length,
+               !full(span.length, { pread(descriptor, scratch.baseAddress! + $0, span.length - $0, off_t(span.start) + off_t($0)) }) {
+                failed = true; return -1
+            }
+            guard undo.save(UnsafeRawBufferPointer(start: scratch.baseAddress, count: span.length), at: span.start) else {
                 failed = true; return -1
             }
         }
@@ -129,6 +141,101 @@ struct NTFSMaintenanceEngine: PartitionMaintenanceEngine {
             throw CheckMarkerRefusal(.checkReadFailed, detail: reason) ?? HelperDiskFailure.checkReadFailed
         default: throw HelperDiskFailure.unavailable
         }
+    }
+
+    func examineWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> WindowsLogExamination {
+        let io = try Self.io(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount)
+        guard Self.lock.try() else { throw HelperDiskFailure.busy }
+        defer { Self.lock.unlock() }
+        var device = io.makeIO(readOnly: true)
+        var state = nk_windows_log()
+        var errbuf = [CChar](repeating: 0, count: 256)
+        let rc = withExtendedLifetime(io) { nk_windows_log_examine(&device, &state, &errbuf, errbuf.count) }
+        guard rc == 0 else { throw io.failed ? HelperDiskFailure.checkReadFailed : HelperDiskFailure.unavailable }
+        return Self.examination(state)
+    }
+
+    func recoverWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> WindowsLogRecoveryResult {
+        try changeWindowsLog(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount, undoFile: undoFile, discard: false)
+    }
+
+    func discardWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> WindowsLogRecoveryResult {
+        try changeWindowsLog(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount, undoFile: undoFile, discard: true)
+    }
+
+    /// Replays (or, when it does not replay, gives up) the Windows log. Every
+    /// write first saves what it overwrites; a result that does not verify is
+    /// put back exactly.
+    private func changeWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL, discard: Bool) throws -> WindowsLogRecoveryResult {
+        let io = try Self.io(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount)
+        guard Self.lock.try() else { throw HelperDiskFailure.busy }
+        defer { Self.lock.unlock() }
+        let undo = try PartitionUndoLog(url: undoFile)
+        io.undo = undo
+        var device = io.makeIO()
+        var before = nk_windows_log()
+        var items: Int64 = 0
+        var errbuf = [CChar](repeating: 0, count: 256)
+        let rc = withExtendedLifetime(io) {
+            discard ? nk_windows_log_discard(&device, &before, &items, &errbuf, errbuf.count)
+                    : nk_windows_log_recover(&device, &before, &items, &errbuf, errbuf.count)
+        }
+        let code = errno
+        let reason = Self.reason(errbuf)
+        let log = Logger(subsystem: "top.qisw.volisle.helper", category: "windows-log")
+        log.notice("ntfsrecover：\(Self.note(before), privacy: .public)")
+        if rc == 0 {
+            undo.discard()
+            return WindowsLogRecoveryResult(replayed: discard ? 0 : before.redo_actions, checkedItems: items, discarded: discard,
+                                            heldBytes: discard ? before.held_bytes : 0)
+        }
+        log.error("Windows 日志\(discard ? "放弃" : "补写", privacy: .public)未完成：\(reason, privacy: .public) 已写=\(undo.records, privacy: .public)")
+        if undo.records == 0 {
+            undo.discard()
+            switch (code, reason) {
+            case (EALREADY, _): return WindowsLogRecoveryResult(replayed: 0, checkedItems: 0)
+            case (EBUSY, "hibernated"): throw HelperDiskFailure.windowsHibernated
+            case (EBUSY, "Windows maintenance pending"): throw HelperDiskFailure.windowsMaintenancePending
+            case (EBUSY, "marked for check"): throw HelperDiskFailure.ntfsDirty
+            case (EBUSY, _): throw HelperDiskFailure.windowsLogUnreadable
+            case (EIO, _) where reason.hasPrefix("inconsistent record"):
+                throw CheckMarkerRefusal(.checkFoundProblems, detail: reason) ?? HelperDiskFailure.checkFoundProblems
+            case (EIO, _) where reason.hasPrefix("read failed"):
+                throw CheckMarkerRefusal(.checkReadFailed, detail: reason) ?? HelperDiskFailure.checkReadFailed
+            default: throw io.failed ? HelperDiskFailure.checkReadFailed : HelperDiskFailure.unavailable
+            }
+        }
+        // Something was written and the result did not verify: put it all back.
+        var original = nk_windows_log()
+        var probe = RawPartitionIO(descriptor: descriptor, blockSize: blockSize, size: io.size).makeIO(readOnly: true)
+        guard undo.restore(to: descriptor), nk_windows_log_examine(&probe, &original, nil, 0) == 0,
+              original.log_clean == 0, original.log_readable == 1 || discard else {
+            log.fault("Windows 日志处理失败且未能还原，撤销记录保留：\(undo.url.lastPathComponent, privacy: .public)")
+            throw HelperDiskFailure.windowsLogRestoreFailed
+        }
+        undo.discard()
+        log.notice("Windows 日志处理失败，已按撤销记录还原 \(undo.records, privacy: .public) 处")
+        throw CheckMarkerRefusal(.windowsLogReplayRestored, detail: reason) ?? HelperDiskFailure.windowsLogReplayRestored
+    }
+
+    private static func examination(_ s: nk_windows_log) -> WindowsLogExamination {
+        WindowsLogExamination(markedForCheck: s.dirty != 0, maintenancePending: s.maintenance_pending != 0,
+                              hibernated: s.hibernated != 0, logReadable: s.log_readable != 0, logClean: s.log_clean != 0,
+                              logVersion: "\(s.log_major).\(s.log_minor)", replaySimulated: s.replay_simulated != 0,
+                              pendingChanges: s.redo_actions, detail: Self.note(s).isEmpty ? nil : String(Self.note(s).prefix(300)),
+                              discardChecked: s.discard_checked != 0, discardPassed: s.discard_ok != 0, checkedItems: s.checked_items,
+                              discardDetail: Self.discardReason(s), heldBytes: s.held_bytes)
+    }
+
+    /// Only the check's fixed wording crosses XPC (a record number and a kind).
+    private static func discardReason(_ s: nk_windows_log) -> String? {
+        let reason = withUnsafeBytes(of: s.discard_reason) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        return CheckMarkerRefusal(.checkFoundProblems, detail: reason)?.detail ?? (reason.isEmpty ? nil : String(reason.prefix(60)))
+    }
+
+    /// ntfsrecover's status lines, as the bridge kept them.
+    private static func note(_ s: nk_windows_log) -> String {
+        withUnsafeBytes(of: s.note) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 
     func isBitLocker(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> Bool {

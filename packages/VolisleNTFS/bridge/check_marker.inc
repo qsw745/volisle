@@ -55,9 +55,11 @@ static int check_record(struct check_walk *w, u64 mft, int expect_dir, int *is_d
     ntfs_inode *ni = ntfs_inode_open(w->vol, mft);
     if (!ni) { w->failed_why = "record unreadable"; return -1; }
     const char *why = NULL;
+    /* A folder naming a record that is free could see it reused for another file. */
+    if (!(ni->mrec->flags & MFT_RECORD_IN_USE)) why = "listed but not in use";
     int dir = !!(ni->mrec->flags & MFT_RECORD_IS_DIRECTORY);
     if (is_dir) *is_dir = dir;
-    if (expect_dir >= 0 && dir != expect_dir) why = dir ? "listed as a file, record is a folder" : "listed as a folder, record is a file";
+    if (!why && expect_dir >= 0 && dir != expect_dir) why = dir ? "listed as a file, record is a folder" : "listed as a folder, record is a file";
     if (!why && !dir) {
         ntfs_attr *na = ntfs_attr_open(ni, AT_DATA, AT_UNNAMED, 0);
         if (na) {
@@ -94,6 +96,76 @@ static int check_filldir(void *ctx, const ntfschar *name, const int name_len,
     return 0;
 }
 
+static int bit_set(const unsigned char *map, u64 bit) { return (map[bit / 8] >> (bit % 8)) & 1; }
+
+/* Every record in use must be allocated in the file table's bitmap, and every
+ * cluster any of its attributes maps must be allocated in $Bitmap: otherwise
+ * a new file could take that record or overwrite those clusters. Allocated but
+ * unused is only a leak and is left alone. Returns 0, or -1 with the record. */
+static int check_allocation(ntfs_volume *vol, u64 records, u64 *failed_at, const char **why, s64 *leaked) {
+    s64 lcn_bytes = vol->lcnbmp_na->initialized_size, mft_bytes = vol->mftbmp_na->initialized_size;
+    unsigned char *lcn = lcn_bytes > 0 ? malloc((size_t)lcn_bytes) : NULL;
+    /* Clusters some record maps: what is marked used beyond them is only held
+     * (a leak, e.g. space Windows reserved for a file it never wrote). */
+    unsigned char *mapped = lcn_bytes > 0 ? calloc(1, (size_t)lcn_bytes) : NULL;
+    if (leaked) *leaked = 0;
+    unsigned char *mftmap = mft_bytes > 0 ? malloc((size_t)mft_bytes) : NULL;
+    MFT_RECORD *m = malloc(vol->mft_record_size);
+    int r = -1;
+    *failed_at = 0; *why = "allocation unreadable";
+    if (!lcn || !mapped || !mftmap || !m || ntfs_attr_pread(vol->lcnbmp_na, 0, lcn_bytes, lcn) != lcn_bytes ||
+        ntfs_attr_pread(vol->mftbmp_na, 0, mft_bytes, mftmap) != mft_bytes ||
+        (u64)lcn_bytes * 8 < (u64)vol->nr_clusters) goto out;
+    for (u64 i = 0; i < records; i++) {
+        *failed_at = i;
+        if (ntfs_mft_records_read(vol, MK_MREF(i, 0), 1, m)) {
+            /* A free record may be blank or torn; only one in use matters. */
+            if (i / 8 < (u64)mft_bytes && bit_set(mftmap, i)) { *why = "record unreadable"; goto out; }
+            continue;
+        }
+        if (m->magic != magic_FILE || !(m->flags & MFT_RECORD_IN_USE)) continue;
+        if (i / 8 >= (u64)mft_bytes || !bit_set(mftmap, i)) { *why = "in use but not allocated"; goto out; }
+        u32 used = le32_to_cpu(m->bytes_in_use), at = le16_to_cpu(m->attrs_offset);
+        if (used > vol->mft_record_size || at >= used) { *why = "record layout broken"; goto out; }
+        while (at + 8 <= used) {
+            ATTR_RECORD *a = (ATTR_RECORD *)((char *)m + at);
+            if (a->type == AT_END) break;
+            u32 length = le32_to_cpu(a->length);
+            if (length < 16 || at + length > used) { *why = "record layout broken"; goto out; }
+            if (a->non_resident) {
+                runlist_element *rl = ntfs_mapping_pairs_decompress(vol, a, NULL);
+                if (!rl) { *why = "runlist unreadable"; goto out; }
+                for (runlist_element *run = rl; run->length; run++) {
+                    if (run->lcn < 0) continue;  /* holes and the unmapped tail */
+                    if (run->length < 0 || run->lcn > vol->nr_clusters || run->length > vol->nr_clusters - run->lcn) {
+                        free(rl); *why = "data outside the volume"; goto out;
+                    }
+                    for (s64 c = run->lcn, end = run->lcn + run->length; c < end; ) {
+                        if (!(c % 8) && end - c >= 8 && lcn[c / 8] == 0xff) { mapped[c / 8] = 0xff; c += 8; continue; }
+                        if (!bit_set(lcn, (u64)c)) { free(rl); *why = "clusters marked free"; goto out; }
+                        mapped[c / 8] |= (unsigned char)(1u << (c % 8));
+                        c++;
+                    }
+                }
+                free(rl);
+            }
+            at += length;
+        }
+    }
+    if (leaked) {
+        s64 held = 0;
+        for (s64 c = 0; c < vol->nr_clusters; c++) {
+            if (!(c % 8) && vol->nr_clusters - c >= 8 && lcn[c / 8] == mapped[c / 8]) { c += 7; continue; }
+            if (bit_set(lcn, (u64)c) && !bit_set(mapped, (u64)c)) held++;
+        }
+        *leaked = held;
+    }
+    r = 0;
+out:
+    free(lcn); free(mapped); free(mftmap); free(m);
+    return r;
+}
+
 static int check_log_clean(ntfs_volume *vol) {
     ntfs_inode *ni = ntfs_inode_open(vol, FILE_LogFile);
     ntfs_attr *na = ni ? ntfs_attr_open(ni, AT_DATA, AT_UNNAMED, 0) : NULL;
@@ -106,9 +178,26 @@ static int check_log_clean(ntfs_volume *vol) {
     return clean;
 }
 
-/* Read-only: state must be exactly "dirty only", then every record reachable
- * from the root must open and map. Returns 0, or -1 with a reason. */
-static int check_volume_readonly(const nk_io *io, long long *items, char *errbuf, size_t errlen) {
+/* What check_volume_readonly requires. */
+enum {
+    CHECK_NEED_DIRTY = 1,        /* exactly "needs check" ("Check on This Mac") */
+    CHECK_ALLOW_UNCLEAN_LOG = 2, /* before the Windows log is discarded */
+    CHECK_ALLOCATION = 4,        /* records and clusters in use are allocated */
+};
+
+static int check_volume_readonly_held(const nk_io *io, int options, long long *items, long long *held_bytes,
+                                      char *errbuf, size_t errlen);
+
+/* Read-only: every record reachable from the root must open and map, and with
+ * CHECK_ALLOCATION nothing in use may be marked free. Returns 0, or -1 with a
+ * reason. */
+static int check_volume_readonly(const nk_io *io, int options, long long *items, char *errbuf, size_t errlen) {
+    return check_volume_readonly_held(io, options, items, NULL, errbuf, errlen);
+}
+
+/* As above; `held_bytes` receives the space marked used that no record maps. */
+static int check_volume_readonly_held(const nk_io *io, int options, long long *items, long long *held_bytes,
+                                      char *errbuf, size_t errlen) {
     nk_io ro = *io; ro.readonly = 1;
     nk_volume *v = mount_unchecked(&ro, NULL, 0);
     if (!v) { snprintf(errbuf, errlen, "volume could not be read"); errno = EIO; return -1; }
@@ -118,13 +207,13 @@ static int check_volume_readonly(const nk_io *io, long long *items, char *errbuf
      * upgrade or USN deletion): only Windows may finish it, so leave the disk. */
     const le16 pending = VOLUME_RESIZE_LOG_FILE | VOLUME_UPGRADE_ON_MOUNT | VOLUME_DELETE_USN_UNDERWAY |
                          VOLUME_REPAIR_OBJECT_ID | VOLUME_CHKDSK_UNDERWAY;
-    if (!(vol->flags & VOLUME_IS_DIRTY)) {
+    if ((options & CHECK_NEED_DIRTY) && !(vol->flags & VOLUME_IS_DIRTY)) {
         snprintf(errbuf, errlen, "not marked for check"); errno = EALREADY;
     } else if (vol->flags & pending) {
         snprintf(errbuf, errlen, "Windows maintenance pending"); errno = EBUSY;
     } else if (ntfs_volume_check_hiberfile(vol, 0) < 0) {
         snprintf(errbuf, errlen, "hibernated"); errno = EBUSY;
-    } else if (!check_log_clean(vol)) {
+    } else if (!(options & CHECK_ALLOW_UNCLEAN_LOG) && !check_log_clean(vol)) {
         snprintf(errbuf, errlen, "log not clean"); errno = EBUSY;
     } else {
         struct check_walk w = { .vol = vol };
@@ -142,6 +231,10 @@ static int check_volume_readonly(const nk_io *io, long long *items, char *errbuf
             }
             if (dir && ntfs_inode_close(dir) && !w.failed) { w.failed = 1; w.failed_at = mft; w.failed_why = "folder could not be closed"; }
         }
+        s64 leaked = 0;
+        if (!w.failed && (options & CHECK_ALLOCATION) &&
+            check_allocation(vol, w.records, &w.failed_at, &w.failed_why, &leaked)) w.failed = 1;
+        if (held_bytes) *held_bytes = (long long)leaked * vol->cluster_size;
         if (w.failed && v->devctx->failed) {
             /* The disk did not answer a read (a bad sector, a loose cable):
              * nothing is known about the records, so say that instead. */
@@ -172,7 +265,7 @@ int nk_clear_check_marker(const nk_io *io, long long *items, char *errbuf, size_
         snprintf(errbuf, errlen, "invalid target"); errno = EINVAL; return -1;
     }
     *items = 0;
-    if (check_volume_readonly(io, items, errbuf, errlen)) return -1;
+    if (check_volume_readonly(io, CHECK_NEED_DIRTY | CHECK_ALLOCATION, items, errbuf, errlen)) return -1;
     /* The only write: $Volume's flags, without the dirty bit. */
     nk_volume *v = mount_unchecked(io, NULL, 0);
     if (!v) { snprintf(errbuf, errlen, "volume could not be opened"); errno = EIO; return -1; }

@@ -49,8 +49,12 @@ public struct DiagnosticReport: Codable, Sendable {
         public let state: String
         public let fullDiskAccess: Bool?
         public let packageVerified: Bool
-        public init(state: String, fullDiskAccess: Bool?, packageVerified: Bool) {
+        /// What launchd says about the background service (state, runs, last
+        /// exit): whether it was started at all when the App cannot reach it.
+        public let launchd: String?
+        public init(state: String, fullDiskAccess: Bool?, packageVerified: Bool, launchd: String? = nil) {
             self.state = state; self.fullDiskAccess = fullDiskAccess; self.packageVerified = packageVerified
+            self.launchd = launchd
         }
     }
 
@@ -218,6 +222,7 @@ public struct DiagnosticReport: Codable, Sendable {
         if let helper {
             let access = helper.fullDiskAccess.map { $0 ? String(localized: "已允许") : String(localized: "未允许") } ?? String(localized: "未知")
             lines.append(String(localized: "后台组件：\(helper.state)，完全磁盘访问：\(access)，安装包校验：\(helper.packageVerified ? "ok" : "failed")"))
+            if let launchd = helper.launchd { lines.append(String(localized: "后台服务（launchd）：\(launchd)")) }
         }
         if let automaticWrite { lines.append(String(localized: "自动开启读写：\(automaticWrite ? String(localized: "开") : String(localized: "关"))")) }
         if let lastRefusal { lines.append(String(localized: "上次被拒绝的操作：\(summary(lastRefusal))")) }

@@ -7,7 +7,7 @@ import Foundation
 public struct ForeignNTFSDriver: Equatable, Sendable {
     /// A known driver name, or "other": diagnostics never carry free text.
     public let kind: String
-    public var name: String { Self.names[kind] ?? String(localized: "其他 NTFS 工具") }
+    public var name: String { Self.names[kind] ?? (kind == "other" ? String(localized: "其他 NTFS 工具") : kind) }
 
     /// Drivers that only mount NTFS.
     private static let ntfsDrivers: Set<String> = ["ttntfs", "ufsd_ntfs", "tuxera_ntfs", "ntfs-3g"]
@@ -32,6 +32,9 @@ public struct ForeignNTFSDriver: Equatable, Sendable {
         // Apple's driver and Volisle's own mounts both report the kind "ntfs".
         guard kind != "ntfs" else { return nil }
         if let known = [kind, mounted].compactMap({ $0 }).first(where: ntfsDrivers.contains) { return .init(kind: known) }
+        // Any other driver naming itself after NTFS (xntfs, …): no list to keep.
+        if let named = [kind, mounted].compactMap({ $0 }).first(where: { $0.contains("ntfs") && $0 != "ntfs" }),
+           named.wholeMatch(of: /[a-z0-9_.-]{1,32}/) != nil { return .init(kind: named) }
         guard let mediaContent, HelperFormatPolicy.ntfsContents.contains(mediaContent) else { return nil }
         if let host = [kind, mounted].compactMap({ $0 }).first(where: fuseHosts.contains) { return .init(kind: host) }
         return mounted == "ntfs" ? .init(kind: "other") : nil

@@ -12,6 +12,8 @@ import VolisleCore
     private let helper: HelperServiceController
     private let updates: UpdateMaintenance
     private let copies: CopyQueue
+    /// No idle sleep while a copy runs (a setting, on by default).
+    private let sleepGuard = CopySleepGuard()
     private var started = false
     private var refreshing = false
     private var recoveryQueued = false
@@ -107,6 +109,7 @@ import VolisleCore
         scheduleRecoveryIfNeeded(volumes)
         // A disk came back writable (or went away): copies onto it continue or wait.
         Task { await copies.reconcile() }
+        sleepGuard.update(copying: copies.jobs.contains(where: \.running))
     }
     private func scheduleRecoveryIfNeeded(_ volumes: [VolumeSnapshot]) {
         if let operation = cycle.operation,

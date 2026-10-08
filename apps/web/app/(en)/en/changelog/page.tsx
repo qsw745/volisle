@@ -3,6 +3,17 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.8.2 · October 7, 2026</h2><ul>
+<li>New: runs on macOS 15.4 or later (previously 26.4). Automatic write access, copying, resuming after an unplug, recovery files, formatting and BitLocker disks were verified on macOS 15.6.1; physical USB drives on macOS 15 haven’t been tested yet, so please report any problems.</li>
+<li>Fixed: files copied onto an NTFS disk by Volisle sometimes didn’t appear in Finder.</li>
+<li>When a copy finishes, click Show in Finder to select the copied items.</li>
+<li>With automatic write access turned off, an unfinished copy now turns writing back on for its disk and continues after the disk is plugged in again.</li>
+<li>Pausing a copy no longer resets its progress; when resuming, one progress bar shows the check of what was already copied, then the rest.</li>
+<li>If the same file keeps failing to read or write, automatic resuming stops and Volisle explains why instead of retrying endlessly.</li>
+<li>When another NTFS tool (such as TT NTFS, macFUSE / NTFS-3G, Paragon or Tuxera) has taken a disk, Volisle now lists it, says which tool has it and how to hand it over, instead of saying nothing.</li>
+<li>“Can’t write? Check why” and diagnostics now read the errors the drive itself reports, telling bad sectors apart from an unsteady cable, port or power supply.</li>
+<li>Dialogs now follow the System Settings style; Volisle quits normally while the write check, diagnostics, copy or recovery windows are open; switching back to Volisle no longer refreshes everything.</li>
+</ul>
 <h2>0.8.0 · October 6, 2026</h2><ul>
 <li>New: resumable copies. On a disk with write access, choose Copy to This Disk… (or drag items into the Volisle window). After a disconnection, ejection or app exit, Volisle checks the existing content before continuing once the disk is connected again and write access has been safely restored.</li>
 <li>Before continuing, Volisle compares what is already on the disk with the originals block by block and carries on from where they match; files finished in the minute or so before an unplug are checked again, and anything rolled back is copied again. A file takes its name on the disk only once it’s complete, and a file it replaces stays intact until then. If a file can’t be read or the disk refuses a name, the copy pauses and you can skip that item.</li>

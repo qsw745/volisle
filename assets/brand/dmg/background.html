@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- DMG window background, 660 × 440 pt. Rendered by scripts/render-dmg-background.sh.
+     Icon centres must match scripts/dmg_settings.py: app (180, 200), Applications (480, 200),
+     开始使用.md (270, 360), LICENSE.txt (390, 360); icon size 96.
+     Mid-tone background on purpose: Finder draws icon names black in light mode and
+     white in dark mode, and both must stay readable (about 4.5:1 either way). -->
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --tone-top: #5b7fb3;
+    --tone-bottom: #4f6f9f;
+    --ink: #ffffff;
+  }
+  html, body { margin: 0; width: 660px; height: 440px; overflow: hidden; }
+  body {
+    position: relative;
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(420px 220px at 330px 205px, rgba(255,255,255,0.10), rgba(255,255,255,0) 70%),
+      linear-gradient(160deg, var(--tone-top), var(--tone-bottom));
+  }
+  /* Faint island mark, bottom right: atmosphere only, never under an icon or name. */
+  .mark { position: absolute; right: -40px; bottom: -36px; width: 300px; opacity: 0.07; }
+  header { position: absolute; top: 34px; left: 0; right: 0; text-align: center; }
+  h1 { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: 0.5px; }
+  .en { margin-top: 6px; font-size: 12.5px; font-weight: 400; opacity: 0.78; letter-spacing: 0.2px; }
+  /* Arrow between the two main icons (centres at x 180 and 480, y 200). */
+  .arrow { position: absolute; left: 252px; top: 168px; width: 156px; height: 48px; }
+  .divider { position: absolute; left: 140px; right: 140px; top: 296px; height: 1px; background: rgba(255,255,255,0.16); }
+  .hint { position: absolute; top: 306px; left: 0; right: 0; text-align: center; font-size: 11.5px; opacity: 0.72; }
+</style>
+</head>
+<body>
+  <svg class="mark" viewBox="0 0 760 460" fill="#ffffff" aria-hidden="true"><path d="M56 25C160 25 223 15 279 52C352 101 370 190 408 266C435 317 459 328 478 275C500 214 543 195 581 171C617 149 624 124 604 99C591 81 605 67 628 65C676 60 707 112 718 150C763 293 558 428 423 429C269 435 152 356 112 234C88 161 85 94 50 79C18 67 20 28 56 25Z"/><path d="M461 148C468 131 486 116 507 101C528 81 551 85 564 99C588 131 568 159 545 163C509 170 468 170 459 157C455 154 456 151 461 148Z"/></svg>
+  <header>
+    <h1>把“盘屿”拖到右边的 Applications</h1>
+    <div class="en">Drag Volisle to Applications to install</div>
+  </header>
+  <svg class="arrow" viewBox="0 0 156 48" fill="none" aria-hidden="true">
+    <path d="M6 32 C 46 6, 104 6, 140 26" stroke="rgba(255,255,255,0.88)" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 9"/>
+    <path d="M128 14 L143 27 L124 33" stroke="rgba(255,255,255,0.92)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <div class="divider"></div>
+  <div class="hint">第一次使用？打开“开始使用”，按步骤完成设置</div>
+</body>
+</html>

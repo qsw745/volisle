@@ -24,6 +24,7 @@ struct BitLockerDetail: View {
     private var readOnlyNote: String {
         switch bitLocker.readOnlyReason(for: volume) {
         case .ntfsDirty?: String(localized: "这块盘被标记为需要检查，所以以只读方式打开。请在 Windows 中检查磁盘（属性 → 工具 → 检查），安全弹出后再插回。")
+        case .windowsLogUnclean?: String(localized: "这块盘上次在 Windows 中没有安全弹出，所以以只读方式打开。请接回 Windows，用“安全删除硬件”弹出后再插回（加密盘暂不支持在 Mac 上恢复）。")
         case let reason?: reason.errorDescription ?? ""
         case nil: String(localized: "已解锁，只读：可以在 Finder 中查看和复制文件，不能修改。锁定后需要再次输入密码。")
         }

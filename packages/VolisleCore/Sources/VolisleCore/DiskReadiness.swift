@@ -8,7 +8,7 @@ public enum DiskReadiness {
     /// What the app offers next to an item; the app decides how to do it.
     public enum Action: String, Sendable, Equatable {
         case approveHelper, setUpHelper, reconnectHelper, fullDiskAccess, fileSystemExtensions
-        case enableWriting, retry, checkOnMac, exportDiagnostics
+        case enableWriting, retry, checkOnMac, recoverOnMac, exportDiagnostics
     }
     public struct Item: Identifiable, Sendable, Equatable {
         public let id: String
@@ -165,10 +165,12 @@ public enum DiskReadiness {
     static func action(for failure: HelperDiskFailure) -> Action? {
         switch failure {
         case .ntfsDirty: return .checkOnMac
+        case .windowsLogUnclean: return .recoverOnMac
         case .interruptedWriteUnverified, .interruptedWriteUnsupportedFormat, .checkFoundProblems: return .exportDiagnostics
         case .interruptedWriteRetry, .mountFailed, .writeNotEnabled, .busy, .unavailable, .changedMedia: return .retry
         case .permissionDenied: return .fullDiskAccess
-        case .windowsHibernated, .windowsLogUnclean, .checkReadFailed, .writeProtected, .protectedMedia,
+        case .windowsHibernated, .windowsMaintenancePending, .windowsLogUnreadable, .windowsLogReplayRestored,
+             .windowsLogRestoreFailed, .checkReadFailed, .writeProtected, .protectedMedia,
              .unsupportedFileSystem, .unsupportedPartition, .invalidRequest, .notBitLocker, .bitLockerWrongSecret,
              .bitLockerUnsupported:
             return nil

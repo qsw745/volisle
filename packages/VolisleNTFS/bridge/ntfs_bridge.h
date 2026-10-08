@@ -237,6 +237,41 @@ void nk_bde_close(nk_bde *b);
  * errno: EALREADY not marked, EBUSY hibernated or log not clean, EIO a check
  * or write failed (the disk is left unchanged if the check failed). */
 int nk_clear_check_marker(const nk_io *io, long long *items, char *errbuf, size_t errlen);
+
+/* Root helper only. A disk Windows let go of without Safe Removal: its log
+ * still says "in use". Examine is read-only: the flags below, and whether
+ * NTFS-3G's ntfsrecover can replay the log (simulated, counting actions). */
+typedef struct nk_windows_log {
+    int dirty;                /* "needs check" flag set */
+    int maintenance_pending;  /* chkdsk cut off, log resize, upgrade... */
+    int hibernated;           /* hiberfil.sys on this volume says hibernated */
+    int log_readable;
+    int log_clean;            /* clean and not a version 2.0 restart page */
+    int log_major, log_minor;
+    int replay_simulated;     /* the simulated replay ran without error */
+    long long redo_actions;   /* committed actions it would write into place */
+    char note[256];           /* ntfsrecover's last status lines, for the log */
+    /* When the replay cannot run: the read-only check that discarding needs. */
+    int discard_checked;      /* the check ran */
+    int discard_ok;           /* every record reachable, nothing in use marked free */
+    long long checked_items;  /* files and folders it checked */
+    char discard_reason[128]; /* why it did not pass */
+    long long held_bytes;     /* marked used but mapped by no record (a leak) */
+} nk_windows_log;
+int nk_windows_log_examine(const nk_io *io, nk_windows_log *out, char *errbuf, size_t errlen);
+/* Examines again, refuses anything but "log not clean" (errno EBUSY with the
+ * reason; EALREADY when already clean), replays the log as Windows would on
+ * its next mount, then requires the volume to inspect clean and every record
+ * to open and map (`items` counts them). On EIO the disk was written: the
+ * host restores it from its own before-images. */
+int nk_windows_log_recover(const nk_io *io, nk_windows_log *before, long long *items, char *errbuf, size_t errlen);
+/* When the log cannot be replayed (ntfsrecover stops): requires everything
+ * already to hold together without it (every record reachable, nothing in use
+ * marked free), then resets the log to empty as NTFS-3G does by default,
+ * giving up what Windows had not written into place. Refuses a log that
+ * replays (EBUSY "replay possible"). On EIO after the reset the host restores
+ * the disk from its before-images. */
+int nk_windows_log_discard(const nk_io *io, nk_windows_log *before, long long *items, char *errbuf, size_t errlen);
 const char *nk_engine_version(void);
 #ifdef __cplusplus
 }
