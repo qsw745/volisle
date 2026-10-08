@@ -34,6 +34,15 @@ import Testing
                 uuid == "VOL" && writable && present ? .init(root: disk, session: session) : nil
             }, diskPresent: { [unowned self] uuid in uuid == "VOL" && present }, copierFactory: copierFactory)
         }
+        /// The write mount's journal report, as the extension answers it.
+        let reports = Reports()
+        func queue(reporting: Bool) -> CopyQueue {
+            let reports = reports
+            return CopyQueue(store: store, writableDisk: { [unowned self] uuid in
+                uuid == "VOL" && writable && present ? .init(root: disk, session: session) : nil
+            }, diskPresent: { [unowned self] uuid in uuid == "VOL" && present },
+               copierFactory: { ResumableCopier(plan: $0, root: $1) }, durability: { _, flush in reports.read(flush: flush) })
+        }
         func plan(_ queue: CopyQueue) async throws -> CopyPlan {
             try await queue.plan(sources: [source.appendingPathComponent("Album")], diskKey: "VOL", volumeName: "qsw",
                                  destination: "备份", root: disk).plan
@@ -43,6 +52,52 @@ import Testing
             try Data(contentsOf: source.appendingPathComponent(relative)) == Data(contentsOf: disk.appendingPathComponent("备份/" + relative))
         }
         func exists(_ relative: String) -> Bool { FileManager.default.fileExists(atPath: disk.appendingPathComponent("备份/" + relative).path) }
+    }
+
+    final class Reports: @unchecked Sendable {
+        private let lock = NSLock()
+        private var journal = UUID(), written: UInt64 = 7, durable: UInt64 = 4, available = true
+        private(set) var flushed = 0
+        func read(flush: Bool) -> WriteDurability? {
+            lock.withLock {
+                if flush { flushed += 1 }
+                return available ? WriteDurability(session: journal, writtenBelow: written, durableBelow: durable) : nil
+            }
+        }
+        func set(durable: UInt64? = nil, journal: UUID? = nil, available: Bool? = nil) {
+            lock.withLock {
+                if let durable { self.durable = durable }
+                if let journal { self.journal = journal }
+                if let available { self.available = available }
+            }
+        }
+    }
+
+    @Test func aCopyIsConfirmedOnceTheDiskReportsItPastRollback() async throws {
+        let bench = try Bench()
+        let queue = bench.queue(reporting: true)
+        try await bench.add(queue)
+        try await finished(queue)
+        #expect(bench.reports.flushed == 1, "the system's cache is pushed to the disk before the report is read")
+        try await Task.sleep(for: .milliseconds(1500))
+        #expect(queue.jobs.first?.confirmed == false, "still inside the journal's window")
+        bench.reports.set(durable: 7)
+        try await waitUntil { queue.jobs.first?.confirmed == true }
+        #expect(bench.store.load().isEmpty)
+    }
+
+    @Test func noReportOrAnotherJournalSessionNeverConfirms() async throws {
+        for change in [0, 1] {
+            let bench = try Bench()
+            let queue = bench.queue(reporting: true)
+            try await bench.add(queue)
+            try await finished(queue)
+            // The session stopped (no report), or the extension started a new journal: the copy's records may still roll back.
+            if change == 0 { bench.reports.set(durable: 99, available: false) } else { bench.reports.set(durable: 99, journal: UUID()) }
+            try await Task.sleep(for: .milliseconds(1500))
+            await queue.reconcile()
+            #expect(queue.jobs.first?.confirmed == false && queue.jobs.first?.progress.finished == true)
+        }
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {

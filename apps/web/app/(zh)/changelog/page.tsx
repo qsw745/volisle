@@ -3,6 +3,14 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.8.3 · 2026 年 10 月 8 日</h2><ul>
+<li>新功能：在 Mac 上恢复。在 Windows 上没点“安全删除硬件”就拔下的盘，插到 Mac 后可以点“在 Mac 上恢复…”：盘屿先只读检查，确认后像 Windows 下次插上时那样，把没写完的改动补上；补不了时，检查确认盘上数据完整、并经你同意放弃 Windows 最后没写完的改动后，再开启读写。每次改动前都先备份，任何一步不通过都会原样还原。手边有 Windows 时，仍建议接回 Windows 安全弹出。</li>
+<li>新功能：设置中新增“拷贝期间不让 Mac 自动睡眠”（默认打开）。</li>
+<li>安装窗口重新设计，把盘屿拖到 Applications 即可安装。</li>
+<li>被 TT NTFS、xntfs、macFUSE 等其他 NTFS 工具接管的盘，会显示由谁接管，并分三步说明怎样交给盘屿。</li>
+<li>“在 Mac 上检查”增加空间占用核对，检查更严格。</li>
+<li>后台组件连接不上时会自动重试；诊断报告附带后台服务的运行状态，便于排查。</li>
+</ul>
 <h2>0.8.2 · 2026 年 10 月 7 日</h2><ul>
 <li>新功能：支持 macOS 15.4 及以上（此前要求 26.4）。已在 macOS 15.6.1 上验证自动读写、拷贝、拔线续传、恢复文件、抹掉和 BitLocker 加密盘；macOS 15 上的实体 USB 硬盘还没有实测，遇到问题请反馈。</li>
 <li>修复：用盘屿拷进 NTFS 盘的文件，有时拷完在访达里看不到。</li>

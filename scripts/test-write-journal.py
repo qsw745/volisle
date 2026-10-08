@@ -506,7 +506,35 @@ def large_volume(m, folder):
     base.unlink()
 
 
+def durability_report(m, base):
+    # The app confirms a copy once the extension reports it durable: an unplug
+    # before that rolls it back, one after it keeps it.
+    for when, kept in [('before', False), ('after', True)]:
+        image, journal = m.fresh(base, f'durability-{when}')
+        p = driver('durability', image, journal, when, env={'BLOCK': '4096'})
+        assert p.returncode == 86, (when, p.returncode, p.stderr.decode())
+        assert json.loads(p.stdout)['durable'] == kept, p.stdout
+        m.recover_ok(image, journal)
+        assert ('copied' in listing(image)) == kept, (when, listing(image))
+        healthy(image, expect_new=False, kind='write')
+        m.checks.append(f'durability-report-{when}-unplug')
+        image.unlink(); shutil.rmtree(journal)
+
+
+def archive_per_volume(m, base):
+    # Superseded records are kept per volume: a second disk archiving often
+    # must not push out the first disk's last records.
+    image, journal = m.fresh(base, 'archive-keep')  # the driver's store creates the folder (0700)
+    a, b = '00000000000000aa', '00000000000000bb'
+    kept = json.loads(driver('archive-keep', image, journal, a, b, b, b, b, expect=0).stdout)
+    assert sum(k.endswith('-' + a) for k in kept) == 1 and sum(k.endswith('-' + b) for k in kept) == 3, kept
+    m.checks.append('superseded-records-kept-per-volume')
+    image.unlink(); shutil.rmtree(journal)
+
+
 def full_matrix(m, base, folder):
+    archive_per_volume(m, base)
+    durability_report(m, base)
     # Retained (as shipped) and without retention (the checkpoint logic alone).
     for retention in [{}, {'RETENTION': '0'}]:
         for block in ['4096', '16384', '65536']:
@@ -526,8 +554,13 @@ def main():
     result = {'completed': False, 'success': False}
     try:
         base = folder / 'base.img'; make_base(base)
-        unreadable_free_space(m, base)
-        if '--unreadable-only' not in sys.argv:
+        # --quick: only the cases that need no long runs (archive, durability report).
+        if '--quick' in sys.argv:
+            archive_per_volume(m, base)
+            durability_report(m, base)
+        else:
+            unreadable_free_space(m, base)
+        if '--unreadable-only' not in sys.argv and '--quick' not in sys.argv:
             full_matrix(m, base, folder)
         result.update(completed=True, success=True)
     finally:

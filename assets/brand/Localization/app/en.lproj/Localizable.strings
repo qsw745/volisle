@@ -476,7 +476,7 @@
 "拷贝进度" = "Copy progress";
 "拷贝 %lld 个项目到“%@”" = "Copying %lld items to “%@”";
 "已拷完 %@。" = "Copied %@.";
-"已拷完 %@，正在确认写入（约 1 分钟）。这段时间里拔线，插回后会自动复查补齐；拔线前请先推出。" = "Copied %@. Confirming the writes (about a minute); if the disk is unplugged meanwhile, the copy is checked and completed when you connect it again. Eject the disk before unplugging it.";
+"已拷完 %@，正在确认写入（通常半分钟内）。这段时间里拔线，插回后会自动复查补齐；拔线前请先推出。" = "Copied %@. Confirming the writes (usually within half a minute); if the disk is unplugged meanwhile, the copy is checked and completed when you connect it again. Eject the disk before unplugging it.";
 "有 %lld 项按你的选择跳过，没有拷贝。" = "Items skipped as you chose (not copied): %lld.";
 "有 %lld 项的原文件已经不在了，无法复查盘上的那份是否完整。" = "Items whose originals are gone, so their copies on the disk couldn’t be checked again: %lld.";
 "已经拷好的文件保留在盘上。没拷完的那个文件会在这块盘下次开启读写时清理掉；盘上原来的同名文件不会被改动。" = "Files already copied stay on the disk. The unfinished file is cleaned up the next time this disk has write access, and a file with the same name that was already on the disk isn’t changed.";

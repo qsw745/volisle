@@ -70,7 +70,7 @@ struct CopyJobsSection: View {
         let total = Self.size(job.plan.totalBytes)
         if job.progress.finished {
             let text = job.confirmed ? String(localized: "已拷完 \(total)。")
-                : String(localized: "已拷完 \(total)，正在确认写入（约 1 分钟）。这段时间里拔线，插回后会自动复查补齐；拔线前请先推出。")
+                : String(localized: "已拷完 \(total)，正在确认写入（通常半分钟内）。这段时间里拔线，插回后会自动复查补齐；拔线前请先推出。")
             var lines = [text]
             let skipped = job.progress.skipped.count, vanished = job.progress.vanished.count
             if skipped > 0 { lines.append(String(localized: "有 \(skipped) 项按你的选择跳过，没有拷贝。")) }

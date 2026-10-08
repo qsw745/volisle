@@ -141,7 +141,10 @@ struct DiskMenu: View {
                             else { try FinderService.open(volume, discovery: discovery) }
                         } catch { self.error = error.localizedDescription }
                     }
-                }.disabled(!mountCycle.isWritable(volume) && (volume.mountURL == nil || actions.isBusy(volume)))
+                }
+                // Reading a disk that waits for another one's read-write session is fine:
+                // only this disk's own action blocks it, not the shared barrier.
+                .disabled(!mountCycle.isWritable(volume) && (volume.mountURL == nil || actions.activeDevices.contains(volume.deviceGroup)))
                 Button("推出") { confirmEject(volume) }.disabled(!mountCycle.isWritable(volume) && actions.isBusy(volume))
             }
         }

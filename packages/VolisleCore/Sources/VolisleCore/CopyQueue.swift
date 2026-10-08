@@ -26,6 +26,9 @@ extension ResumableCopier: CopyQueueCopier {}
         var finishedIn: UUID?
         /// When it finished, in time awake: the disk's own recovery window does not run during sleep either.
         var finishedUptime: TimeInterval?
+        /// The disk's report read right after it finished: confirmed once the
+        /// disk reports all of that past rollback. nil: the timer confirms it.
+        var durableMark: WriteDurability?
         var writeIntent: CopyJobStore.WriteRequest?
         public var id: UUID { plan.id }
         init(plan: CopyPlan, progress: CopyProgress) {
@@ -55,7 +58,10 @@ extension ResumableCopier: CopyQueueCopier {}
     }
     public private(set) var jobs: [Job] = []
     /// After a finished copy, this long with the disk writable and its files are safe on the disk.
+    /// Only for an extension that does not report it (the journal keeps about 20 s, after a checkpoint).
     static let confirmAfter: TimeInterval = 60
+    /// How often a finished copy asks its disk whether it is past rollback yet.
+    static let durabilityPoll: Duration = .seconds(1)
     /// A copy that failed while its disk still looked writable waits this long before trying again…
     static let retryAfter: TimeInterval = 30
     /// …and after this many such failures in a row it waits for the user.
@@ -80,6 +86,8 @@ extension ResumableCopier: CopyQueueCopier {}
     @ObservationIgnored private let writableDisk: @MainActor (String) async -> WritableDisk?
     @ObservationIgnored private let diskPresent: @MainActor (String) -> Bool
     @ObservationIgnored private let copierFactory: @Sendable (CopyPlan, URL) -> any CopyQueueCopier
+    @ObservationIgnored private let durability: @Sendable (URL, Bool) -> WriteDurability?
+    @ObservationIgnored private var watchingDurability = Set<UUID>()
     @ObservationIgnored private var active: (id: UUID, session: UUID, copier: any CopyQueueCopier, task: Task<Void, Never>)?
     @ObservationIgnored private var pendingStop: CopyProgress.Pause?
     @ObservationIgnored private var cancelling = Set<UUID>()
@@ -102,11 +110,13 @@ extension ResumableCopier: CopyQueueCopier {}
                   copierFactory: { ResumableCopier(plan: $0, root: $1) })
     }
 
+    /// `durability`: the write mount's report at a root, flushing it first when asked (WriteDurability.read).
     init(store: CopyJobStore, writableDisk: @escaping @MainActor (String) async -> WritableDisk?,
          diskPresent: @escaping @MainActor (String) -> Bool,
-         copierFactory: @escaping @Sendable (CopyPlan, URL) -> any CopyQueueCopier) {
+         copierFactory: @escaping @Sendable (CopyPlan, URL) -> any CopyQueueCopier,
+         durability: @escaping @Sendable (URL, Bool) -> WriteDurability? = { WriteDurability.read(root: $0, flush: $1) }) {
         self.store = store; self.writableDisk = writableDisk; self.diskPresent = diskPresent
-        self.copierFactory = copierFactory
+        self.copierFactory = copierFactory; self.durability = durability
     }
 
     /// At launch. A copy cut off by quitting (or one finished shortly before)
@@ -287,6 +297,8 @@ extension ResumableCopier: CopyQueueCopier {}
             if disk.session != current.finishedIn {
                 // Its session ended without word of how (so maybe by an unplug) and a new one began.
                 reopen(job.id)
+            } else if current.durableMark != nil {
+                await confirmIfDurable(job.id, on: disk)
             } else if let at = current.finishedUptime, ProcessInfo.processInfo.systemUptime - at >= Self.confirmAfter {
                 confirm(job.id)
             }
@@ -345,11 +357,11 @@ extension ResumableCopier: CopyQueueCopier {}
         // sleep idly halfway: sleep and unplugging are what interrupts copies.
         activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
                                                           reason: String(localized: "正在拷贝到磁盘"))
-        let id = job.id, store = store, initial = progress
+        let id = job.id, store = store, initial = progress, probe = durability, root = disk.root
         Self.log.notice("拷贝开始：\(job.plan.items.count, privacy: .public) 项，续传=\(resuming, privacy: .public)")
         let task = Task { [weak self] in
             // Blocking file calls belong on a thread of their own, not the shared pool.
-            let (result, reached): (Result<CopyProgress, any Error>, CopyProgress) = await withCheckedContinuation { continuation in
+            let (result, reached, mark): (Result<CopyProgress, any Error>, CopyProgress, WriteDurability?) = await withCheckedContinuation { continuation in
                 Thread.detachNewThread {
                     var lastSave = Date.distantPast
                     var lastShown = Date.distantPast
@@ -378,16 +390,19 @@ extension ResumableCopier: CopyQueueCopier {}
                             Task { @MainActor in self?.live(id) { $0.status = status } }
                         })
                     }
-                    continuation.resume(returning: (result, reached))
+                    // Its writes leave the system's cache for the disk, then the disk says how far its journal is.
+                    let mark = (try? result.get()) == nil ? nil : probe(root, true)
+                    continuation.resume(returning: (result, reached, mark))
                 }
             }
-            await self?.finish(id, result, reached: reached)
+            await self?.finish(id, result, reached: reached, mark: mark)
         }
         active = (id, disk.session, copier, task)
     }
 
     /// `reached`: how far the run got, so a pause does not lose (and recheck) what it copied.
-    private func finish(_ id: UUID, _ result: Result<CopyProgress, any Error>, reached: CopyProgress) async {
+    private func finish(_ id: UUID, _ result: Result<CopyProgress, any Error>, reached: CopyProgress,
+                        mark: WriteDurability? = nil) async {
         guard let run = active, run.id == id else { return }
         active = nil
         if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
@@ -406,6 +421,7 @@ extension ResumableCopier: CopyQueueCopier {}
                 job.progress = progress
                 job.finishedIn = run.session
                 job.finishedUptime = ProcessInfo.processInfo.systemUptime
+                job.durableMark = mark
                 failures[id] = nil
             case .failure(let error):
                 job.progress = reached
@@ -452,6 +468,9 @@ extension ResumableCopier: CopyQueueCopier {}
         if jobs.first(where: { $0.id == id })?.progress.finished == true,
            let clean = sessionOutcomes[run.session] {
             if clean { confirm(id) } else { reopen(id) }
+        }
+        if let job = jobs.first(where: { $0.id == id }), job.progress.finished, !job.confirmed, job.durableMark != nil {
+            watchDurability(id)
         }
         if let job = jobs.first(where: { $0.id == id }) {
             // The run's own final progress: later saves of the copying thread cannot overtake it.
@@ -514,6 +533,35 @@ extension ResumableCopier: CopyQueueCopier {}
         }.value
     }
 
+    /// Confirms a finished copy once its disk reports it past rollback; asks
+    /// every second meanwhile. Stops asking once it is confirmed, rechecked or
+    /// gone, or its disk is not writable in that session (reconcile takes over).
+    private func watchDurability(_ id: UUID) {
+        guard watchingDurability.insert(id).inserted else { return }
+        Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: Self.durabilityPoll)
+                guard let self else { return }
+                guard let job = self.jobs.first(where: { $0.id == id }), job.progress.finished, !job.confirmed,
+                      job.durableMark != nil, let disk = await self.writableDisk(job.plan.diskKey),
+                      disk.session == job.finishedIn else { break }
+                await self.confirmIfDurable(id, on: disk)
+            }
+            self?.watchingDurability.remove(id)
+        }
+    }
+
+    private func confirmIfDurable(_ id: UUID, on disk: WritableDisk) async {
+        guard let mark = jobs.first(where: { $0.id == id })?.durableMark else { return }
+        let probe = durability, root = disk.root
+        let now = await Task.detached(priority: .utility) { probe(root, false) }.value
+        // No report now (the session stopped, say): its records stay, so not confirmed.
+        guard let now, now.covers(mark),
+              let current = jobs.first(where: { $0.id == id }), current.progress.finished, !current.confirmed,
+              current.finishedIn == disk.session else { return }
+        confirm(id)
+    }
+
     private func confirm(_ id: UUID) {
         update(id) { $0.confirmed = true }
         store.remove(id)
@@ -525,6 +573,7 @@ extension ResumableCopier: CopyQueueCopier {}
         update(id) {
             $0.progress.finished = false; $0.progress.finishedAt = nil
             $0.progress.pause = .disk; $0.progress.pausedAt = Date()
+            $0.durableMark = nil
         }
     }
 

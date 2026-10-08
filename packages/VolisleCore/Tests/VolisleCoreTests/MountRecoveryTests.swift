@@ -73,6 +73,18 @@ private func waitForBoundary(_ backend: RecoveryBackend, recovery: Bool) async -
 }
 
 struct MountRecoveryTests {
+    /// GitHub issue #1: with one disk read-write, a second one spun "processing" forever.
+    @MainActor @Test func diskWaitingForAnotherWriteSessionIsNotWorking() async {
+        let backend = RecoveryBackend(), gate = DeviceOperationGate()
+        let coordinator = MountCoordinator(engine: backend, resolver: backend, gate: gate)
+        let control = ManualMountController(coordinator: coordinator, resolver: backend)
+        let waiting = recoveryVolume(backend.identity)
+        let session = gate.suspendNewOperations()  // the other disk's read-write session
+        #expect(control.isBusy(waiting))
+        #expect(!control.isWorking(on: waiting))
+        gate.resumeOperations(session)
+        #expect(!control.isBusy(waiting) && !control.isWorking(on: waiting))
+    }
     @MainActor @Test func manualRecheckShowsRecoveryWithoutReportingWriteSuccess() async {
         let backend = RecoveryBackend(), gate = DeviceOperationGate()
         await backend.configure(disposition: .unresolved)

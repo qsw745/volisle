@@ -302,6 +302,51 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
             }
             if fault == "after-finish-crash" { _exit(86) }
             print("{\"failed\":false,\"deviceWrites\":\(device.writes - before),\"engineWrites\":\(counting.pwrites - pwritesBefore),\"skipped\":\(session.skippedBytes),\"unreadableReads\":\(device.unreadableReads),\"unreadableLeft\":\(device.unreadable.count)}")
+        case "durability":
+            // durability <image> <dir> <before|after>: a "copy" (one new file),
+            // then the report the app polls (NTFSVolume.durabilityReport) on a
+            // fake clock, and a crash either while the copy is still reported
+            // rollback-able or once it is not. Recovery must agree with the report.
+            let (session, _) = try WriteJournalCoordinator.begin(store: store, serial: serial, io: io)
+            var now: TimeInterval = 1000
+            session.clock = { now }
+            var raw = io.makeIO(writable: true)
+            var nkio = engineIO(&raw)
+            guard let volume = nk_mount_io(&nkio, nil, 0) else { fail("mount") }
+            attachFreeSpace(volume, session, device)
+            try checkpoint(volume, io)
+            func report() -> (writtenBelow: UInt64, durableBelow: UInt64) {
+                guard nk_sync(volume) == 0 else { fail("sync") }
+                session.pruneRetained()
+                guard let state = session.durability else { fail("no durability") }
+                return state
+            }
+            let data = Data(repeating: 0x3c, count: 2 * 1024 * 1024)
+            guard nk_create(volume, "/", "copied") == 0,
+                  data.withUnsafeBytes({ nk_write(volume, "/copied", 0, Int64($0.count), $0.baseAddress) }) == Int64(data.count) else { fail("copy") }
+            let mark = report()                               // the app's read right after the copy
+            guard mark.durableBelow < mark.writtenBelow else { fail("reported durable before any checkpoint") }
+            now += 1; try checkpoint(volume, io)              // the 1 s idle checkpoint
+            var state = report()
+            guard state.durableBelow < mark.writtenBelow else { fail("reported durable inside the retention window") }
+            now += session.retention - 2
+            state = report()
+            guard state.durableBelow < mark.writtenBelow else { fail("reported durable before the window ended") }
+            if a[4] == "before" { print("{\"durable\":false}"); fflush(stdout); _exit(86) }
+            now += 3
+            state = report()
+            guard state.durableBelow >= mark.writtenBelow else { fail("not reported durable after the window") }
+            print("{\"durable\":true}"); fflush(stdout); _exit(86)
+        case "archive-keep":
+            // archive-keep <image> <dir> <serial>...: archives a record of each serial
+            // in order and prints what the superseded folder keeps.
+            for serial in a[4...] {
+                FileManager.default.createFile(atPath: a[3] + "/" + serial + ".session", contents: Data("x".utf8))
+                try store.archive(serial: serial)
+                Thread.sleep(forTimeInterval: 0.01)  // a new millisecond stamp each
+            }
+            let kept = try FileManager.default.contentsOfDirectory(atPath: a[3] + "/" + WriteJournalStore.supersededName).sorted()
+            print(String(data: try JSONSerialization.data(withJSONObject: kept), encoding: .utf8)!)
         case "facts":
             // facts <image> <dir>: the volume as recovery reads it (flags only).
             do { let facts = try WriteJournalCoordinator.volumeFacts(io); print("{\"flags\":\(facts.flags)}") }

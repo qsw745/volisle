@@ -13,9 +13,14 @@ import Observation
     public init(coordinator: MountCoordinator, resolver: any VolumeResolver) {
         self.coordinator = coordinator; self.resolver = resolver
     }
+    /// Also true for every disk while another one is read-write: the shared
+    /// barrier pauses new operations then.
     public func isBusy(_ volume: VolumeSnapshot) -> Bool {
         activeDevices.contains(volume.deviceGroup) || coordinator.isBusy(volume)
     }
+    /// Only this disk's own user-started action, not the shared barrier: a disk
+    /// waiting for another one's read-write session is idle, not "processing".
+    public func isWorking(on volume: VolumeSnapshot) -> Bool { activeDevices.contains(volume.deviceGroup) }
     public func requiresVerification(_ volume: VolumeSnapshot) -> Bool { coordinator.requiresVerification(volume) }
     public func clearMessage() { lastError = nil; notice = nil }
     public func verifyRecovery(_ volume: VolumeSnapshot) async {

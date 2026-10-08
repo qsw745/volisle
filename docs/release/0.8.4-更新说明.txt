@@ -1,0 +1,6 @@
+盘屿 0.8.4 · Volisle 0.8.4
+
+· 拷贝完成后更快出现“打开文件”：盘屿改为按磁盘实际的写入状态确认，通常二十几秒，不再固定等一分钟；硬盘慢时会自动多等，确认前拔线仍会在插回后复查补齐。
+· 修复：一块盘正在读写时，再插入的另一块盘一直显示“正在处理”、按钮全灰。现在会说明它在等待，期间可以正常打开和查看盘里的文件。
+· Faster “Open Files” after a copy: Volisle now confirms a copy by what the disk has actually written, usually in twenty-odd seconds instead of a fixed minute; slower drives get the time they need, and an unplug before that still rechecks and completes the copy when reconnected.
+· Fixed: while one disk was read-write, another disk connected meanwhile kept showing “processing” with every button greyed out. It now says it is waiting, and its files can be opened and browsed as usual.

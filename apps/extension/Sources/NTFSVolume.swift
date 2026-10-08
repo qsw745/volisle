@@ -1240,6 +1240,24 @@ extension NTFSVolume: FSVolume.XattrOperations {
     /// The actual module mode, including read-only fallback that old FSKit
     /// kernels do not expose in statfs. It is virtual and cannot be overwritten.
     static let mountModeAttribute = "top.qisw.volisle.mount-mode"
+    /// "v1 <session> <writtenBelow> <durableBelow>": the app reads it once after
+    /// a copy (and a volume sync) and then until durableBelow reaches that
+    /// writtenBelow in the same session: from then on an unplug cannot roll the
+    /// copy back. Absent while the volume has no normal write session.
+    static let durabilityAttribute = "top.qisw.volisle.durability"
+
+    /// Caller holds operationLock: an operation boundary. The engine's cached
+    /// changes go to the journal first, so "written" covers every operation
+    /// finished before this read.
+    private func durabilityReport() throws -> Data {
+        try engineQueue.sync {
+            guard let vol, engineWritable, let session = journal.session, !session.failed else { throw posix(ENOATTR) }
+            guard nk_sync(vol) == 0 else { session.stop(); throw posix(EIO) }
+            session.pruneRetained()
+            guard let state = session.durability else { throw posix(ENOATTR) }
+            return Data("v1 \(session.record.session.uuidString) \(state.writtenBelow) \(state.durableBelow)".utf8)
+        }
+    }
 
     private var writeStopped: Bool {
         engineQueue.sync { (journal.session?.failed ?? false) || closeFailed } || writeActivationFailed
@@ -1269,6 +1287,7 @@ extension NTFSVolume: FSVolume.XattrOperations {
             if name == Self.mountModeAttribute && item.path == "/" {
                 return Data((writeStopped ? "stopped" : readOnly ? "read-only" : "read-write").utf8)
             }
+            if name == Self.durabilityAttribute && item.path == "/" { return try durabilityReport() }
             let reference = item.fileReference
             return try engineQueue.sync {
                 try name.withCString { name in
@@ -1292,7 +1311,8 @@ extension NTFSVolume: FSVolume.XattrOperations {
                   policy: FSVolume.SetXattrPolicy) async throws {
         try operationLock.withLock {
             guard let item = item as? NTFSItem, let name = name.string else { throw posix(EINVAL) }
-            guard name != Self.writeStateAttribute, name != Self.mountModeAttribute else { throw posix(EPERM) }
+            guard name != Self.writeStateAttribute, name != Self.mountModeAttribute,
+                  name != Self.durabilityAttribute else { throw posix(EPERM) }
             try requirePathIdentity(item)
             // Recovery fingerprints cover unnamed data, not named streams.
             try requireMutableNamespace(item.path)

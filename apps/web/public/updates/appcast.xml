@@ -1,30 +1,24 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.8.2</title><pubDate>Wed, 07 Oct 2026 15:33:53 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.8.2
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.8.3</title><pubDate>Thu, 08 Oct 2026 05:56:11 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.8.3
 
-· 新功能：支持 macOS 15.4 及以上（此前要求 26.4）。已在 macOS 15.6.1 上验证自动读写、拷贝、拔线续传、恢复文件、抹掉和 BitLocker 加密盘；macOS 15 上的实体 USB 硬盘还没有实测，遇到问题请反馈。
-· 修复：用盘屿拷进 NTFS 盘的文件，有时拷完在访达里看不到。
-· 拷贝完成后点“打开文件”，会在访达里选中刚拷好的项目。
-· 关闭了“自动开启读写”时，拔线后插回，没拷完的任务也会为这块盘重新开启读写并接着拷。
-· 暂停拷贝后进度不再归零；续传时只显示一条进度，先核对已拷部分，再接着拷。
-· 同一个文件反复出现读写错误时，停止自动续传并说明原因，不再一直重试。
-· 盘被其他 NTFS 工具（如 TT NTFS、macFUSE / NTFS-3G、Paragon、Tuxera）接管时，盘屿会列出这块盘，说明由谁接管、怎样交给盘屿，不再没有任何提示。
-· “读写不了？检查一下”和诊断报告会读出硬盘自己报告的读写错误，分清是坏道还是数据线、接口、供电不稳。
-· 弹窗统一为系统设置的样式；开着读写检查、诊断、拷贝或恢复文件等窗口时也能正常退出盘屿；切回盘屿时不再整体刷新。
+· 新功能：在 Mac 上恢复。在 Windows 上没点“安全删除硬件”就拔下的盘，插到 Mac 后可以点“在 Mac 上恢复…”：盘屿先只读检查，确认后像 Windows 下次插上时那样，把没写完的改动补上；补不了时，检查确认盘上数据完整、并经你同意放弃 Windows 最后没写完的改动后，再开启读写。每次改动前都先备份，任何一步不通过都会原样还原。手边有 Windows 时，仍建议接回 Windows 安全弹出。
+· 新功能：设置中新增“拷贝期间不让 Mac 自动睡眠”（默认打开）。
+· 安装窗口重新设计，把盘屿拖到 Applications 即可安装。
+· 被 TT NTFS、xntfs、macFUSE 等其他 NTFS 工具接管的盘，会显示由谁接管，并分三步说明怎样交给盘屿。
+· “在 Mac 上检查”增加空间占用核对，检查更严格。
+· 后台组件连接不上时会自动重试；诊断报告附带后台服务的运行状态，便于排查。
 
-对应源码：https://qisw.top/volisle/updates/Volisle-0.8.2-69-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.8.2
+对应源码：https://qisw.top/volisle/updates/Volisle-0.8.3-70-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.8.3
 
-· New: runs on macOS 15.4 or later (previously 26.4). Automatic write access, copying, resuming after an unplug, recovery files, formatting and BitLocker disks were verified on macOS 15.6.1; physical USB drives on macOS 15 haven’t been tested yet, so please report any problems.
-· Fixed: files copied onto an NTFS disk by Volisle sometimes didn’t appear in Finder.
-· When a copy finishes, click Show in Finder to select the copied items.
-· With automatic write access turned off, an unfinished copy now turns writing back on for its disk and continues after the disk is plugged in again.
-· Pausing a copy no longer resets its progress; when resuming, one progress bar shows the check of what was already copied, then the rest.
-· If the same file keeps failing to read or write, automatic resuming stops and Volisle explains why instead of retrying endlessly.
-· When another NTFS tool (such as TT NTFS, macFUSE / NTFS-3G, Paragon or Tuxera) has taken a disk, Volisle now lists it, says which tool has it and how to hand it over, instead of saying nothing.
-· “Can’t write? Check why” and diagnostics now read the errors the drive itself reports, telling bad sectors apart from an unsteady cable, port or power supply.
-· Dialogs now follow the System Settings style; Volisle quits normally while the write check, diagnostics, copy or recovery windows are open; switching back to Volisle no longer refreshes everything.
+· New: Recover on This Mac. For a disk unplugged from Windows without “Safely Remove Hardware”, click “Recover on This Mac…”: Volisle checks it read-only first, then completes the unfinished changes the way Windows would; if they can’t be replayed, it turns on writing only after confirming the disk is consistent and you agree to give up Windows’ last unfinished changes. Everything changed is backed up first, and the disk is put back if any step fails. When a Windows PC is at hand, ejecting the disk there is still the safest fix.
+· New: “Keep the Mac awake while copying” in Settings (on by default).
+· A redesigned installer window: drag Volisle to Applications to install.
+· Disks taken by another NTFS tool (TT NTFS, xntfs, macFUSE and others) now show which tool has them and three steps to hand them to Volisle.
+· “Check on This Mac” now also checks how disk space is allocated.
+· The background component is retried when it can’t be reached, and diagnostics include the background service’s state.
 
-Source code: https://qisw.top/volisle/updates/Volisle-0.8.2-69-source.tar.gz</description><sparkle:version>69</sparkle:version><sparkle:shortVersionString>0.8.2</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.8.2-69-arm64.zip" length="4868125" type="application/octet-stream" sparkle:edSignature="9yssWk3OYJ+Cr9sKVzrxitRL8E5vk1k2it1R1EktXJ2WdGGnUfOMBc3Ho0dveOG76/KxpVG5tiZGo77Eiwy0BA==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
-edSignature: onkd0DpSFRxbz8sy3vSdYhVIAVFRspGyxfz6ziONUb0VTXvsBVvoWETGJXw75vz+JoFcrGA7dOOBFQklcFzQDg==
-length: 4053
+Source code: https://qisw.top/volisle/updates/Volisle-0.8.3-70-source.tar.gz</description><sparkle:version>70</sparkle:version><sparkle:shortVersionString>0.8.3</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.8.3-70-arm64.zip" length="5120438" type="application/octet-stream" sparkle:edSignature="mKkqv53qvREq7x1/xGH9nMX6yAEEdJ9C5dDiErrShewkvrTr+SAaiA/L/g4jF/n16r19wquuSE+upceHW4JKDQ==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
+edSignature: g5mSOqF9yd90l523KYeIFHcllvFIbe7CuUYL8I98VMcSYQ2Z4gZtTjPnVq5kzSwDqs2YDHKN41l98pYHRys0AA==
+length: 3364
 -->

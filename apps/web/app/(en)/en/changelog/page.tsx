@@ -3,6 +3,14 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.8.3 · October 8, 2026</h2><ul>
+<li>New: Recover on This Mac. For a disk unplugged from Windows without “Safely Remove Hardware”, click “Recover on This Mac…”: Volisle checks it read-only first, then completes the unfinished changes the way Windows would; if they can’t be replayed, it turns on writing only after confirming the disk is consistent and you agree to give up Windows’ last unfinished changes. Everything changed is backed up first, and the disk is put back if any step fails. When a Windows PC is at hand, ejecting the disk there is still the safest fix.</li>
+<li>New: “Keep the Mac awake while copying” in Settings (on by default).</li>
+<li>A redesigned installer window: drag Volisle to Applications to install.</li>
+<li>Disks taken by another NTFS tool (TT NTFS, xntfs, macFUSE and others) now show which tool has them and three steps to hand them to Volisle.</li>
+<li>“Check on This Mac” now also checks how disk space is allocated.</li>
+<li>The background component is retried when it can’t be reached, and diagnostics include the background service’s state.</li>
+</ul>
 <h2>0.8.2 · October 7, 2026</h2><ul>
 <li>New: runs on macOS 15.4 or later (previously 26.4). Automatic write access, copying, resuming after an unplug, recovery files, formatting and BitLocker disks were verified on macOS 15.6.1; physical USB drives on macOS 15 haven’t been tested yet, so please report any problems.</li>
 <li>Fixed: files copied onto an NTFS disk by Volisle sometimes didn’t appear in Finder.</li>

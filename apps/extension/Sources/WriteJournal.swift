@@ -107,7 +107,7 @@ final class WriteJournalSession {
     private var epochBitmapBefore: [Int64: Data] = [:]
     /// False once a group was recorded before the bitmap layout was known.
     private var epochBitmapKnown = true
-    private struct RetainedEpoch { let name: String; let at: TimeInterval; let bitmap: [Int64: Data]; let bitmapKnown: Bool; let bytes: Int }
+    private struct RetainedEpoch { let epoch: UInt64; let name: String; let at: TimeInterval; let bitmap: [Int64: Data]; let bitmapKnown: Bool; let bytes: Int }
     /// Checkpointed epochs still on record, oldest first.
     private var retained: [RetainedEpoch] = []
     var retention = WriteJournalLimits.retentionSeconds
@@ -138,6 +138,15 @@ final class WriteJournalSession {
     deinit { if file >= 0 { Darwin.close(file) } }
 
     var hasUncheckpointedWrites: Bool { file >= 0 || !overlay.isEmpty }
+    /// What an unplug can no longer undo, so the app can confirm a finished copy
+    /// as soon as that is true instead of after a fixed wait. Everything written
+    /// to the journal so far lies in epochs below `writtenBelow`; epochs below
+    /// `durableBelow` are no longer on record, and recovery rolls back only what
+    /// is. Only a normal session's epochs are pruned this way; nil otherwise.
+    var durability: (writtenBelow: UInt64, durableBelow: UInt64)? {
+        guard kind == .normal, !failed else { return nil }
+        return (hasUncheckpointedWrites ? epoch + 1 : epoch, retained.first?.epoch ?? epoch)
+    }
     /// Not written by this journal since the last checkpoint's device flush: the
     /// device holds exactly what the cache would return.
     func unchangedSinceCheckpoint(_ offset: Int64) -> Bool {
@@ -199,7 +208,7 @@ final class WriteJournalSession {
             try store.appendCheckpoint(file, epoch: epoch, previous: previous)
             Darwin.close(file); file = -1
             if kind == .normal && retention > 0 {
-                retained.append(.init(name: fileName, at: clock(), bitmap: epochBitmapBefore,
+                retained.append(.init(epoch: epoch, name: fileName, at: clock(), bitmap: epochBitmapBefore,
                                       bitmapKnown: epochBitmapKnown, bytes: epochBytes))
             } else if kind == .normal || device.flushIsDurable {
                 // Recovery epochs stay until the device barrier after a kernel mount.

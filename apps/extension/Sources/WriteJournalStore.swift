@@ -212,7 +212,8 @@ final class WriteJournalStore {
     static let supersededName = "superseded"
     /// Records this host can no longer apply because the volume was used
     /// elsewhere since (e.g. mounted by Windows): move them out of the way,
-    /// kept for inspection, so they stop blocking writes. The newest few stay.
+    /// kept for inspection, so they stop blocking writes. The newest few of
+    /// this volume stay, whatever other volumes archived meanwhile.
     func archive(serial: String, keep: Int = 3) throws {
         let names = try Self.listNames(directory).filter {
             $0 == serial + ".session" || ($0.hasPrefix(serial + "-") && $0.hasSuffix(".epoch"))
@@ -228,7 +229,9 @@ final class WriteJournalStore {
         }
         guard fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
         let root = url.appendingPathComponent(Self.supersededName, isDirectory: true)
-        let kept = (try? FileManager.default.contentsOfDirectory(atPath: root.path))?.sorted() ?? []
+        // "<milliseconds>-<serial>": sorted by name is sorted by time.
+        let kept = (try? FileManager.default.contentsOfDirectory(atPath: root.path))?
+            .filter { $0.hasSuffix("-" + serial) }.sorted() ?? []
         for old in kept.dropLast(keep) { try? FileManager.default.removeItem(at: root.appendingPathComponent(old)) }
     }
 

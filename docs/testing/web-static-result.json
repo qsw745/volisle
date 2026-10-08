@@ -4,7 +4,7 @@
     "zh-CN",
     "en"
   ],
-  "links_checked": 344,
+  "links_checked": 348,
   "metadata": "通过",
   "published": true,
   "download_links": [
@@ -35,7 +35,9 @@
     "/downloads/Volisle-0.8.0-arm64.dmg",
     "/downloads/Volisle-0.8.0-source.tar.gz",
     "/downloads/Volisle-0.8.2-arm64.dmg",
-    "/downloads/Volisle-0.8.2-source.tar.gz"
+    "/downloads/Volisle-0.8.2-source.tar.gz",
+    "/downloads/Volisle-0.8.3-arm64.dmg",
+    "/downloads/Volisle-0.8.3-source.tar.gz"
   ],
   "404_artifact": "存在",
   "scope": "静态产物校验；不是浏览器或性能测试"

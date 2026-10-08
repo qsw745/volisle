@@ -164,7 +164,7 @@ struct MainView: View {
                         && mountCycle.operation?.disk.registryID == selected.identity.mediaRegistryID
                     // While another disk holds the read-write session, the shared barrier
                     // makes every device look busy: only this disk's own work counts then.
-                    let ownWork = actions.activeDevices.contains(selected.deviceGroup) || autoMount.isBusy(selected) || manualMount.isBusy(selected)
+                    let ownWork = actions.activeDevices.contains(selected.deviceGroup) || autoMount.isBusy(selected) || manualMount.isWorking(on: selected)
                     VolumeDetail(volume: selected, busy: recovering || ownWork || (holder == nil && (mountCycle.blocksActions || actions.isBusy(selected))),
                                  waitingFor: holder.map { WriteSlotWait(holder: $0, automatic: autoMount.preferences.isEnabled(selected.identity)) },
                                  backgroundNeedsAttention: ownCycleNeedsAttention,
