@@ -77,7 +77,7 @@
 "“%@”：%@" = "“%@”: %@";
 "重新核验" = "Check Again";
 "关闭" = "Close";
-"启用读写" = "Turn On Write Access";
+"启用读写" = "Make Writable";
 "取消" = "Cancel";
 "测试范围已过期或磁盘连接已变化。" = "The test scope has expired or the disk connection changed.";
 "将检查“%@”并切换为读写。请先关闭正在使用盘内文件的应用；使用完毕后点击“推出”。" = "Volisle will check “%@” and switch it to read-write. Quit any apps using files on the disk first, and click “Eject” when you’re done.";
@@ -244,7 +244,7 @@
 "系统尚未允许后台组件读取此磁盘。" = "macOS hasn’t allowed the background component to read this disk yet.";
 "该分区没有有效的 NTFS 引导标识。" = "This partition doesn’t have a valid NTFS boot signature.";
 "磁盘正被其他程序使用，暂时无法完成。请关闭正在使用盘内文件的应用后重试；磁盘仍可正常使用，数据不受影响。" = "Another program is using the disk, so this can’t finish right now. Quit any apps using files on the disk and try again. The disk still works normally and your data isn’t affected.";
-"这块盘被标记为需要检查，为保护数据暂时只读。可以点右边的“在 Mac 上检查…”，没有发现问题就会清除标记并开启读写；也可以在 Windows 中检查磁盘（属性 → 工具 → 检查），安全弹出后再插回。" = "This disk is marked as needing a check, so it stays read-only to protect your data. Click “Check on This Mac…” beside this message to clear the mark and turn on writing if no problems are found, or check it in Windows (Properties → Tools → Check), eject it safely, then reconnect it.";
+"这块盘被标记为需要检查，为保护数据暂时只读。可以点右边的“在 Mac 上检查…”，没有发现问题就会清除标记并开启读写；也可以在 Windows 中检查磁盘（属性 → 工具 → 检查），安全弹出后再插回。" = "This disk is marked as needing a check, so it stays read-only to protect your data. Click “Check on Mac…” beside this message to clear the mark and turn on writing if no problems are found, or check it in Windows (Properties → Tools → Check), eject it safely, then reconnect it.";
 "这块盘来自处于休眠或“快速启动”状态的 Windows，为保护数据暂时只读。请在 Windows 中完全关机后再插回。" = "This disk comes from a Windows PC that’s hibernated or using Fast Startup, so it stays read-only to protect your data. Fully shut down Windows, then reconnect the disk.";
 "后台组件暂时无法连接，请检查系统授权。" = "Can’t connect to the background component right now. Check its permission in System Settings.";
 "后台组件版本或响应不匹配，请使用配套安装包。" = "The background component’s version or response doesn’t match. Use the matching installer.";
@@ -367,7 +367,7 @@
 "正在 Mac 上检查磁盘，请勿拔出…" = "Checking the disk on this Mac. Don’t disconnect it…";
 "在 Mac 上检查这块盘？" = "Check This Disk on Your Mac?";
 "检查完成" = "Check Complete";
-"在 Mac 上检查…" = "Check on This Mac…";
+"在 Mac 上检查…" = "Check on Mac…";
 "检查并清除标记" = "Check and Clear Mark";
 "已检查 %lld 个文件和文件夹，没有发现问题，已清除“需要检查”标记。" = "Checked %lld files and folders and found no problems. The “needs a check” mark was cleared.";
 "这块盘没有“需要检查”标记，无需处理。" = "This disk isn’t marked as needing a check. Nothing to do.";
@@ -435,7 +435,7 @@
 "以后也可以在设置 → 首次使用中继续。" = "You can also finish this later in Settings → Setup.";
 "稍后设置" = "Later";
 "“盘屿 NTFS”的开关打不开或会自己弹回去？请确认电脑上只有一个盘屿、并且是从“应用程序”文件夹打开的；仍然不行就重启 Mac 后再试。“FSKit Modules”那个开关不用打开。" = "Switch next to “Volisle NTFS” won’t turn on, or turns itself off? Make sure there is only one copy of Volisle and you opened it from the Applications folder. If it still won’t stay on, restart your Mac and try again. You don’t need to turn on “FSKit Modules”.";
-"这块盘被标记为需要检查，为保护数据暂时只读。可以点上面的“在 Mac 上检查…”，也可以在 Windows 中检查后安全弹出再插回。" = "This disk is marked as needing a check, so it stays read-only to protect your data. Click “Check on This Mac…” above, or check it in Windows, eject it safely, then reconnect it.";
+"这块盘被标记为需要检查，为保护数据暂时只读。可以点上面的“在 Mac 上检查…”，也可以在 Windows 中检查后安全弹出再插回。" = "This disk is marked as needing a check, so it stays read-only to protect your data. Click “Check on Mac…” above, or check it in Windows, eject it safely, then reconnect it.";
 "写入过程中发生错误，盘屿已停止写入以保护数据。点“恢复只读”可尝试结束写入会话；后续恢复可能撤销出错前约 20 秒内的改动。排除故障并通过安全核验后，才能重新开启读写。" = "An error occurred while writing, so Volisle stopped writing to protect your data. Click “Make Read-Only” to try to end the write session; subsequent recovery may undo changes from about the last 20 seconds before the error. Writing can be enabled again once the cause is resolved and safety checks pass.";
 "磁盘映像只能读取，盘屿不为它开启读写。" = "Disk images are read-only; Volisle doesn’t turn on writing for them.";
 "这块盘处于写保护状态（例如 SD 卡侧面的锁定开关拨到了 Lock），只能读取。" = "This disk is write-protected (for example, the lock switch on the side of an SD card is set to Lock), so it can only be read.";
@@ -574,11 +574,11 @@
 "这块盘的 NTFS 日志读不出来或无法按顺序补写，盘屿不能代替 Windows 恢复，没有做任何修改。请接回 Windows 打开一次，用“安全删除硬件”弹出后再插回。" = "This disk’s NTFS log can’t be read or replayed in order, so Volisle can’t recover it in place of Windows. Nothing was changed. Connect it to Windows, open it once, eject it with “Safely Remove Hardware”, then connect it again.";
 "补写或之后的检查没有通过，盘屿已经把这块盘原样还原，没有留下任何改动。盘里的文件仍可只读打开和拷出；请接回 Windows 打开一次，安全弹出后再插回。" = "The replay or the check after it didn’t pass, so Volisle put the disk back exactly as it was; no changes were left. Files can still be opened and copied read-only. Connect it to Windows, open it once, eject it safely, then connect it again.";
 "补写中途失败，而且没能完全还原。请不要在 Mac 上继续写入这块盘，尽快接回 Windows，在“属性 → 工具 → 检查”中检查磁盘。" = "The replay failed midway and the disk couldn’t be fully put back. Don’t write to this disk on the Mac; connect it to Windows as soon as you can and check it in Properties → Tools → Check.";
-"这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点“在 Mac 上恢复…”。" = "This disk wasn’t ejected safely from Windows last time, so it’s read-only to protect your data. The safest fix is to connect it to Windows and eject it with “Safely Remove Hardware”; if no Windows PC is at hand, click “Recover on This Mac…”.";
+"这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点“在 Mac 上恢复…”。" = "This disk wasn’t ejected safely from Windows last time, so it’s read-only to protect your data. The safest fix is to connect it to Windows and eject it with “Safely Remove Hardware”; if no Windows PC is at hand, click “Recover on Mac…”.";
 "已有操作正在进行。" = "Another operation is in progress.";
 "只有在 Windows 开着机时直接拔下的盘，才能在 Mac 上补写。请把盘接回那台 Windows 开机，用“安全删除硬件”弹出后再插回。" = "Only a disk unplugged while Windows was running can be replayed on the Mac. Connect it to that Windows PC, start it, eject the disk with “Safely Remove Hardware”, then connect it again.";
-"在 Mac 上恢复…" = "Recover on This Mac…";
-"这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点上面的“在 Mac 上恢复…”。" = "This disk wasn’t ejected safely from Windows last time, so it’s read-only to protect your data. The safest fix is to connect it to Windows and eject it with “Safely Remove Hardware”; if no Windows PC is at hand, click “Recover on This Mac…” above.";
+"在 Mac 上恢复…" = "Recover on Mac…";
+"这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点上面的“在 Mac 上恢复…”。" = "This disk wasn’t ejected safely from Windows last time, so it’s read-only to protect your data. The safest fix is to connect it to Windows and eject it with “Safely Remove Hardware”; if no Windows PC is at hand, click “Recover on Mac…” above.";
 "这块盘上次在 Windows 中没有安全弹出，所以以只读方式打开。请接回 Windows，用“安全删除硬件”弹出后再插回（加密盘暂不支持在 Mac 上恢复）。" = "This disk wasn’t ejected safely from Windows last time, so it opened read-only. Connect it to Windows and eject it with “Safely Remove Hardware”, then connect it again (recovering on the Mac isn’t available for encrypted disks yet).";
 "在 Mac 上恢复“%@”" = "Recover “%@” on This Mac";
 "正在只读检查这块盘…" = "Checking the disk read-only…";
@@ -588,8 +588,8 @@
 "补写了 %lld 笔改动，检查了 %lld 个文件和文件夹，没有发现问题。点“好”为这块盘开启读写。" = "Replayed %lld changes and checked %lld files and folders; no problems found. Click OK to turn on write access for this disk.";
 "没有恢复" = "Not Recovered";
 "补写并开启读写" = "Replay and Turn On Writing";
-"没有“需要检查”标记" = "Not marked “needs check”";
-"Windows 曾发现这块盘有问题，不只是没有安全弹出。" = "Windows found a problem with this disk, beyond not being ejected safely.";
+"Windows 还标记了“需要检查”" = "Windows also marked it “needs check”";
+"处理完日志后会逐一检查所有文件和文件夹，全部正常才清除这个标记；有问题就原样还原，什么都不改。" = "After the log, every file and folder is checked. The mark is cleared only if all is well; otherwise the disk is put back exactly as it was.";
 "没有 Windows 休眠或未完成的维护" = "No Windows hibernation or unfinished maintenance";
 "NTFS 日志已经是完成状态" = "The NTFS log is already complete";
 "日志版本 %@" = "Log version %@";

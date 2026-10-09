@@ -90,8 +90,10 @@ struct WindowsLogRecoveryView: View {
         Form {
             Section { verdict(found) }
             Section {
-                finding(ok: !found.markedForCheck, Text("没有“需要检查”标记"),
-                        found.markedForCheck ? String(localized: "Windows 曾发现这块盘有问题，不只是没有安全弹出。") : nil)
+                if found.markedForCheck {
+                    finding(ok: true, Text("Windows 还标记了“需要检查”"),
+                            String(localized: "处理完日志后会逐一检查所有文件和文件夹，全部正常才清除这个标记；有问题就原样还原，什么都不改。"))
+                }
                 finding(ok: !found.hibernated && !found.maintenancePending, Text("没有 Windows 休眠或未完成的维护"), nil)
                 if found.logClean {
                     finding(ok: true, Text("NTFS 日志已经是完成状态"), nil)

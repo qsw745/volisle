@@ -1,0 +1,8 @@
+盘屿 0.9.1 · Volisle 0.9.1
+
+· 修复：盘在 Windows 上没有安全弹出、同时又被 Windows 标记为“需要检查”时，原先“在 Mac 上恢复”和“在 Mac 上检查”都不能用，只能接回 Windows。现在可以直接点“在 Mac 上恢复”：先补写 Windows 没写完的改动，再逐一检查所有文件和文件夹，全部正常才解除只读；有问题就原样还原。
+· 改进：Mac 自动生成的隐藏文件（.DS_Store、._ 开头的文件、.Trashes 等）在 Windows 上不再显示，即使打开了“显示隐藏的项目”也看不到。你自己建的点文件不受影响。此前已经生成的这类文件可以在 Windows 上直接删除。
+· 改进：英文界面的按钮文字缩短，不再显示不全。
+· Fixed: a disk that was not ejected safely from Windows and that Windows had also marked as needing a check could neither be recovered nor checked on the Mac, only on Windows. “Recover on Mac” now handles it: it finishes the changes Windows left unwritten, checks every file and folder, and only then allows writing; if anything is wrong, the disk is put back exactly as it was.
+· Improved: hidden files the Mac creates on its own (.DS_Store, files starting with ._, .Trashes and the like) no longer show up in Windows, even with “Hidden items” turned on. Dot files you create yourself are not affected. Such files created before can simply be deleted in Windows.
+· Improved: shorter button labels in the English interface, so none are cut off.

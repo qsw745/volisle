@@ -12,6 +12,7 @@
 import ctypes as C
 import errno
 import json
+import re
 import subprocess
 import tempfile
 import unicodedata
@@ -44,6 +45,12 @@ LIB.nk_reference_path.argtypes = [C.c_void_p, C.c_char_p, C.POINTER(C.c_uint64)]
 LIB.ntfs_pathname_to_inode.argtypes = [C.c_void_p, C.c_void_p, C.c_char_p]; LIB.ntfs_pathname_to_inode.restype = C.c_void_p
 LIB.ntfs_create.argtypes = [C.c_void_p, C.c_uint32, C.c_void_p, C.c_uint8, C.c_uint32]; LIB.ntfs_create.restype = C.c_void_p
 LIB.ntfs_inode_close.argtypes = [C.c_void_p]; LIB.ntfs_inode_close.restype = C.c_int
+
+HIDDEN, SYSTEM = 0x2, 0x4
+# What section 6 creates, with the Windows attributes each must carry.
+MAC_FLAGS = {'/mac/.DS_Store': HIDDEN | SYSTEM, '/mac/._photo.jpg': HIDDEN | SYSTEM,
+             '/mac/.gitignore': HIDDEN, '/mac/._': HIDDEN, '/mac/visible.txt': 0,
+             '/.Trashes': HIDDEN | SYSTEM, '/.fseventsd': HIDDEN | SYSTEM}
 
 checks = []
 
@@ -87,6 +94,20 @@ def read(v, path, size):
     buf = C.create_string_buffer(size)
     n = LIB.nk_read(v, path.encode(), 0, size, buf)
     return buf.raw[:n] if n >= 0 else None
+
+
+def index_flags(image, directory):
+    """HIDDEN/SYSTEM of section 6's names as the directory's own entries record them."""
+    out = subprocess.run([TOOLS / 'ntfsinfo', '-v', '-F', directory, image],
+                         capture_output=True, text=True, check=True).stdout
+    wanted = {Path(path).name for path in MAC_FLAGS}
+    found, attributes = {}, None
+    for line in out.splitlines():
+        if 'File attributes:' in line:
+            attributes = int(re.search(r'\(0x([0-9a-f]+)\)', line).group(1), 16)
+        elif 'Filename:' in line and (name := line.split("'", 1)[1].rsplit("'", 1)[0]) in wanted:
+            found[name] = attributes & (HIDDEN | SYSTEM)
+    return found
 
 
 def raw_create(v, directory, name):
@@ -189,12 +210,16 @@ def main():
         assert call(LIB.nk_rename, v, b'/mac/$5.pdf', b'/', b'$5.pdf')[1] == errno.EINVAL
         passed('“$”开头的名字只在根目录保留，子目录可用')
 
-        # 6. Dot files are hidden from Windows Explorer; others are not.
-        for name in ['.DS_Store', 'visible.txt']:
+        # 6. Dot files are hidden from Windows Explorer; others are not. What
+        #    only macOS creates is SYSTEM too, hidden even with "show hidden
+        #    items" on; a user's own dot file is not.
+        for name in ['.DS_Store', '._photo.jpg', '.gitignore', '._', 'visible.txt']:
             assert LIB.nk_create(v, b'/mac', name.encode()) == 0
-        assert stat(v, '/mac/.DS_Store')[0].file_flags & 0x2
-        assert not stat(v, '/mac/visible.txt')[0].file_flags & 0x2
-        passed('点文件新建时带 Windows 隐藏属性')
+        for name in ['.Trashes', '.fseventsd']:
+            assert LIB.nk_mkdir(v, b'/', name.encode()) == 0
+        flags = {path: stat(v, path)[0].file_flags & (HIDDEN | SYSTEM) for path in MAC_FLAGS}
+        assert flags == MAC_FLAGS, flags
+        passed('点文件新建时带 Windows 隐藏属性；Mac 专用的（.DS_Store、._*、.Trashes…）再加系统属性')
 
         # 7. Case. A folder, or a rename onto another entry's case variant, is
         #    refused. A file is not: open(O_CREAT) answers EEXIST by looking the
@@ -223,6 +248,12 @@ def main():
         assert LIB.nk_umount(v) == 0; device.close()
         assert subprocess.run([TOOLS / 'ntfsfix', '-n', image], capture_output=True).returncode == 0
         passed('卸载干净，ntfsfix -n 无错误')
+
+        # Explorer lists from the parent's directory entries, which carry their
+        # own copy of the attributes: they must say the same.
+        assert index_flags(image, '/mac') | index_flags(image, '/') == {
+            Path(path).name: value for path, value in MAC_FLAGS.items()}
+        passed('目录项里的属性与文件一致（Windows 资源管理器按目录项显示）')
 
     result = {'generated_at': datetime.now(timezone.utc).isoformat(), 'checks': checks, 'success': True}
     (ROOT / 'docs/testing/ntfs-names-result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')

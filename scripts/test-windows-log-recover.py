@@ -7,7 +7,9 @@ Checks, on copies only:
   - examine is read-only and reports an unclean, readable log that replays in simulation;
   - recover leaves the volume clean, every record opens, and each baseline file
     Windows had flushed is either intact or one the burst deleted on purpose;
-  - a disk marked "needs check" and an already clean disk are refused untouched.
+  - a disk also marked "needs check" is replayed, then checked and the mark
+    cleared; if that check finds a problem it reports EIO (the helper restores);
+  - an already clean disk is refused untouched.
 With --windows-image it also writes recovered.vhd for the Windows chkdsk step."""
 import ctypes as C
 import hashlib
@@ -24,7 +26,7 @@ FIXTURES = ROOT / '.workbench/log-fixtures'
 DIRTY = ROOT / '.workbench/check-fixtures/rich.img'
 TOOLS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 CHECK_CLEAN, CHECK_DIRTY, CHECK_LOG_UNSAFE = 0, 1, 3
-EALREADY, EBUSY = 37, 16
+EALREADY, EBUSY, EIO = 37, 16, 5
 
 
 class WindowsLog(C.Structure):
@@ -89,6 +91,26 @@ def check_baseline(image, manifest):
         else:
             changed.append(path)
     return {'intact': intact, 'deleted': deleted, 'changed': changed}
+
+
+def mark_dirty(image):
+    """Sets VOLUME_IS_DIRTY in $Volume (record 3) of $MFT and $MFTMirr, as
+    Windows does when it wants the disk checked."""
+    with open(image, 'r+b') as f:
+        boot = f.read(512)
+        cluster = int.from_bytes(boot[11:13], 'little') * boot[13]
+        size_byte = int.from_bytes(boot[64:65], 'little', signed=True)
+        record = (2 ** -size_byte) if size_byte < 0 else size_byte * cluster
+        for lcn in (int.from_bytes(boot[48:56], 'little'), int.from_bytes(boot[56:64], 'little')):
+            pos = lcn * cluster + 3 * record
+            f.seek(pos); rec = f.read(record)
+            at = int.from_bytes(rec[20:22], 'little')
+            while int.from_bytes(rec[at:at + 4], 'little') != 0x70:
+                assert int.from_bytes(rec[at:at + 4], 'little') != 0xFFFFFFFF, '$Volume 没有卷信息'
+                at += int.from_bytes(rec[at + 4:at + 8], 'little')
+            flags = pos + at + int.from_bytes(rec[at + 20:at + 22], 'little') + 10
+            f.seek(flags); value = int.from_bytes(f.read(2), 'little')
+            f.seek(flags); f.write((value | 1).to_bytes(2, 'little'))
 
 
 def mark_mft_cluster_free(image):
@@ -159,6 +181,31 @@ def main():
             with open(out, 'r+b') as f:
                 f.seek(start); f.write(image.read_bytes())
             report['windows_image'] = str(out)
+
+        # Unplugged and also marked "needs check": the log is reported first,
+        # replayed, then every record checked and the mark cleared.
+        both = Path(tmp) / 'both.img'
+        shutil.copyfile(fixture, both)
+        mark_dirty(both)
+        io = ImageIO(both, readonly=True)
+        assert io.inspect() == CHECK_LOG_UNSAFE, '日志未完成应先于“需要检查”报告'
+        io.close()
+        state = examine(both)
+        assert state.dirty and state.replay_simulated and not state.log_clean, as_dict(state)
+        result = recover(both)
+        report['dirty_recover'] = {k: result[k] for k in ('rc', 'errno', 'reason', 'items', 'inspect')}
+        assert result['rc'] == 0 and result['inspect'] == CHECK_CLEAN and result['items'] > 0, result
+        assert not examine(both).dirty
+        assert not check_baseline(both, FIXTURES / 'baseline.tsv')['changed']
+        # The same, with a cluster in use marked free: the check after the
+        # replay fails and says so (EIO: the helper restores the disk).
+        broken = Path(tmp) / 'both-broken.img'
+        shutil.copyfile(fixture, broken)
+        mark_dirty(broken)
+        mark_mft_cluster_free(broken)
+        result = recover(broken)
+        report['dirty_recover_refused'] = {k: result[k] for k in ('rc', 'errno', 'reason')}
+        assert result['rc'] == -1 and result['errno'] == EIO and 'clusters marked free' in result['reason'], result
 
         if DIRTY.is_file():
             marked = Path(tmp) / 'rich.img'

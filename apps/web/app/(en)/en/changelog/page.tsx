@@ -3,6 +3,12 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.0 · October 9, 2026</h2><ul>
+<li>New: up to two NTFS disks can be written at once. Each disk is on its own: unplugging one, making it read-only or ejecting it leaves the other untouched. A third disk stays read-only and gets write access once you eject one of them. Every disk being written has its own “Make Read-Only” on its page, and the menu bar offers it too.</li>
+<li>New: choose the interface language in Settings (System, Simplified Chinese, Traditional Chinese or English), with a new Traditional Chinese interface.</li>
+<li>Intel-based Macs as a beta: the installer now includes both the Apple silicon and the Intel version, and needs macOS 15.4 or later. The Intel version hasn’t been verified on an Intel Mac yet; if something goes wrong, export diagnostics in Settings → Support and send them in.</li>
+<li>Fixed: when “Recover on This Mac” replayed the changes Windows hadn’t finished, it could read the disk’s basic layout wrongly and use the wrong cluster size; on an Intel Mac it failed outright.</li>
+</ul>
 <h2>0.8.4 · October 8, 2026</h2><ul>
 <li>Faster “Open Files” after a copy: Volisle now confirms a copy by what the disk has actually written, usually in twenty-odd seconds instead of a fixed minute; slower drives get the time they need, and an unplug before that still rechecks and completes the copy when reconnected.</li>
 <li>Fixed: while one disk was read-write, another disk connected meanwhile kept showing “processing” with every button greyed out. It now says it is waiting, and its files can be opened and browsed as usual.</li>

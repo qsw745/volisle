@@ -262,15 +262,17 @@ int nk_windows_log_examine(const nk_io *io, nk_windows_log *out, char *errbuf, s
 /* Examines again, refuses anything but "log not clean" (errno EBUSY with the
  * reason; EALREADY when already clean), replays the log as Windows would on
  * its next mount, then requires the volume to inspect clean and every record
- * to open and map (`items` counts them). On EIO the disk was written: the
- * host restores it from its own before-images. */
+ * to open and map (`items` counts them). A disk also marked "needs check" is
+ * then checked as nk_clear_check_marker does, which clears the mark. On EIO
+ * the disk was written: the host restores it from its own before-images. */
 int nk_windows_log_recover(const nk_io *io, nk_windows_log *before, long long *items, char *errbuf, size_t errlen);
 /* When the log cannot be replayed (ntfsrecover stops): requires everything
  * already to hold together without it (every record reachable, nothing in use
  * marked free), then resets the log to empty as NTFS-3G does by default,
  * giving up what Windows had not written into place. Refuses a log that
- * replays (EBUSY "replay possible"). On EIO after the reset the host restores
- * the disk from its before-images. */
+ * replays (EBUSY "replay possible"). A "needs check" mark is cleared as after
+ * a replay. On EIO after the reset the host restores the disk from its
+ * before-images. */
 int nk_windows_log_discard(const nk_io *io, nk_windows_log *before, long long *items, char *errbuf, size_t errlen);
 const char *nk_engine_version(void);
 #ifdef __cplusplus

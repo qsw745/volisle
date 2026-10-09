@@ -127,7 +127,7 @@ int nk_windows_log_examine(const nk_io *io, nk_windows_log *out, char *errbuf, s
         out->redo_actions = redo;
     }
     /* No replay: show what giving the log up would rest on before anyone asks for it. */
-    if (!out->log_clean && !out->replay_simulated && !out->hibernated && !out->maintenance_pending && !out->dirty) {
+    if (!out->log_clean && !out->replay_simulated && !out->hibernated && !out->maintenance_pending) {
         long long items = 0;
         out->discard_checked = 1;
         long long held = 0;
@@ -143,7 +143,6 @@ int nk_windows_log_examine(const nk_io *io, nk_windows_log *out, char *errbuf, s
 static const char *log_refusal(const nk_windows_log *s) {
     if (s->hibernated) return "hibernated";
     if (s->maintenance_pending) return "Windows maintenance pending";
-    if (s->dirty) return "marked for check";
     if (!s->log_readable) return "log unreadable";
     if (s->log_clean) return "log already clean";
     if (!s->replay_simulated) return "replay failed in simulation";
@@ -170,6 +169,10 @@ int nk_windows_log_recover(const nk_io *io, nk_windows_log *before, long long *i
     if (run_ntfsrecover(io, 1, &redo, before->note, sizeof(before->note)) || io->sync(io->ctx) != 0) {
         snprintf(errbuf, errlen, "replay failed"); errno = EIO; return -1;
     }
+    /* Windows had also marked it "needs check": with the log complete, that is
+     * exactly "Check on This Mac" (every record and the space in use), which
+     * clears the mark only if everything holds and verifies the volume clean. */
+    if (before->dirty) return nk_clear_check_marker(io, items, errbuf, errlen);
     /* Now as after Windows mounted it: log clean, nothing marked. Then every
      * record must open and map, as "Check on This Mac" requires. */
     int state = nk_inspect(io);
@@ -190,7 +193,7 @@ int nk_windows_log_discard(const nk_io *io, nk_windows_log *before, long long *i
     *items = 0;
     if (nk_windows_log_examine(io, before, errbuf, errlen)) return -1;
     const char *refusal = before->hibernated ? "hibernated" : before->maintenance_pending ? "Windows maintenance pending"
-                        : before->dirty ? "marked for check" : before->log_clean ? "log already clean"
+                        : before->log_clean ? "log already clean"
                         /* A log that replays is replayed, never thrown away. */
                         : before->replay_simulated ? "replay possible" : NULL;
     if (refusal) {
@@ -213,6 +216,8 @@ int nk_windows_log_discard(const nk_io *io, nk_windows_log *before, long long *i
     if (!r) r = nkdev_sync(v->vol->dev);
     if (release_volume(v)) r = -1;
     if (r || io->sync(io->ctx) != 0) { snprintf(errbuf, errlen, "log reset failed"); errno = EIO; return -1; }
+    /* Marked "needs check" too: the same check again, now on the clean log, clears it. */
+    if (before->dirty) return nk_clear_check_marker(io, items, errbuf, errlen);
     int state = nk_inspect(io);
     if (state != NK_CHECK_CLEAN) {
         snprintf(errbuf, errlen, "not clean after reset (%d)", state); errno = EIO; return -1;

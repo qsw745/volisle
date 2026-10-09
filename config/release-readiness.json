@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "build": 71,
+  "build": 72,
   "status": "ready",
-  "source_provenance_sha256": "e561700d9d2d90c8af7425fdd9081daa163f4b4b61235a82e034d41b78b8010a",
+  "source_provenance_sha256": "a48612e25d859646d5c376776d43c17e23d854baedabc94aae1e167c5a99ae60",
   "blockers": [],
-  "decided": "2026-10-08：所有者用 scripts/release/release.sh 发布 0.8.4（构建 71）。",
+  "decided": "2026-10-09：所有者用 scripts/release/release.sh 发布 0.9.0（构建 72）。",
   "deferred_acceptance": [
     "bitlocker-disk-encrypted-directly-by-windows（尚无 Windows 直接加密的整块 U 盘或移动硬盘，含 4K 扇区）",
     "bitlocker-whole-disk-encrypted-by-windows（Windows 直接加密的整块 U 盘或移动硬盘、4K 扇区，未测）",

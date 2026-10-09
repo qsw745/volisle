@@ -579,6 +579,21 @@ long long nk_write(nk_volume *v, const char *path, long long offset,
     return n;
 }
 
+/* Names only macOS creates for itself (Finder view settings, AppleDouble
+ * companions, the volume's trash, event log and Spotlight index). They also
+ * get SYSTEM, so Windows Explorer hides them like $RECYCLE.BIN even with
+ * "show hidden items" on. Exact names: a user's .gitignore stays HIDDEN only. */
+static int mac_metadata_name(const char *name) {
+    static const char *const names[] = {
+        ".DS_Store", ".Trashes", ".fseventsd", ".TemporaryItems",
+        ".Spotlight-V100", ".DocumentRevisions-V100", ".apdisk",
+    };
+    if (!strncmp(name, "._", 2) && name[2]) return 1;
+    for (size_t i = 0; i < sizeof names / sizeof *names; ++i)
+        if (!strcmp(name, names[i])) return 1;
+    return 0;
+}
+
 /* `target` is used for S_IFLNK only: an Interix symbolic link (NTFS-3G's
  * default), which macOS and Linux read back verbatim and Windows keeps as a
  * small system file. */
@@ -641,7 +656,12 @@ static int create_node(nk_volume *v, const char *dir_path, const char *name,
     NVolClearHideDotFiles(v->vol);
     free(ucs);
     int error = ni ? 0 : (errno ? errno : EIO);
-    if (ni && ntfs_inode_close(ni)) error = errno ? errno : EIO;
+    if (ni && mac_metadata_name(name)) {
+        ni->flags |= FILE_ATTR_SYSTEM;
+        NInoFileNameSetDirty(ni); NInoSetDirty(ni);
+    }
+    /* In the open parent: its directory entry carries the attributes too. */
+    if (ni && ntfs_inode_close_in_dir(ni, dir)) error = errno ? errno : EIO;
     if (ntfs_inode_close(dir)) error = errno ? errno : EIO;
     /* Persist child, parent and held volume metadata before reporting creation.
      * ENOSPC or a flush failure after mutation retains the dirty marker. */
@@ -1367,20 +1387,21 @@ int nk_xattr_remove(nk_volume *v, const char *path, const char *name) {
 
 /* Inspection never owns a writable callback context: the copied descriptor
  * is read-only at both the NTFS device and callback adapter boundaries. */
+/* A disk both marked "needs check" and with an unfinished log reports the log:
+ * it must be completed first ("Recover on This Mac" then checks every record
+ * and clears the mark), and "Check on This Mac" refuses an unclean log. */
 static int inspect_volume(nk_volume *v) {
     int status = NK_CHECK_CLEAN;
-    if (v->vol->flags & VOLUME_IS_DIRTY) status = NK_CHECK_DIRTY;
-    else if (ntfs_volume_check_hiberfile(v->vol, 0) < 0) status = NK_CHECK_HIBERNATED;
-    else {
-        ntfs_inode *ni = ntfs_inode_open(v->vol, FILE_LogFile);
-        ntfs_attr *na = ni ? ntfs_attr_open(ni, AT_DATA, AT_UNNAMED, 0) : NULL;
-        RESTART_PAGE_HEADER *rp = NULL;
-        if (!na || !ntfs_check_logfile(na, &rp) || !ntfs_is_logfile_clean(na, rp)) status = NK_CHECK_LOG_UNSAFE;
-        if (rp && rp->major_ver == const_cpu_to_le16(2) && rp->minor_ver == const_cpu_to_le16(0)) status = NK_CHECK_LOG_UNSAFE;
-        free(rp);
-        if (na) ntfs_attr_close(na);
-        if (ni && ntfs_inode_close(ni)) status = NK_CHECK_UNKNOWN;
-    }
+    if (ntfs_volume_check_hiberfile(v->vol, 0) < 0) return NK_CHECK_HIBERNATED;
+    ntfs_inode *ni = ntfs_inode_open(v->vol, FILE_LogFile);
+    ntfs_attr *na = ni ? ntfs_attr_open(ni, AT_DATA, AT_UNNAMED, 0) : NULL;
+    RESTART_PAGE_HEADER *rp = NULL;
+    if (!na || !ntfs_check_logfile(na, &rp) || !ntfs_is_logfile_clean(na, rp)) status = NK_CHECK_LOG_UNSAFE;
+    if (rp && rp->major_ver == const_cpu_to_le16(2) && rp->minor_ver == const_cpu_to_le16(0)) status = NK_CHECK_LOG_UNSAFE;
+    free(rp);
+    if (na) ntfs_attr_close(na);
+    if (ni && ntfs_inode_close(ni)) status = NK_CHECK_UNKNOWN;
+    if (status == NK_CHECK_CLEAN && (v->vol->flags & VOLUME_IS_DIRTY)) status = NK_CHECK_DIRTY;
     return status;
 }
 /* ---- format (mkntfs from NTFS-3G ntfsprogs, patched to take this device;

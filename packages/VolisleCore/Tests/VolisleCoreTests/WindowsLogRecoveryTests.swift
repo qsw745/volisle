@@ -39,8 +39,8 @@ import Foundation
         #expect(examination().fitsUnplug && examination().refusal == nil)
         #expect(examination(hibernated: true).refusal == .windowsHibernated)
         #expect(examination(maintenance: true).refusal == .windowsMaintenancePending)
-        // Windows saw a problem: not just an unplug.
-        #expect(examination(marked: true).refusal == .ntfsDirty)
+        // Also marked "needs check": replayed, then checked like "Check on This Mac".
+        #expect(examination(marked: true).fitsUnplug && examination(marked: true).refusal == nil)
         #expect(examination(readable: false).refusal == .windowsLogUnreadable)
         #expect(examination(simulated: false).refusal == .windowsLogUnreadable)
         // Already complete: nothing to replay, nothing refused.
@@ -79,7 +79,7 @@ import Foundation
 
     @Test func refusalsOfTheDiskComeBeforeTheLog() {
         #expect(examination(marked: true, hibernated: true).refusal == .windowsHibernated)
-        #expect(examination(marked: true, readable: false).refusal == .ntfsDirty)
+        #expect(examination(marked: true, readable: false).refusal == .windowsLogUnreadable)
     }
 
     @Test func helperRepliesAreValidated() throws {

@@ -13,7 +13,8 @@ import os
 /// here would lose them. The user's answer decides; the helper refuses anything
 /// the disk itself shows to be something else.
 public struct WindowsLogExamination: Codable, Equatable, Sendable {
-    /// The "needs check" flag: Windows saw a problem, not just an unplug.
+    /// The "needs check" flag. Not a refusal: once the log is complete, the
+    /// same check as "Check on This Mac" runs and only it clears the mark.
     public let markedForCheck: Bool
     /// chkdsk cut off, a log resize, an upgrade: only Windows may finish it.
     public let maintenancePending: Bool
@@ -56,7 +57,6 @@ public struct WindowsLogExamination: Codable, Equatable, Sendable {
     private var diskRefusal: HelperDiskFailure? {
         if hibernated { return .windowsHibernated }
         if maintenancePending { return .windowsMaintenancePending }
-        if markedForCheck { return .ntfsDirty }
         return nil
     }
     /// The log replays as Windows would.

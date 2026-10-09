@@ -3,6 +3,12 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.0 · 2026 年 10 月 9 日</h2><ul>
+<li>新功能：最多两块 NTFS 盘同时读写。每块盘各自独立，一块拔线、恢复只读或推出，都不影响另一块；第三块盘保持只读，推出其中一块后自动开启读写。每块读写中的盘在自己的页面里都有“恢复只读”，菜单栏里也可以直接恢复只读。</li>
+<li>新功能：设置里可以切换界面语言（跟随系统、简体中文、繁體中文、English），并新增繁体中文界面。</li>
+<li>Intel Mac 测试版支持：安装包同时包含 Apple 芯片和 Intel 版本，需要 macOS 15.4 或更高。Intel 版还没有在 Intel 真机上验证，遇到问题请在设置 → 支持中导出诊断并反馈。</li>
+<li>修复：“在 Mac 上恢复”补写 Windows 没写完的改动时，读取磁盘基本参数的方式有误，可能用错簇大小；在 Intel Mac 上会直接出错。</li>
+</ul>
 <h2>0.8.4 · 2026 年 10 月 8 日</h2><ul>
 <li>拷贝完成后更快出现“打开文件”：盘屿改为按磁盘实际的写入状态确认，通常二十几秒，不再固定等一分钟；硬盘慢时会自动多等，确认前拔线仍会在插回后复查补齐。</li>
 <li>修复：一块盘正在读写时，再插入的另一块盘一直显示“正在处理”、按钮全灰。现在会说明它在等待，期间可以正常打开和查看盘里的文件。</li>
