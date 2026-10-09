@@ -95,7 +95,7 @@ python3 scripts/prepare-update-release.py --candidate $app --source $out/package
 cp $out/update-release/appcast.xml apps/web/public/updates/appcast.xml
 
 step "6/10 官网页面与暂存"
-dmg=$out/signed-dmg/Volisle-$version-arm64.dmg source=$out/package/Volisle-$version-source.tar.gz
+dmg=$out/signed-dmg/Volisle-$version-universal.dmg source=$out/package/Volisle-$version-source.tar.gz
 python3 scripts/release/release_web.py website $dmg $source "$notes"
 zsh scripts/stage-website-release.sh $out $out/site-stage
 python3 scripts/release/release_web.py history-files $out/site-stage/downloads

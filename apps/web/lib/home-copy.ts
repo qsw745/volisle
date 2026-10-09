@@ -31,7 +31,7 @@ export const homeCopy: Record<Locale, HomeCopy> = {
     heroTitle: ['让硬盘，', '在 Mac 上自在读写。'],
     heroText: '插上 Windows 格式的硬盘，就像普通磁盘一样在 Finder 里编辑和保存。',
     learnMore: '了解功能',
-    releaseNote: published ? `版本 ${release.version} · 免费开源 · Apple 芯片 · ${release.minimumSystem} 或更高` : `${release.version} 即将发布 · 免费开源`,
+    releaseNote: published ? `版本 ${release.version} · 免费开源 · Apple 芯片（Intel 测试版） · ${release.minimumSystem} 或更高` : `${release.version} 即将发布 · 免费开源`,
     featuresLabel: '核心功能',
     features: [
       { icon: 'write', title: '插上就能写', text: '首次设置后，插入 NTFS 硬盘或 U 盘，自动检查并开启读写。' },
@@ -56,7 +56,7 @@ export const homeCopy: Record<Locale, HomeCopy> = {
     faqTitle: '你可能还想了解。',
     download: {
       eyebrow: '免费，开源', title: ['让硬盘，', '自在读写。'],
-      text: published ? `盘屿 ${release.version} · 需要 Apple 芯片 Mac 和 ${release.minimumSystem} 或更高版本。` : `盘屿 ${release.version} 正在做最后的验证，完成后在这里提供下载。`,
+      text: published ? `盘屿 ${release.version} · 需要 ${release.minimumSystem} 或更高版本；Apple 芯片 Mac 正式支持，Intel Mac 为测试版。` : `盘屿 ${release.version} 正在做最后的验证，完成后在这里提供下载。`,
       caption: '没有账号，没有订阅，源码开放。',
     },
   },
@@ -66,7 +66,7 @@ export const homeCopy: Record<Locale, HomeCopy> = {
     heroTitle: ['Your drives,', 'read-write on Mac.'],
     heroText: 'Connect a Windows-formatted drive and edit and save in Finder, just like any other disk.',
     learnMore: 'Explore features',
-    releaseNote: published ? `Version ${release.version} · Free and open source · Apple silicon · ${release.minimumSystem} or later` : `${release.version} coming soon · Free and open source`,
+    releaseNote: published ? `Version ${release.version} · Free and open source · Apple silicon (Intel beta) · ${release.minimumSystem} or later` : `${release.version} coming soon · Free and open source`,
     featuresLabel: 'Key features',
     features: [
       { icon: 'write', title: 'Plug in and write', text: 'After a one-time setup, connect an NTFS drive or flash drive and it’s checked and made writable automatically.' },
@@ -91,7 +91,7 @@ export const homeCopy: Record<Locale, HomeCopy> = {
     faqTitle: 'You might also want to know.',
     download: {
       eyebrow: 'Free and open source', title: ['Your drives,', 'read-write.'],
-      text: published ? `Volisle ${release.version} · Requires a Mac with Apple silicon and ${release.minimumSystem} or later.` : `Volisle ${release.version} is in final testing and will be available here soon.`,
+      text: published ? `Volisle ${release.version} · Requires ${release.minimumSystem} or later; Macs with Apple silicon are supported, Intel-based Macs as a beta.` : `Volisle ${release.version} is in final testing and will be available here soon.`,
       caption: 'No account. No subscription. Open source.',
     },
   },

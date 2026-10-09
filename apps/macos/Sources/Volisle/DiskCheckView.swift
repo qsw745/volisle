@@ -103,10 +103,10 @@ struct DiskCheckView: View {
 
 extension DiagnosticReport {
     /// The state snapshot for the diagnostics preview; the run log is added there.
-    @MainActor static func snapshot(discovery: DiskDiscovery, engineStatus: EngineStatus, mountCycle: MountCycleClient,
+    @MainActor static func snapshot(discovery: DiskDiscovery, engineStatus: EngineStatus, mountCycle: MountCycles,
                                     helperService: HelperServiceController, autoMount: AutoMountController) -> DiagnosticReport {
         DiagnosticReport(volumes: discovery.volumes, diskServiceRunning: discovery.isRunning, engine: engineStatus.capability,
-                         lastOperation: mountCycle.operation, lastRefusal: mountCycle.lastRefusal,
+                         lastOperation: mountCycle.latestOperation, lastRefusal: mountCycle.lastRefusal,
                          helper: .init(state: "\(helperService.state)", fullDiskAccess: helperService.fullDiskAccess,
                                        packageVerified: helperService.packageVerified, launchd: HelperLaunchdState.read()),
                          automaticWrite: autoMount.preferences.automaticEnabled, history: OperationHistory.entries())

@@ -6,16 +6,17 @@ LocalizedStringKey literal and String(localized:) call (with %@/%lld
 placeholders); this script builds the app and core with that output enabled,
 then checks:
 
-  * en, zh-Hans and zh-Hant Localizable.strings cover every key;
+  * en, zh-Hans and zh-Hant Localizable.strings cover every key (zh-Hant comes
+    from scripts/make-zh-hant.py);
   * English keeps the same placeholders in the same order;
-  * the Chinese tables map each key to itself (they must exist: the development
+  * the Chinese table maps each key to itself (they must exist: the development
     region is en, so a Chinese system without its own table falls back to English);
   * no stale keys remain;
   * the app's interface sources have no Chinese literal that would be shown
     verbatim (log lines and file names are excluded).
 
   python3 scripts/check-localization.py          # check
-  python3 scripts/check-localization.py --write  # regenerate the Chinese tables
+  python3 scripts/check-localization.py --write  # regenerate the Chinese table
 """
 import argparse
 import glob
@@ -112,7 +113,8 @@ def uncaptured(lines):
     for source in sorted(APP_SOURCES.glob('*.swift')):
         seen = lines.get(os.path.realpath(source), set())
         for number, line in enumerate(source.read_text(encoding='utf-8').splitlines(), 1):
-            if LOG_LINE.search(line) or 'String(localized:' in line or number in seen:
+            # verbatim: shown as written on purpose (a language under its own name).
+            if LOG_LINE.search(line) or 'String(localized:' in line or 'verbatim:' in line or number in seen:
                 continue
             chinese = [line[s:e] for s, e in literals(line) if CJK.search(line[s:e])]
             if chinese:
@@ -122,7 +124,7 @@ def uncaptured(lines):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--write', action='store_true', help='regenerate the zh-Hans and zh-Hant tables from the keys')
+    parser.add_argument('--write', action='store_true', help='regenerate the zh-Hans table from the keys')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='volisle-l10n-') as temp:
         app, core = Path(temp) / 'app', Path(temp) / 'core'
@@ -132,13 +134,13 @@ def main():
     if not keys:
         sys.exit('没有收集到任何本地化键，请检查编译器输出')
     if args.write:
-        for language in ['zh-Hans', 'zh-Hant']:
+        for language in ['zh-Hans']:
             body = ['/* 中文界面：键即原文。必须存在，否则开发区域为 en 时中文系统会回退到英文表。 */', '']
             body += [f'"{escape(key)}" = "{escape(key)}";' for key in keys]
             (TABLES / f'{language}.lproj/Localizable.strings').write_text('\n'.join(body) + '\n', encoding='utf-8')
     problems = []
     english = read_table(TABLES / 'en.lproj/Localizable.strings') or {}
-    for language in ['zh-Hans', 'zh-Hant']:
+    for language in ['zh-Hans']:
         table = read_table(TABLES / f'{language}.lproj/Localizable.strings')
         if table is None:
             problems.append(f'{language} 缺少 Localizable.strings')
@@ -153,6 +155,13 @@ def main():
         elif CJK.search(english[key]):
             problems.append(f'en 仍含中文：{key} → {english[key]}')
     problems += [f'en 多余：{key}' for key in english if key not in keys]
+    traditional = read_table(TABLES / 'zh-Hant.lproj/Localizable.strings') or {}
+    for key in keys:
+        if not traditional.get(key):
+            problems.append(f'zh-Hant 缺少（运行 scripts/make-zh-hant.py）：{key}')
+        elif PLACEHOLDER.findall(key) != PLACEHOLDER.findall(traditional[key]):
+            problems.append(f'zh-Hant 占位符不一致：{key} → {traditional[key]}')
+    problems += [f'zh-Hant 多余：{key}' for key in traditional if key not in keys]
     problems += [f'界面未本地化：{item}' for item in uncaptured(lines)]
     for problem in problems:
         print(problem)

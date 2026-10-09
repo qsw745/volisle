@@ -56,7 +56,7 @@ def verify_manifest(bundle, receipt, bundle_id, extension_id, fixture=None, repl
         raise ValueError('实盘测试绑定不匹配或未明确提供')
     if build.get('experimental_replacement', False) is not replacement or (replacement and not fixture):
         raise ValueError('覆盖保存实验必须单独确认并绑定测试镜像')
-    if build.get('experimental_writes') is not bool(fixture or physical) or build.get('fixture') != fixture or build.get('target') != 'arm64-apple-macos' + os.environ.get('VOLISLE_MIN_MACOS', '15.4'):
+    if build.get('experimental_writes') is not bool(fixture or physical) or build.get('fixture') != fixture or build.get('target') != 'arm64+x86_64-apple-macos' + os.environ.get('VOLISLE_MIN_MACOS', '15.4'):
         raise ValueError('缺少只读扩展构建记录')
     files = inventory(bundle)
     if files != manifest.get('files'):

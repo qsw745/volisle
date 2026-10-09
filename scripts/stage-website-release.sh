@@ -9,7 +9,7 @@ project_root="${0:A:h:h}"
 cd "$project_root"
 release="${1:A}" stage="${2:A}"
 [[ ! -e "$stage" ]] || { print -u2 '暂存目录已存在，保留旧产物'; exit 1; }
-dmg=$(ls "$release"/signed-dmg/Volisle-*-arm64.dmg)
+dmg=$(ls "$release"/signed-dmg/Volisle-*-universal.dmg)
 source_tgz=$(ls "$release"/package/Volisle-*-source.tar.gz)
 updates="$release/update-release"
 [[ -f "$dmg" && -f "$source_tgz" && -f "$updates/appcast.xml" ]] || { print -u2 '发行目录不完整'; exit 1; }
@@ -35,7 +35,7 @@ cp -R apps/web/out/. "$stage/"
 mkdir -p "$stage/downloads"
 cp "$dmg" "$source_tgz" "$stage/downloads/"
 (cd "$updates" && shasum -a 256 -c SHA256SUMS >/dev/null)
-cp "$updates"/Volisle-*-arm64.zip "$updates"/Volisle-*-source.tar.gz "$stage/updates/"
+cp "$updates"/Volisle-*-universal.zip "$updates"/Volisle-*-source.tar.gz "$stage/updates/"
 cmp -s "$updates/appcast.xml" "$stage/updates/appcast.xml"
 
 # Every URL inside the feed must resolve to a staged file.

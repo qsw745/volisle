@@ -85,7 +85,7 @@ def readiness(candidate, build, version):
 def website(dmg, source, notes_path):
     zh, en = notes(notes_path)
     dmg, source = Path(dmg), Path(source)
-    version = re.match(r'Volisle-(\d+\.\d+\.\d+)-arm64\.dmg$', dmg.name)
+    version = re.match(r'Volisle-(\d+\.\d+\.\d+)-(?:universal|arm64)\.dmg$', dmg.name)  # arm64: releases before 0.9
     if not version:
         fail(f'安装包文件名不对：{dmg.name}')
     version = version.group(1)

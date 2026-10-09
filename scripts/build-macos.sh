@@ -4,8 +4,9 @@ project_root="${0:A:h:h}"
 cd "$project_root"
 python3 scripts/prepare-sparkle.py > .workbench/sparkle-build.log 2>&1
 scripts/build-format-engine.sh >/dev/null
-swift build --package-path apps/macos -c release
-bin_dir="$(swift build --package-path apps/macos -c release --show-bin-path)"
+# Apple silicon and Intel in one app; the helper inside it too.
+swift build --package-path apps/macos -c release --arch arm64 --arch x86_64
+bin_dir="$(swift build --package-path apps/macos -c release --arch arm64 --arch x86_64 --show-bin-path)"
 app_dir="$project_root/apps/macos/build/Volisle.app"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 cp "$bin_dir/Volisle" "$app_dir/Contents/MacOS/Volisle"

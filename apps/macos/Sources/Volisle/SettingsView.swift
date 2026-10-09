@@ -8,11 +8,13 @@ struct SettingsView: View {
     var engineStatus: EngineStatus
     var autoMount: AutoMountController
     var helperService: HelperServiceController
-    var mountCycle: MountCycleClient
+    var mountCycle: MountCycles
     @Bindable var updates: AppUpdates
     var refreshRuntime: () async -> Void
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage(CopySleepGuard.key) private var keepAwakeWhileCopying = true
+    @State private var language = AppLanguage.current
+    @State private var askingToReopen = false
     @State private var diagnostics: DiagnosticPresentation?
     @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
@@ -35,6 +37,31 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Picker("外观", selection: $appearance) {
                     Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark")
+                }
+                Picker("语言", selection: $language) {
+                    Text("跟随系统").tag(AppLanguage.system)
+                    // Each language under its own name, whatever the interface shows now.
+                    Text(verbatim: "简体中文").tag(AppLanguage.simplifiedChinese)
+                    Text(verbatim: "繁體中文").tag(AppLanguage.traditionalChinese)
+                    Text(verbatim: "English").tag(AppLanguage.english)
+                }
+                .onChange(of: language) { _, chosen in
+                    chosen.apply()
+                    // The interface only changes once reopened: ask right away, not in small print.
+                    askingToReopen = chosen != AppLanguage.atLaunch
+                }
+                .alert("切换语言需要重新打开盘屿", isPresented: $askingToReopen) {
+                    Button("立即重新打开") { AppLanguage.relaunch() }
+                    Button("稍后", role: .cancel) {}
+                } message: {
+                    Text("正在读写的磁盘不受影响，重新打开后会自动接上。")
+                }
+                if language != AppLanguage.atLaunch {
+                    HStack {
+                        Text("重新打开盘屿后生效。正在读写的磁盘不受影响。").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("立即重新打开") { AppLanguage.relaunch() }
+                    }
                 }
                 Toggle("登录时启动盘屿", isOn: Binding(get: { loginEnabled }, set: setLogin))
                     .disabled(Bundle.main.bundleIdentifier == nil)

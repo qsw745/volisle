@@ -142,7 +142,10 @@ public struct DiagnosticReport: Codable, Sendable {
         #if arch(arm64)
         return model + " · arm64"
         #else
-        return model + " · x86_64"
+        // The Intel build: on an Intel Mac, or forced through Rosetta on Apple silicon.
+        var translated: Int32 = 0, length = MemoryLayout<Int32>.size
+        let rosetta = sysctlbyname("sysctl.proc_translated", &translated, &length, nil, 0) == 0 && translated == 1
+        return model + (rosetta ? " · x86_64 · Rosetta" : " · x86_64")
         #endif
     }
 

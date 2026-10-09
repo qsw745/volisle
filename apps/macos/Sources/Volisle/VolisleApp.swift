@@ -9,15 +9,19 @@ struct VolisleApp: App {
     @State private var actions: DiskActions
     @State private var autoMount: AutoMountController
     @State private var engineStatus: EngineStatus
-    @State private var mountCycle: MountCycleClient
+    @State private var mountCycle: MountCycles
     @State private var manualMount: ManualMountController
     @State private var runtime: BackgroundDiskRuntime
     @State private var helperService: HelperServiceController
     @State private var copies: CopyQueue
     init() {
+        _ = AppLanguage.atLaunch  // the language this run started with, before Settings can change it
         let discovery = DiskDiscovery()
         let actions = DiskActions(backend: SystemDiskActions(discovery: discovery))
-        let mountCycle = MountCycleClient(onActivity: { actions.clearMessage() })
+        // One read-write session per disk; an idle session pauses only its own disk.
+        let mountCycle = MountCycles(onActivity: { actions.clearMessage() }, deviceKey: { disk in
+            discovery.volumes.first { $0.bsdName == disk.bsdName && $0.identity.mediaRegistryID == disk.registryID }?.deviceGroup
+        })
         _mountCycle = State(initialValue: mountCycle)
         _discovery = State(initialValue: discovery)
         _actions = State(initialValue: actions)
@@ -34,37 +38,39 @@ struct VolisleApp: App {
         let autoMount = AutoMountController(preferences: AutoMountPreferences(defaultAutomatic: DailyWriteAvailability.enabled), engine: engine,
             coordinator: coordinator, helperEnable: { volume in
                 if let refusal = DailyWriteAvailability.refusal(volume) { throw refusal }
-                guard DailyWriteAvailability.allows(volume), !mountCycle.blocksActions else { throw VolumeError.busy }
+                guard DailyWriteAvailability.allows(volume), mountCycle.writeRefusal(for: volume) == nil else { throw VolumeError.busy }
                 guard await mountCycle.startWrite(volume, resolver: discovery) else { throw AutoMountDeferred() }
                 guard mountCycle.isWritable(volume) else {
-                    throw mountCycle.lastError == nil ? VolumeError.mountNotVerified : AutoMountReported()
+                    throw mountCycle.session(for: volume)?.lastError == nil ? VolumeError.mountNotVerified : AutoMountReported()
                 }
             }, helperReady: {
-                // One write volume at a time: while a write operation is mounted or
-                // awaiting recovery (e.g. just unplugged), do not spend another
-                // connection's single automatic attempt; it runs once this ends.
-                // Nor before Full Disk Access is granted: the helper could not read
-                // the disk, and the attempt would be gone once the user allows it.
+                // While every place is taken (sessions mounted or awaiting recovery,
+                // e.g. just unplugged), or another disk operation is under way, do
+                // not spend another connection's single automatic attempt; it runs
+                // once a place is free. Nor before Full Disk Access is granted: the
+                // helper could not read the disk, and the attempt would be gone once
+                // the user allows it.
                 !updates.maintenance.blocking && helperService.state == .connected && helperService.fullDiskAccess != false
-                    && !mountCycle.blocksActions && !mountCycle.isBusy && !mountCycle.canRecover
+                    && mountCycle.isReady && !mountCycle.isBusy && mountCycle.hasFreePlace
             })
         _autoMount = State(initialValue: autoMount)
         // Copies Volisle runs onto a disk it has read-write; they continue after an unplug.
         let copies = CopyQueue(writableDisk: { uuid in
-            guard let volume = discovery.volumes.first(where: { $0.identity.resumeKey == uuid }), mountCycle.isWritable(volume),
-                  let session = mountCycle.operation?.id,
-                  let root = try? await mountCycle.verifiedWritableURL(for: volume),
-                  mountCycle.operation?.id == session else { return nil }
+            guard let volume = discovery.volumes.first(where: { $0.identity.resumeKey == uuid }),
+                  let slot = mountCycle.session(for: volume), slot.isWritable(volume),
+                  let session = slot.operation?.id,
+                  let root = try? await slot.verifiedWritableURL(for: volume),
+                  slot.operation?.id == session else { return nil }
             return .init(root: root, session: session)
         }, diskPresent: { uuid in discovery.volumes.contains { $0.identity.resumeKey == uuid } })
         copies.load()
         autoMount.writeRequest = { volume in
             volume.identity.resumeKey.flatMap { copies.writeRequest(for: $0) }
         }
-        mountCycle.willEndWriteSession = { reconnecting in
-            let session = mountCycle.operation?.id
+        mountCycle.willEndWriteSession = { operation, reconnecting in
+            let session = operation?.id
             if !reconnecting {
-                let key = discovery.volumes.first { $0.identity.mediaRegistryID == mountCycle.operation?.disk.registryID }?.identity.resumeKey
+                let key = discovery.volumes.first { $0.identity.mediaRegistryID == operation?.disk.registryID }?.identity.resumeKey
                 try copies.revokeWriteRequests(session: session, diskKey: key)
             }
             await copies.sessionWillEnd(session: session, reconnecting: reconnecting)
@@ -105,7 +111,7 @@ struct VolisleApp: App {
                 Link("请我喝杯奶茶…", destination: WebsiteLink.support.url)
             }
             CommandGroup(after: .newItem) {
-            Button("刷新磁盘") { discovery.refresh() }.keyboardShortcut("r").disabled(mountCycle.blocksActions || !actions.activeDevices.isEmpty || !autoMount.activeConnections.isEmpty || !manualMount.activeDevices.isEmpty)
+            Button("刷新磁盘") { discovery.refresh() }.keyboardShortcut("r").disabled(!mountCycle.holdsNothing || !actions.activeDevices.isEmpty || !autoMount.activeConnections.isEmpty || !manualMount.activeDevices.isEmpty)
         } }
         Settings {
             SettingsView(discovery: discovery, engineStatus: engineStatus, autoMount: autoMount,
@@ -121,7 +127,7 @@ struct VolisleApp: App {
 }
 
 struct DiskMenu: View {
-    var mountCycle: MountCycleClient
+    var mountCycle: MountCycles
     var discovery: DiskDiscovery
     var actions: DiskActions
     @Environment(\.openWindow) private var openWindow
@@ -145,7 +151,10 @@ struct DiskMenu: View {
                 // Reading a disk that waits for another one's read-write session is fine:
                 // only this disk's own action blocks it, not the shared barrier.
                 .disabled(!mountCycle.isWritable(volume) && (volume.mountURL == nil || actions.activeDevices.contains(volume.deviceGroup)))
-                Button("推出") { confirmEject(volume) }.disabled(!mountCycle.isWritable(volume) && actions.isBusy(volume))
+                if mountCycle.isWritable(volume) {
+                    Button("恢复只读") { Task { await mountCycle.recover(volume) } }.disabled(mountCycle.isBusy)
+                }
+                Button("推出") { confirmEject(volume) }.disabled(!mountCycle.isWritable(volume) && mountCycle.blocksActions(on: volume))
             }
         }
         if mountCycle.needsAttention {
@@ -179,9 +188,7 @@ struct DiskMenu: View {
                 try await mountCycle.prepareForEject(volume); await actions.perform(.ejectDevice, on: volume.identity)
             }
             catch {
-                // Disk operations pause while another disk is read-write; say so instead of "busy".
-                let otherWriting = mountCycle.operation?.phase == .writeMounted && !mountCycle.isWritable(volume)
-                self.error = otherWriting ? String(localized: "另一块磁盘正在读写，请在 Finder 中推出“\(volume.name)”。") : error.localizedDescription
+                self.error = error.localizedDescription
             }
         }
     }

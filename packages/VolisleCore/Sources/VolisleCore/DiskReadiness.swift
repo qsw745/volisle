@@ -30,7 +30,7 @@ public enum DiskReadiness {
         public var foreignDriver: String?
         /// Why this disk stays read-only by design (write-protected, not USB…).
         public var designRefusal: String?
-        /// The other disk that holds the one read-write slot.
+        /// The disks holding every read-write place, already quoted and joined (“A”和“B”).
         public var writeHolder: String?
         public var writable: Bool
         /// The last refusal of writing for this disk.
@@ -55,7 +55,7 @@ public enum DiskReadiness {
         if let errors = diskErrors(inputs) { items.append(errors) }
         if let holder = inputs.writeHolder {
             items.append(.init(id: "slot", title: String(localized: "同时读写的盘"), status: .problem,
-                               detail: String(localized: "同一时间只能为一块 NTFS 盘开启读写。“\(holder)”正在读写，推出它之后这块盘才能开启。"),
+                               detail: String(localized: "同一时间最多为 \(MountCycles.maximumSessions) 块 NTFS 盘开启读写。\(holder)正在读写，推出其中一块后这块盘才能开启。"),
                                action: nil))
         }
         items.append(result(inputs, blocked: items.contains { $0.status == .problem }))
@@ -172,7 +172,7 @@ public enum DiskReadiness {
         case .windowsHibernated, .windowsMaintenancePending, .windowsLogUnreadable, .windowsLogReplayRestored,
              .windowsLogRestoreFailed, .checkReadFailed, .writeProtected, .protectedMedia,
              .unsupportedFileSystem, .unsupportedPartition, .invalidRequest, .notBitLocker, .bitLockerWrongSecret,
-             .bitLockerUnsupported:
+             .bitLockerUnsupported, .sameVolumeWriting:
             return nil
         }
     }

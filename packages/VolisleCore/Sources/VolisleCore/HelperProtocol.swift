@@ -187,6 +187,11 @@ private final class HelperStatusEndpoint: NSObject, VolisleHelperProtocol {
                 case .latest: operation = try await service.latest(uid: uid)
                 case .quiesce: try await service.quiesce(); operation = nil
                 case .resume: await service.resume(); operation = nil
+                case .list:
+                    // Its own errors (busy while a disk prepares) go back typed, like every other action's.
+                    let records = try await service.list(uid: uid)
+                    reply((try? JSONEncoder().encode(HelperMountReply(operation: nil, failure: nil, operations: records))) ?? Data())
+                    return
                 }
                 let resolved: HelperMountReceipt? = operation == nil && [.resolve, .resolveWrite].contains(command.action)
                     ? .init(id: command.id!, disk: command.disk!, ownerUID: uid, write: command.action == .resolveWrite) : nil

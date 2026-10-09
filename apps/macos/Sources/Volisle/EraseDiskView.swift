@@ -4,7 +4,7 @@ import VolisleCore
 /// Erase an external USB disk, or one of its partitions, as NTFS.
 struct EraseDiskView: View {
     var discovery: DiskDiscovery
-    var mountCycle: MountCycleClient
+    var mountCycle: MountCycles
     /// The whole disk selected in the sidebar (e.g. "disk8"): offered first, so
     /// the sheet never defaults to another, lower-numbered disk.
     var preferredDisk: String? = nil
@@ -234,11 +234,11 @@ struct EraseDiskView: View {
         error = nil; finished = false
         do {
             try await eraser.erase(target, scope: scope, name: name, typedConfirmation: typed) {
-                // End Volisle's own write session if it is on this device (another
-                // disk's session stays); diskutil unmounts the rest. Unlocked
-                // BitLocker volumes are unknown to it: lock them first.
+                // End Volisle's own write sessions on this device (another disk's
+                // session stays); diskutil unmounts the rest. Unlocked BitLocker
+                // volumes are unknown to it: lock them first.
                 let prefix = target.bsdName + "s"
-                if let writing = discovery.volumes.first(where: { $0.bsdName.hasPrefix(prefix) && $0.bsdName == mountCycle.operation?.disk.bsdName }) {
+                for writing in discovery.volumes where writing.bsdName.hasPrefix(prefix) && mountCycle.session(for: writing) != nil {
                     try await mountCycle.prepareForEject(writing)
                 }
                 try UpdateMaintenance.lockBitLockerVolumes(onDisk: target.bsdName)

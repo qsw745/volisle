@@ -34,12 +34,17 @@ public struct MountCycleStillRunning: LocalizedError, Equatable {
     func writeSessionHealth(_ record: HelperMountOperation) async -> WriteSessionHealth
     /// Whether the operation's media is still connected (IORegistry), whatever the disk list says.
     func mediaPresent(_ record: HelperMountOperation) -> Bool
+    /// The caller's records at the daemon: every unfinished one and the newest finished one.
+    func list() async throws -> [HelperMountOperation]
 }
 
 public extension MountCycleClientBackend {
     func verifyWritable(_ record: HelperMountOperation) async throws -> URL { throw HelperDiskFailure.unavailable }
     func writeSessionHealth(_ record: HelperMountOperation) async -> WriteSessionHealth { .writing }
     func mediaPresent(_ record: HelperMountOperation) -> Bool { false }
+    func list() async throws -> [HelperMountOperation] {
+        try await send(.init(action: .latest)).map { [$0] } ?? []
+    }
 }
 
 /// One controller shared by the main window and menu bar. The local intent is
@@ -104,15 +109,33 @@ public extension MountCycleClientBackend {
     private let backend: any MountCycleClientBackend
     private let store: any MountCycleIntentStore
     private let gate: DeviceOperationGate
-    public init(backend: (any MountCycleClientBackend)? = nil,
-                store: (any MountCycleIntentStore)? = nil, gate: DeviceOperationGate = .shared,
-                onActivity: @escaping @MainActor () -> Void = {}) {
+    /// The device (VolumeSnapshot.deviceGroup) a request's disk is on right now,
+    /// or nil when it is not connected. With a device, an idle session pauses
+    /// only that disk; without one (and by default) it pauses every disk.
+    private let deviceKey: @MainActor (HelperDiskRequest) -> String?
+    /// One client alone adopts the daemon's latest record; a session slot of
+    /// MountCycles is handed its record by the coordinator instead.
+    private let adoptsLatest: Bool
+    public convenience init(backend: (any MountCycleClientBackend)? = nil,
+                            store: (any MountCycleIntentStore)? = nil, gate: DeviceOperationGate = .shared,
+                            onActivity: @escaping @MainActor () -> Void = {}) {
+        self.init(backend: backend, store: store, gate: gate, onActivity: onActivity, deviceKey: { _ in nil }, adoptsLatest: true)
+    }
+    init(backend: (any MountCycleClientBackend)?, store: (any MountCycleIntentStore)?, gate: DeviceOperationGate,
+         onActivity: @escaping @MainActor () -> Void, deviceKey: @escaping @MainActor (HelperDiskRequest) -> String?,
+         adoptsLatest: Bool) {
         self.onActivity = onActivity
         self.backend = backend ?? SystemMountCycleClientBackend()
         self.store = store ?? FileMountCycleIntentStore()
         self.gate = gate
+        self.deviceKey = deviceKey
+        self.adoptsLatest = adoptsLatest
         barrier = gate.suspendNewOperations()
     }
+    /// The request this slot holds on record, settled or not.
+    var pendingID: UUID? { intent?.id }
+    /// The disk this slot's request or session concerns, if any.
+    public var disk: HelperDiskRequest? { intent?.disk ?? operation.flatMap { $0.phase == .finished ? nil : $0.disk } }
     public func clearMessage() { notice = nil; if !needsAttention { lastError = nil } }
     /// A submitted request whose end is unknown (a lost reply, a long check that
     /// outlasted following it): asking again by its ID never repeats disk work.
@@ -122,7 +145,7 @@ public extension MountCycleClientBackend {
     public func refresh() async {
         guard !isBusy else { return }
         onActivity(); isBusy = true; block(); notice = nil
-        defer { isBusy = false }
+        defer { isBusy = false; settleBarrier() }
         do {
             intent = try store.load()
             if let intent {
@@ -171,9 +194,9 @@ public extension MountCycleClientBackend {
         }
         onActivity(); isBusy = true; block(); notice = nil; lastError = nil; operation = nil; verifiedState = nil; writableURL = nil; sessionHealth = nil
         var submitted = false
-        defer { isBusy = false }
+        defer { isBusy = false; settleBarrier() }
         do {
-            guard !gate.hasOtherOperations(excluding: barrier) else { throw VolumeError.busy }
+            guard !gate.hasOtherOperations(on: volume.deviceGroup, excluding: barrier) else { throw VolumeError.busy }
             let current = try await resolver.resolve(volume.identity)
             try validate(current, expected: volume)
             let disk = try await backend.prepare(current)
@@ -263,7 +286,7 @@ public extension MountCycleClientBackend {
         guard canRecover, !isBusy, let intent else { await refresh(); return }
         defer { cycleLog.notice("核验结果：\(self.operation?.phase.rawValue ?? "none", privacy: .public)") }
         onActivity(); isBusy = true; block(); notice = nil
-        defer { isBusy = false }
+        defer { isBusy = false; settleBarrier() }
         let ending = operation
         let healthy = ending?.phase == .writeMounted && writableURL != nil && !needsAttention
         let present = ending.map { backend.mediaPresent($0) } ?? false
@@ -281,7 +304,28 @@ public extension MountCycleClientBackend {
             try await follow(record)
         } catch { attention(error) }
     }
+    /// MountCycles: take over one of the daemon's unfinished records (after a
+    /// relaunch, or one whose start reply was lost) and follow it to its state.
+    func adopt(_ record: HelperMountOperation) async {
+        guard !isBusy else { return }
+        onActivity(); isBusy = true; block(); notice = nil
+        defer { isBusy = false; settleBarrier() }
+        do {
+            try record.validate()
+            let pending = MountCycleIntent(id: record.id, disk: record.disk, purpose: record.purpose)
+            try store.save(pending); intent = pending
+            try await follow(record)
+            initialized = true
+        } catch { attention(error) }
+    }
     private func reconcileLatest() async throws {
+        guard adoptsLatest else {
+            // The operation on screen finished with a reason: keep why the disk stayed read-only.
+            if let shown = operation, shown.phase == .finished, shown.failure != nil, let error = lastError {
+                unblock(); lastError = error; return
+            }
+            operation = nil; unblock(); return
+        }
         let latest = try await backend.send(.init(action: .latest))
         if let latest, latest.phase == .finished { lastRefusal = latest.failure == nil ? nil : latest }
         guard let record = latest, record.phase != .finished else {
@@ -352,7 +396,17 @@ public extension MountCycleClientBackend {
         guard current.isNTFS else { throw VolumeError.unsupportedFileSystem }
         guard current.mountState == .readOnly || current.mountState == .unmounted else { throw VolumeError.busy }
     }
-    private func block() { if barrier == nil { barrier = gate.suspendNewOperations() } }
+    /// While working: every disk pauses (as the daemon admits one preparation at a time).
+    private func block() {
+        if let barrier { gate.change(barrier, to: .all) } else { barrier = gate.suspendNewOperations() }
+    }
+    /// Idle with a session or an unresolved request: pause only its own disk when it is known.
+    /// Also when the disk list changes: a disk not listed at the last settling is narrowed to now.
+    func settleBarrier() {
+        guard let barrier, !isBusy else { return }
+        if let disk, let device = deviceKey(disk) { gate.change(barrier, to: .device(device)) }
+        else { gate.change(barrier, to: .all) }
+    }
     private func unblock() {
         if let barrier { gate.resumeOperations(barrier) }
         barrier = nil; needsAttention = false; lastError = nil; sessionHealth = nil
@@ -382,6 +436,16 @@ public extension MountCycleClientBackend {
             if status == .notRegistered || status == .notFound || status == .requiresApproval { return nil }
         }
         return try await HelperRPC.mountCycle(command)
+    }
+    public func list() async throws -> [HelperMountOperation] {
+        try HelperPackage.validate()
+        let status = SMAppService.daemon(plistName: HelperIdentity.plistName).status
+        if status == .notRegistered || status == .notFound || status == .requiresApproval { return [] }
+        do { return try await HelperRPC.mountCycleList() }
+        catch HelperDiskFailure.invalidRequest {
+            // A daemon before 0.9 (mid-update): it knows only its single latest record.
+            return try await HelperRPC.mountCycle(.init(action: .latest)).map { [$0] } ?? []
+        }
     }
     public func verifyWritable(_ record: HelperMountOperation) async throws -> URL {
         try SystemHelperWriteMountBackend.verifyWritableState(record)

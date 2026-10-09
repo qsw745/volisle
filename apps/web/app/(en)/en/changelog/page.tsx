@@ -3,6 +3,10 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.8.4 · October 8, 2026</h2><ul>
+<li>Faster “Open Files” after a copy: Volisle now confirms a copy by what the disk has actually written, usually in twenty-odd seconds instead of a fixed minute; slower drives get the time they need, and an unplug before that still rechecks and completes the copy when reconnected.</li>
+<li>Fixed: while one disk was read-write, another disk connected meanwhile kept showing “processing” with every button greyed out. It now says it is waiting, and its files can be opened and browsed as usual.</li>
+</ul>
 <h2>0.8.3 · October 8, 2026</h2><ul>
 <li>New: Recover on This Mac. For a disk unplugged from Windows without “Safely Remove Hardware”, click “Recover on This Mac…”: Volisle checks it read-only first, then completes the unfinished changes the way Windows would; if they can’t be replayed, it turns on writing only after confirming the disk is consistent and you agree to give up Windows’ last unfinished changes. Everything changed is backed up first, and the disk is put back if any step fails. When a Windows PC is at hand, ejecting the disk there is still the safest fix.</li>
 <li>New: “Keep the Mac awake while copying” in Settings (on by default).</li>

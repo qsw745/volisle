@@ -296,10 +296,12 @@ public actor FSKitReadOnlyMountSession {
 enum HelperDiskInspector {
     private static let logger = Logger(subsystem: "top.qisw.volisle", category: "disk-inspection")
     private static let lock = NSLock()
+    /// One inspection per device at a time; two disks may be inspected at once.
+    nonisolated(unsafe) private static var inspecting: Set<String> = []
     static func inspect(_ input: HelperDiskRequest) throws -> HelperDiskReport {
         let request = try HelperDiskRequest.decode(JSONEncoder().encode(input))
-        guard lock.try() else { throw VolumeError.busy }
-        defer { lock.unlock() }
+        guard lock.withLock({ inspecting.insert(request.bsdName).inserted }) else { throw VolumeError.busy }
+        defer { _ = lock.withLock { inspecting.remove(request.bsdName) } }
         func metadata() throws -> DeviceMetadata {
             let current = try DeviceMetadata.read(request.bsdName)
             guard current.registryID == request.registryID, current.byteCount == request.byteCount else {

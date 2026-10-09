@@ -73,6 +73,20 @@ import Testing
         }
     }
 
+    @Test func endingAnotherDisksSessionLeavesThisCopyRunning() async throws {
+        let bench = try Bench(), copier = ReportOnlyCopy()
+        let queue = bench.queue(copierFactory: { _, _ in copier })
+        try await bench.add(queue)
+        try await waitUntil { queue.jobs.first?.running == true }
+        let other = UUID()
+        await queue.sessionWillEnd(session: other)
+        #expect(queue.jobs.first?.running == true, "a copy onto another disk goes on")
+        queue.sessionDidEnd(other, cleanly: true)
+        await queue.sessionWillEnd(session: bench.session)
+        try await waitUntil { queue.jobs.first?.running == false }
+        #expect(queue.jobs.first?.progress.pause == .disk, "its own disk's session ending stops it")
+    }
+
     @Test func aCopyIsConfirmedOnceTheDiskReportsItPastRollback() async throws {
         let bench = try Bench()
         let queue = bench.queue(reporting: true)

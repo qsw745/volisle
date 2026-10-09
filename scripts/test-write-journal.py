@@ -21,12 +21,17 @@ SENTINEL = b'unchanged-existing-data' * 128
 SOURCES = ['MetadataBlocks', 'MetadataWritePipeline', 'WriteJournalStore', 'WriteJournal', 'WriteJournalRecovery']
 
 
+# VOLISLE_TEST_ARCH=x86_64: the journal and engine under test run as Intel code
+# (under Rosetta on Apple silicon); the checks around them stay native.
+ARCH = os.environ.get('VOLISLE_TEST_ARCH', 'arm64')
+
+
 def build():
     OUT.mkdir(parents=True, exist_ok=True)
     subprocess.run(['zsh', 'scripts/build-ntfs-bridge.sh'], cwd=ROOT, check=True)
-    subprocess.run(['clang', '-target', 'arm64-apple-macos26.4', '-c', '-fPIC', '-DHAVE_CONFIG_H', '-I', SRC, '-I', SRC / 'include',
+    subprocess.run(['clang', '-target', f'{ARCH}-apple-macos26.4', '-c', '-fPIC', '-DHAVE_CONFIG_H', '-I', SRC, '-I', SRC / 'include',
                     'packages/VolisleNTFS/bridge/ntfs_bridge.c', '-o', OUT / 'ntfs_bridge.o'], cwd=ROOT, check=True)
-    subprocess.run(['swiftc', '-swift-version', '6', '-D', 'VOLISLE_WRITE_JOURNAL_TESTING', '-import-objc-header',
+    subprocess.run(['swiftc', '-swift-version', '6', '-target', f'{ARCH}-apple-macos26.4', '-D', 'VOLISLE_WRITE_JOURNAL_TESTING', '-import-objc-header',
                     'packages/VolisleNTFS/bridge/ntfs_bridge.h', *[f'apps/extension/Sources/{n}.swift' for n in SOURCES],
                     'scripts/fixtures/write_journal_driver.swift', OUT / 'ntfs_bridge.o', SRC / 'libntfs-3g/.libs/libntfs-3g.a',
                     '-framework', 'CoreFoundation', '-o', OUT / 'driver'], cwd=ROOT, check=True)

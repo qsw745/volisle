@@ -1,4 +1,4 @@
-/* 应用在 Finder、程序坞、启动台与菜单栏中的名称 */
-"CFBundleDisplayName" = "盘屿";
-"CFBundleName" = "盘屿";
-"NSRemovableVolumesUsageDescription" = "盘屿需要访问你选择的外接硬盘，以检查磁盘状态并提供文件系统服务。只在你选择启用读写并通过检查后写入。";
+/* 應用在 Finder、程式塢、啟動臺與選單欄中的名稱 */
+"CFBundleDisplayName" = "盤嶼";
+"CFBundleName" = "盤嶼";
+"NSRemovableVolumesUsageDescription" = "盤嶼需要取用你選擇的外接硬碟，以檢查磁碟狀態並提供檔案系統服務。只在你選擇啟用讀寫並通過檢查後寫入。";

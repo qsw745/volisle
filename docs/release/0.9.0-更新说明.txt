@@ -1,0 +1,10 @@
+盘屿 0.9.0 · Volisle 0.9.0
+
+· 新功能：最多两块 NTFS 盘同时读写。每块盘各自独立，一块拔线、恢复只读或推出，都不影响另一块；第三块盘保持只读，推出其中一块后自动开启读写。每块读写中的盘在自己的页面里都有“恢复只读”，菜单栏里也可以直接恢复只读。
+· 新功能：设置里可以切换界面语言（跟随系统、简体中文、繁體中文、English），并新增繁体中文界面。
+· Intel Mac 测试版支持：安装包同时包含 Apple 芯片和 Intel 版本，需要 macOS 15.4 或更高。Intel 版还没有在 Intel 真机上验证，遇到问题请在设置 → 支持中导出诊断并反馈。
+· 修复：“在 Mac 上恢复”补写 Windows 没写完的改动时，读取磁盘基本参数的方式有误，可能用错簇大小；在 Intel Mac 上会直接出错。
+· New: up to two NTFS disks can be written at once. Each disk is on its own: unplugging one, making it read-only or ejecting it leaves the other untouched. A third disk stays read-only and gets write access once you eject one of them. Every disk being written has its own “Make Read-Only” on its page, and the menu bar offers it too.
+· New: choose the interface language in Settings (System, Simplified Chinese, Traditional Chinese or English), with a new Traditional Chinese interface.
+· Intel-based Macs as a beta: the installer now includes both the Apple silicon and the Intel version, and needs macOS 15.4 or later. The Intel version hasn’t been verified on an Intel Mac yet; if something goes wrong, export diagnostics in Settings → Support and send them in.
+· Fixed: when “Recover on This Mac” replayed the changes Windows hadn’t finished, it could read the disk’s basic layout wrongly and use the wrong cluster size; on an Intel Mac it failed outright.

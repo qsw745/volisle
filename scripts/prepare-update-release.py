@@ -97,7 +97,7 @@ def main():
     public = run(TOOLS/'generate_keys','--account',ACCOUNT,'-p')
     if public != config['public_ed25519_key']: raise ValueError('钥匙串与候选公钥不匹配')
     args.output_dir.mkdir(parents=True)
-    archive = args.output_dir/f'Volisle-{version}-{build}-arm64.zip'
+    archive = args.output_dir/f'Volisle-{version}-{build}-universal.zip'
     run('ditto','-c','-k','--sequesterRsrc','--keepParent',app,archive)
     signature = run(TOOLS/'sign_update','--account',ACCOUNT,'-p',archive)
     if len(base64.b64decode(signature,validate=True)) != 64: raise ValueError('更新归档签名无效')

@@ -129,9 +129,20 @@ struct HelperMountCycleTests {
         _ = try await finish(service, id: first)
         _ = try await service.start(id: second, disk: target(), uid: 501)
         _ = try await finish(service, id: second)
+        // While its finished record is kept, asking again only returns it.
+        let kept = try await service.start(id: first, disk: target(), uid: 501)
+        #expect(kept.phase == .finished && kept.id == first)
+        #expect(try await service.resolve(id: first, disk: target(), uid: 501, write: false) == kept)
+        #expect(await backend.unmountCount == 2)
+        // Once newer operations pushed the record out, its receipt still fences it.
+        for _ in 0..<HelperMountCycleService.finishedKept {
+            let next = UUID()
+            _ = try await service.start(id: next, disk: target(), uid: 501)
+            _ = try await finish(service, id: next)
+        }
         await #expect(throws: (any Error).self) { _ = try await service.start(id: first, disk: target(), uid: 501) }
         #expect(try await service.resolve(id: first, disk: target(), uid: 501, write: false) == nil)
-        #expect(await backend.unmountCount == 2)
+        #expect(await backend.unmountCount == 2 + HelperMountCycleService.finishedKept)
     }
     @Test func resolutionDuringPreparationCannotReleaseAnExecutingRequest() async throws {
         let journal = try store(); defer { try? FileManager.default.removeItem(at: journal.directory) }

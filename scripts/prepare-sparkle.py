@@ -41,9 +41,10 @@ def prepare():
                 target = SOURCE / member.name
                 if target.is_symlink() or not target.is_file() or target.read_bytes() != archive.extractfile(member).read():
                     raise ValueError('实际编译的 Sparkle 源码已变化：' + member.name)
+    # The framework ships inside the app: Apple silicon and Intel. The signing tools below only run here.
     subprocess.run(['xcodebuild', '-project', str(PROJECT / 'Sparkle.xcodeproj'), '-scheme', 'Sparkle',
                     '-configuration', 'Release', '-derivedDataPath', str(ROOT / '.workbench/sparkle-build'),
-                    'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'ARCHS=arm64', 'ONLY_ACTIVE_ARCH=YES', 'build'], check=True)
+                    'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'ARCHS=arm64 x86_64', 'ONLY_ACTIVE_ARCH=NO', 'build'], check=True)
     # The update-feed signing tools come from the same verified source.
     for scheme in ['sign_update', 'generate_keys']:
         subprocess.run(['xcodebuild', '-project', str(PROJECT / 'Sparkle.xcodeproj'), '-scheme', scheme,

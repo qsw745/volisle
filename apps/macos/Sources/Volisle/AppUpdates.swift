@@ -20,13 +20,13 @@ import VolisleCore
     @ObservationIgnored private var controller: SPUStandardUpdaterController?
     @ObservationIgnored private var checkObservation: NSKeyValueObservation?
     @ObservationIgnored private var delayedInstall: (() -> Void)?
-    private let cycle: MountCycleClient
+    private let cycle: MountCycles
     private let helper: HelperServiceController
     private var started = false
     private var preparing = false
     private static let restoreKey = "volisle.update.restoreHelper"
 
-    init(cycle: MountCycleClient, helper: HelperServiceController) {
+    init(cycle: MountCycles, helper: HelperServiceController) {
         self.cycle = cycle; self.helper = helper
         super.init()
     }
@@ -67,8 +67,9 @@ import VolisleCore
             await self.helper.refresh()
             guard self.helper.state == .connected || self.helper.state == .notRegistered else { throw UpdateSafetyError.diskBusy }
             await self.cycle.refresh()
-            if self.cycle.canRecover { await self.cycle.recover() }
-            guard !self.cycle.blocksActions, !self.cycle.isBusy else { throw UpdateSafetyError.diskBusy }
+            // Every disk being written is returned to read-only, one after the other.
+            await self.cycle.endAllSessions()
+            guard self.cycle.holdsNothing else { throw UpdateSafetyError.diskBusy }
             try UpdateMaintenance.lockBitLockerVolumes()
         }, stopService: {
             if self.helper.state == .connected {

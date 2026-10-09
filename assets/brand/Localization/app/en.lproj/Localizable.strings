@@ -72,8 +72,8 @@
 "还差一步：完成首次设置" = "One more step: finish setup";
 "完成设置…" = "Finish Setup…";
 "正在检查磁盘，请稍候…" = "Checking the disk, please wait…";
-"恢复只读" = "Return to Read-Only";
-"将“%@”恢复只读" = "Return “%@” to Read-Only";
+"恢复只读" = "Make Read-Only";
+"将“%@”恢复只读" = "Make “%@” Read-Only";
 "“%@”：%@" = "“%@”: %@";
 "重新核验" = "Check Again";
 "关闭" = "Close";
@@ -91,8 +91,6 @@
 "磁盘已断开" = "The disk was disconnected";
 "后台组件暂时无法连接，请在设置中重新检查。" = "Can’t connect to the background component right now. Check it again in Settings.";
 "另一块磁盘" = "another disk";
-"同一时间只能为一块 NTFS 磁盘开启读写。推出“%@”后，这块盘会自动开启读写。" = "Only one NTFS disk can have write access at a time. After you eject “%@”, this disk gets write access automatically.";
-"同一时间只能为一块 NTFS 磁盘开启读写。推出“%@”后，即可为这块盘开启读写。" = "Only one NTFS disk can have write access at a time. After you eject “%@”, you can turn on write access for this disk.";
 "%@现在可以正常查看和复制盘内文件。" = "%@ You can still view and copy files on this disk.";
 "暂时无法写入" = "Writing is temporarily unavailable";
 "可读写（测试目录）" = "Read-write (test folder)";
@@ -198,7 +196,6 @@
 "打开盘屿" = "Open Volisle";
 "退出盘屿" = "Quit Volisle";
 "设置…" = "Settings…";
-"另一块磁盘正在读写，请在 Finder 中推出“%@”。" = "Another disk has write access. Eject “%@” in Finder.";
 "，" = ", ";
 "无" = "None";
 "已连接" = "Connected";
@@ -381,7 +378,7 @@
 "这次拷贝没有可打开的项目。" = "There are no copied items to show in Finder.";
 "在访达中选中拷贝完成的文件或文件夹。" = "Select the copied files or folders in Finder.";
 "拷贝的项目已移动或删除，无法在访达中定位。" = "The copied items have been moved or deleted and can’t be located in Finder.";
-"加密的 Windows 分区" = "Encrypted Windows Partition";
+"加密的 Windows 分区" = "Encrypted Partition";
 "这个分区不是 BitLocker 加密分区。" = "This partition isn’t encrypted with BitLocker.";
 "密码或恢复密钥不正确。" = "The password or recovery key is incorrect.";
 "这块盘正在处理，请稍候。" = "This disk is busy. Please wait.";
@@ -439,8 +436,7 @@
 "稍后设置" = "Later";
 "“盘屿 NTFS”的开关打不开或会自己弹回去？请确认电脑上只有一个盘屿、并且是从“应用程序”文件夹打开的；仍然不行就重启 Mac 后再试。“FSKit Modules”那个开关不用打开。" = "Switch next to “Volisle NTFS” won’t turn on, or turns itself off? Make sure there is only one copy of Volisle and you opened it from the Applications folder. If it still won’t stay on, restart your Mac and try again. You don’t need to turn on “FSKit Modules”.";
 "这块盘被标记为需要检查，为保护数据暂时只读。可以点上面的“在 Mac 上检查…”，也可以在 Windows 中检查后安全弹出再插回。" = "This disk is marked as needing a check, so it stays read-only to protect your data. Click “Check on This Mac…” above, or check it in Windows, eject it safely, then reconnect it.";
-"写入过程中发生错误，盘屿已停止写入以保护数据。点“恢复只读”可尝试结束写入会话；后续恢复可能撤销出错前约 20 秒内的改动。排除故障并通过安全核验后，才能重新开启读写。" = "An error occurred while writing, so Volisle stopped writing to protect your data. Click “Restore Read-Only” to try to end the write session; subsequent recovery may undo changes from about the last 20 seconds before the error. Writing can be enabled again once the cause is resolved and safety checks pass.";
-"“%@”正在读写，期间不能用盘屿推出其他磁盘。请在 Finder 中推出“%@”，或先推出“%@”。" = "“%@” is open for writing, so Volisle can’t eject other disks now. Eject “%@” in Finder, or eject “%@” first.";
+"写入过程中发生错误，盘屿已停止写入以保护数据。点“恢复只读”可尝试结束写入会话；后续恢复可能撤销出错前约 20 秒内的改动。排除故障并通过安全核验后，才能重新开启读写。" = "An error occurred while writing, so Volisle stopped writing to protect your data. Click “Make Read-Only” to try to end the write session; subsequent recovery may undo changes from about the last 20 seconds before the error. Writing can be enabled again once the cause is resolved and safety checks pass.";
 "磁盘映像只能读取，盘屿不为它开启读写。" = "Disk images are read-only; Volisle doesn’t turn on writing for them.";
 "这块盘处于写保护状态（例如 SD 卡侧面的锁定开关拨到了 Lock），只能读取。" = "This disk is write-protected (for example, the lock switch on the side of an SD card is set to Lock), so it can only be read.";
 "这块盘没有分区表，整块盘直接格式化成了 NTFS，盘屿暂不为这种盘开启读写，可以正常读取。" = "This disk has no partition table (the whole disk was formatted as NTFS). Volisle doesn’t turn on writing for such disks yet; you can still read it.";
@@ -516,7 +512,6 @@
 "要拷贝 %@，盘上可用 %@。替换同名文件会腾出一些空间；空间不够时拷贝会停下，删掉文件后可以继续。" = "The copy needs %@ and the disk has %@ available. Replacing files with the same names frees some space. If space runs out, the copy stops and can continue after you delete files.";
 "仍然拷贝" = "Copy Anyway";
 "同时读写的盘" = "Disk being written to";
-"同一时间只能为一块 NTFS 盘开启读写。“%@”正在读写，推出它之后这块盘才能开启。" = "Only one NTFS disk can have write access at a time. “%@” has it now; eject that disk first.";
 "已连接。" = "Connected.";
 "需要在“系统设置 → 通用 → 登录项与扩展”中允许盘屿在后台运行。" = "Allow Volisle to run in the background in System Settings → General → Login Items & Extensions.";
 "还没有设置。盘屿通过它读取和挂载磁盘。" = "Not set up yet. Volisle reads and mounts disks through it.";
@@ -662,3 +657,17 @@
 "重新插上这块盘，盘屿会自动开启读写" = "Connect the disk again; Volisle turns on write access automatically";
 "只关掉开关还不够：拔下重插之前，这块盘会一直挂在“%@”上。两个工具都开着时，系统可能每次都把盘交给“%@”。" = "Turning the switch off isn’t enough: until it’s unplugged and connected again, the disk stays mounted by “%@”. While both are on, macOS may keep giving the disk to “%@”.";
 "这块盘现在由“%@”挂载，盘屿没有接管它，读写和权限都由“%@”负责。" = "This disk is mounted by “%@”, not Volisle, so writing and permissions here are up to “%@”.";
+
+"另一块和这块一模一样的盘（例如克隆出来的盘）正在读写，两块盘的 NTFS 序列号相同，同一时间只能写其中一块。这块盘保持只读，数据不受影响；先推出另一块再开启读写。" = "Another disk identical to this one (a cloned disk, for example) is being written. Both have the same NTFS serial number, so only one of them can be written at a time. This disk stays read-only and its data is safe; eject the other disk first, then turn on writing.";
+"同一时间最多为 %lld 块 NTFS 盘开启读写。%@正在读写，推出其中一块后这块盘才能开启。" = "Up to %lld NTFS disks can be written at a time. %@ are being written; eject one of them first to turn on writing for this disk.";
+"和" = " and ";
+"同一时间最多为 %lld 块 NTFS 磁盘开启读写。推出%@中的一块后，这块盘会自动开启读写。" = "Up to %lld NTFS disks can be written at a time. Once you eject one of %@, writing turns on for this disk automatically.";
+"同一时间最多为 %lld 块 NTFS 磁盘开启读写。推出%@中的一块后，即可为这块盘开启读写。" = "Up to %lld NTFS disks can be written at a time. Once you eject one of %@, you can turn on writing for this disk.";
+"正在读写 %lld 块盘：%@。使用完毕后请安全推出；每块盘的“恢复只读”在它自己的页面里。" = "Writing to %lld disks: %@. Eject them safely when you are done; each disk has its own “Make Read-Only” on its page.";
+"语言" = "Language";
+"重新打开盘屿后生效。正在读写的磁盘不受影响。" = "Takes effect when Volisle opens again. Disks being written are not affected.";
+"立即重新打开" = "Reopen Now";
+"切换语言需要重新打开盘屿" = "Reopen Volisle to Change the Language";
+"稍后" = "Later";
+"正在读写的磁盘不受影响，重新打开后会自动接上。" = "Disks being written are not affected; they are picked up again when Volisle reopens.";
+"“%@”" = "“%@”";

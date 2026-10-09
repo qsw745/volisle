@@ -7,12 +7,29 @@ public struct MountCycleIntentUnreadable: LocalizedError, Equatable {
 
 /// A user-owned pending ID, not authority to mutate a disk. The daemon always
 /// resolves its own persisted record and original device for recovery.
+/// One file per session slot of MountCycles ("pending-<slot>.json"); the first
+/// slot keeps the name of the single file before 0.9.
 @MainActor public final class FileMountCycleIntentStore: MountCycleIntentStore {
+    static let legacyName = "pending-readonly-check.json"
     private let directory: URL
-    private var file: URL { directory.appendingPathComponent("pending-readonly-check.json") }
-    public init(directory: URL? = nil) {
-        self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    private let name: String
+    private var file: URL { directory.appendingPathComponent(name) }
+    public static var defaultDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Volisle", isDirectory: true)
+    }
+    public init(directory: URL? = nil, slot: UUID? = nil) {
+        self.directory = directory ?? Self.defaultDirectory
+        name = slot.map { "pending-" + $0.uuidString + ".json" } ?? Self.legacyName
+    }
+    /// The slots with a file in `directory`: nil for the legacy file, then the others.
+    static func slots(in directory: URL) -> [UUID?] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let others = names.compactMap { name -> UUID? in
+            guard name.hasPrefix("pending-"), name.hasSuffix(".json"), !name.hasSuffix(".invalid.json") else { return nil }
+            return UUID(uuidString: String(name.dropFirst(8).dropLast(5)))
+        }.sorted { $0.uuidString < $1.uuidString }
+        return (names.contains(legacyName) ? [nil] : []) + others.map { Optional($0) }
     }
     public func load() throws -> MountCycleIntent? {
         let fd = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
@@ -29,7 +46,7 @@ public struct MountCycleIntentUnreadable: LocalizedError, Equatable {
         // record from an earlier boot is set aside; the daemon's own records then
         // say what ran.
         guard info.st_mtimespec.tv_sec < Self.bootTime() else { throw MountCycleIntentUnreadable() }
-        guard rename(file.path, directory.appendingPathComponent("pending-readonly-check.invalid.json").path) == 0 else {
+        guard rename(file.path, directory.appendingPathComponent(String(name.dropLast(5)) + ".invalid.json").path) == 0 else {
             throw HelperServiceError.unavailable
         }
         try syncDirectory()

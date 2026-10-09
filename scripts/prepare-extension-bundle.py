@@ -60,7 +60,7 @@ subprocess.run([str(root/'scripts/build-fskit-extension.sh')] + (['--daily-write
 build=json.loads((root/'.workbench/fskit-build/VolisleFS.build.json').read_text())
 # The oldest macOS this build runs on (test builds for older systems set it).
 minimum=os.environ.get('VOLISLE_MIN_MACOS','15.4')
-if build.get('target')!='arm64-apple-macos'+minimum: parser.error('扩展编译目标与最低系统版本不一致')
+if build.get('target')!='arm64+x86_64-apple-macos'+minimum: parser.error('扩展编译目标（Apple 芯片 + Intel）或最低系统版本不一致')
 if build.get('experimental_private_permissions', False) != args.experimental_private_permissions or build.get('daily_writes', False) != args.daily_write or build['experimental_writes'] != bool(fixture or physical) or build.get('physical_test') != physical or build.get('experimental_replacement', False) != args.experimental_replacement or build.get('fixture') != fixture or build['binary_sha256'] != sha256(root/'.workbench/fskit-build/VolisleFS'):
     parser.error('扩展编译记录与二进制不一致')
 shutil.copytree(root/'apps/macos/build/Volisle.app',out,symlinks=True)

@@ -26,9 +26,19 @@ osascript -e 'tell application id "top.qisw.volisle" to quit' 2>/dev/null; sleep
 mount | grep -q "(volisle" && [[ $dev == none ]] && { echo "a Volisle mount exists but qsw was not found"; exit 1; }
 if mount | grep -q "$dev on .*volisle"; then
   [[ -x $B ]] || { echo "qsw is write-mounted but no installed Volisle at $app to end the session"; exit 1; }
-  ID=$($B --helper-cycle-latest | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+  # With several disks written at once the daemon's latest operation may be another
+  # disk's: take qsw's own request from the app's pending records, else the latest.
+  ID=$(python3 - "$dev" <<'PY'
+import glob, json, os, sys
+for path in glob.glob(os.path.expanduser('~/Library/Application Support/Volisle/pending-*.json')):
+    try: record = json.load(open(path))
+    except Exception: continue
+    if record.get('disk', {}).get('bsdName') == sys.argv[1]: print(record['id']); break
+PY
+)
+  [[ -n $ID ]] || ID=$($B --helper-cycle-latest | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
   $B --helper-cycle-recover $ID >/dev/null
-  for i in $(seq 1 90); do p=$($B --helper-cycle-latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['phase'], d.get('recoveryFailure'))"); case "$p" in finished*|needsRecovery*) break;; esac; sleep 1; done
+  for i in $(seq 1 90); do p=$($B --helper-cycle-status $ID | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['phase'], d.get('recoveryFailure'))"); case "$p" in finished*|needsRecovery*) break;; esac; sleep 1; done
   echo "restore: $p"
 fi
 mount | grep $dev

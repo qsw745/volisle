@@ -1,9 +1,11 @@
 import Foundation
 import Darwin
 
-/// Fixed-name, bounded, atomic record in a private directory. Never follows a
-/// record/lock symlink, never accepts a path from IPC, and holds an advisory
-/// process lock for the entire service lifetime. All operations use a held dirfd.
+/// Bounded, atomic records in a private directory, one file per operation
+/// ("operation-<id>.json"; before 0.9 a single "operation.json", taken over on
+/// first write). Never follows a record/lock symlink, never accepts a path from
+/// IPC, and holds an advisory process lock for the entire service lifetime.
+/// All operations use a held dirfd.
 final class HelperMountJournal: @unchecked Sendable {
     let directory: URL
     private let directoryFD: Int32
@@ -34,15 +36,70 @@ final class HelperMountJournal: @unchecked Sendable {
         if mkdir(directory.path, 0o700) != 0 && errno != EEXIST { throw HelperServiceError.unavailable }
         return try .init(directory: directory)
     }
-    func read() throws -> HelperMountOperation? {
-        guard let data = try readFile("operation.json", limit: 8192) else { return nil }
+    static let legacyName = "operation.json"
+    /// More records than this is not a state the service creates: fail closed.
+    static let recordLimit = 32
+    private static func name(_ id: UUID) -> String { "operation-" + id.uuidString + ".json" }
+
+    /// Every record, the legacy one included unless a newer file of the same
+    /// operation exists (a takeover cut off between its two steps).
+    func readAll() throws -> [HelperMountOperation] {
+        var records: [UUID: HelperMountOperation] = [:]
+        let names = try listNames().filter { $0.hasPrefix("operation-") && $0.hasSuffix(".json") }
+        guard names.count <= Self.recordLimit else { throw HelperServiceError.untrustedPackage }
+        for name in names {
+            let id = UUID(uuidString: String(name.dropFirst(10).dropLast(5)))
+            guard let id, Self.name(id) == name, let record = try decode(name), record.id == id else {
+                throw HelperServiceError.untrustedPackage
+            }
+            records[id] = record
+        }
+        if let legacy = try decode(Self.legacyName), records[legacy.id] == nil { records[legacy.id] = legacy }
+        return records.values.sorted { ($0.sequence ?? 0, $0.id.uuidString) < ($1.sequence ?? 0, $1.id.uuidString) }
+    }
+    func read(id: UUID) throws -> HelperMountOperation? { try readAll().first { $0.id == id } }
+    /// The most recently started record.
+    func read() throws -> HelperMountOperation? { try readAll().last }
+    func write(_ record: HelperMountOperation) throws {
+        try record.validate()
+        try writeFile(JSONEncoder().encode(record), name: Self.name(record.id), limit: 8192)
+        // Taken over: the legacy file of this operation goes only after its new one is durable.
+        if (try? decode(Self.legacyName))?.id == record.id { try unlink(Self.legacyName) }
+    }
+    /// A finished record no longer needed (its request stays fenced by its receipt).
+    func remove(id: UUID) throws {
+        try unlink(Self.name(id))
+        if (try? decode(Self.legacyName))?.id == id { try unlink(Self.legacyName) }
+    }
+    private func decode(_ name: String) throws -> HelperMountOperation? {
+        guard let data = try readFile(name, limit: 8192) else { return nil }
         let value = try JSONDecoder().decode(HelperMountOperation.self, from: data)
         try value.validate()
         return value
     }
-    func write(_ record: HelperMountOperation) throws {
-        try record.validate()
-        try writeFile(JSONEncoder().encode(record), name: "operation.json", limit: 8192)
+    private func unlink(_ name: String) throws {
+        try lock.withLock {
+            guard unlinkat(directoryFD, name, 0) == 0 || errno == ENOENT, fsync(directoryFD) == 0 else {
+                throw HelperServiceError.unavailable
+            }
+        }
+    }
+    private func listNames() throws -> [String] {
+        try lock.withLock {
+            let copy = dup(directoryFD)
+            guard copy >= 0, let stream = fdopendir(copy) else {
+                if copy >= 0 { close(copy) }
+                throw HelperServiceError.unavailable
+            }
+            defer { closedir(stream) }
+            rewinddir(stream)
+            var names: [String] = []
+            while let entry = readdir(stream) {
+                let name = withUnsafeBytes(of: entry.pointee.d_name) { String(decoding: $0.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self) }
+                if name != "." && name != ".." { names.append(name) }
+            }
+            return names
+        }
     }
     // Within one boot IDs are never evicted: a delayed request must not regain
     // permission to run. The bounded ledger fails closed when full. It stores

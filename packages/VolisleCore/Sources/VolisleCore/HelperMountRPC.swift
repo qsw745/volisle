@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 
 public struct HelperMountCommand: Codable, Sendable {
-    public enum Action: String, Codable, Sendable { case start, startWrite, status, recover, latest, quiesce, resume, resolve, resolveWrite }
+    public enum Action: String, Codable, Sendable { case start, startWrite, status, recover, latest, quiesce, resume, resolve, resolveWrite, list }
     public let action: Action
     public let id: UUID?
     public let disk: HelperDiskRequest?
@@ -18,7 +18,7 @@ public struct HelperMountCommand: Codable, Sendable {
             _ = try HelperDiskRequest.decode(JSONEncoder().encode(disk))
         case .status, .recover:
             guard value.id != nil, value.disk == nil else { throw HelperServiceError.invalidRequest }
-        case .latest, .quiesce, .resume:
+        case .latest, .quiesce, .resume, .list:
             guard value.id == nil, value.disk == nil else { throw HelperServiceError.invalidRequest }
         }
         return value
@@ -28,6 +28,8 @@ struct HelperMountReply: Codable, Sendable {
     let operation: HelperMountOperation?
     let failure: HelperDiskFailure?
     var resolved: HelperMountReceipt? = nil
+    /// `list` only: the caller's records, oldest first.
+    var operations: [HelperMountOperation]? = nil
 }
 public extension HelperRPC {
     static func mountCycle(_ command: HelperMountCommand) async throws -> HelperMountOperation? {
@@ -37,6 +39,31 @@ public extension HelperRPC {
             proxy, reply in proxy.mountCycle(data, reply: reply)
         }
         return try decodeMountReply(response, command: command, uid: geteuid())
+    }
+    /// The caller's records, oldest first: every unfinished one and the newest finished one.
+    public static func mountCycleList() async throws -> [HelperMountOperation] {
+        let command = HelperMountCommand(action: .list)
+        let data = try JSONEncoder().encode(command)
+        let response = try await request(over: NSXPCConnection(machServiceName: HelperIdentity.service, options: .privileged)) {
+            proxy, reply in proxy.mountCycle(data, reply: reply)
+        }
+        return try decodeMountListReply(response, uid: geteuid())
+    }
+    internal static func decodeMountListReply(_ response: Data, uid: UInt32) throws -> [HelperMountOperation] {
+        guard !response.isEmpty, response.count <= 16_384 else { throw HelperServiceError.invalidReply }
+        let value = try JSONDecoder().decode(HelperMountReply.self, from: response)
+        if let failure = value.failure {
+            guard value.operation == nil, value.resolved == nil, value.operations == nil else { throw HelperServiceError.invalidReply }
+            throw failure
+        }
+        guard value.operation == nil, value.resolved == nil, let records = value.operations,
+              records.count <= HelperMountCycleService.maximumActive + 1,
+              Set(records.map(\.id)).count == records.count else { throw HelperServiceError.invalidReply }
+        for record in records {
+            try record.validate()
+            guard record.ownerUID == uid else { throw HelperServiceError.invalidReply }
+        }
+        return records
     }
     internal static func decodeMountReply(_ response: Data, command: HelperMountCommand, uid: UInt32) throws -> HelperMountOperation? {
         guard !response.isEmpty, response.count <= 16_384 else { throw HelperServiceError.invalidReply }
@@ -52,6 +79,7 @@ public extension HelperRPC {
                   receipt.write == (command.action == .resolveWrite) else { throw HelperServiceError.invalidReply }
             return nil
         }
+        guard value.operations == nil, command.action != .list else { throw HelperServiceError.invalidReply }
         guard let record = value.operation else {
             guard [.latest, .quiesce, .resume].contains(command.action) else { throw HelperServiceError.invalidReply }
             return nil

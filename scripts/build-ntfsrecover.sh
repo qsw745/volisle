@@ -17,7 +17,7 @@ for file in ntfsrecover.c ntfsrecover.h playlog.c; do cp "$source_dir/ntfsprogs/
 patch --quiet --forward -p1 -d "$out" < packages/VolisleNTFS/patches/ntfsrecover-external-device.patch
 grep -q 'nk_ntfsrecover_main' "$out/ntfsprogs/ntfsrecover.c" || { print -u2 'ntfsrecover 补丁未生效'; exit 1; }
 for file in ntfsrecover.c playlog.c; do
-  clang -target "arm64-apple-macos${VOLISLE_MIN_MACOS:-15.4}" -c -fPIC -DHAVE_CONFIG_H -w \
+  clang -arch arm64 -arch x86_64 -mmacosx-version-min="${VOLISLE_MIN_MACOS:-15.4}" -c -fPIC -DHAVE_CONFIG_H -w \
     -I "$source_dir" -I "$source_dir/include" -I "$source_dir/include/ntfs-3g" -I "$out/ntfsprogs" -I "$source_dir/ntfsprogs" \
     "$out/ntfsprogs/$file" -o "$out/${file:r}.o"
 done

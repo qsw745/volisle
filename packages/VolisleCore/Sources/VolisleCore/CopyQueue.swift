@@ -95,8 +95,11 @@ extension ResumableCopier: CopyQueueCopier {}
     @ObservationIgnored private var failures: [UUID: Int] = [:]
     @ObservationIgnored private var advancing = false
     @ObservationIgnored private var advanceAgain = false
-    /// Between the two session hooks: nothing starts on a disk about to be unmounted.
-    @ObservationIgnored private var sessionEnding = false
+    /// Between the two session hooks: nothing starts on a disk about to be
+    /// unmounted. By session; a session not named (nil) stands for every disk.
+    @ObservationIgnored private var endingSessions = Set<UUID>()
+    @ObservationIgnored private var endingAll = 0
+    private func ending(_ session: UUID?) -> Bool { endingAll > 0 || session.map(endingSessions.contains) == true }
     @ObservationIgnored private var sessionOutcomes: [UUID: Bool] = [:]
     @ObservationIgnored private var activity: NSObjectProtocol?
     @ObservationIgnored private var cleanups: [CopyJobStore.Cleanup] = []
@@ -224,19 +227,20 @@ extension ResumableCopier: CopyQueueCopier {}
     /// update, or winding up after an unplug): copying stops and closes its files.
     /// Never waits for ever: a copy stuck in the system is left to the unmount.
     public func sessionWillEnd(session: UUID? = nil, reconnecting: Bool = false) async {
-        sessionEnding = true
+        if let session { endingSessions.insert(session) } else { endingAll += 1 }
         if !reconnecting {
             do { try revokeWriteRequests(session: session ?? active?.session) }
             catch { Self.log.error("拷贝读写请求未能撤销：\(error.localizedDescription, privacy: .public)") }
         }
+        // Only the copy onto this session's disk: one onto another disk goes on.
+        if let session, let active, active.session != session { return }
         if await !stopActive(as: .disk) { Self.log.error("拷贝未能在 \(Int(Self.stopTimeout), privacy: .public) 秒内停下") }
     }
 
     /// The pending copy's current request, consumed once by the mount controller.
     public func writeRequest(for diskKey: String) -> UUID? {
-        guard !sessionEnding else { return nil }
         return jobs.first { job in
-            job.plan.diskKey == diskKey && waiting(job) && job.writeIntent?.enabled == true
+            job.plan.diskKey == diskKey && waiting(job) && job.writeIntent?.enabled == true && !ending(job.writeIntent?.session)
                 && (job.progress.pausedAt.map { Date().timeIntervalSince($0) <= Self.staleAfter } ?? true)
         }?.writeIntent?.id
     }
@@ -276,7 +280,7 @@ extension ResumableCopier: CopyQueueCopier {}
     /// (unplugged, an error) they recheck their last files once the disk is
     /// writable again.
     public func sessionDidEnd(_ session: UUID?, cleanly: Bool) {
-        sessionEnding = false
+        if let session, endingSessions.remove(session) != nil {} else { endingAll = max(0, endingAll - 1) }
         if let session { sessionOutcomes[session] = cleanly }
         for job in jobs where job.progress.finished && !job.confirmed && job.finishedIn == session {
             if cleanly { confirm(job.id) } else { reopen(job.id) }
@@ -321,7 +325,7 @@ extension ResumableCopier: CopyQueueCopier {}
 
     /// Starts the first copy that can run now; true once one runs.
     private func startNext() async -> Bool {
-        guard active == nil, !sessionEnding else { return true }
+        guard active == nil else { return true }
         for job in jobs where waiting(job) {
             if let paused = job.progress.pausedAt, Date().timeIntervalSince(paused) > Self.staleAfter {
                 update(job.id) {
@@ -331,8 +335,8 @@ extension ResumableCopier: CopyQueueCopier {}
                 continue
             }
             if let wait = notBefore[job.id], wait > Date() { continue }
-            guard let disk = await writableDisk(job.plan.diskKey) else { continue }
-            if active != nil || sessionEnding { return true }
+            guard let disk = await writableDisk(job.plan.diskKey), !ending(disk.session) else { continue }
+            if active != nil { return true }
             // Paused, cancelled or started meanwhile.
             guard let current = jobs.first(where: { $0.id == job.id }), waiting(current) else { continue }
             start(current, on: disk)
@@ -504,7 +508,8 @@ extension ResumableCopier: CopyQueueCopier {}
         let targets = indexes.filter { $0 < job.plan.items.count && job.plan.items[$0].kind != .directory }
             .map { job.plan.target(job.plan.items[$0]) }
         guard !targets.isEmpty else { return }
-        if !sessionEnding, let root = await writableDisk(job.plan.diskKey)?.root {
+        if let disk = await writableDisk(job.plan.diskKey), !ending(disk.session) {
+            let root = disk.root
             await Self.removeParts(targets, root: root)
             return
         }
@@ -519,9 +524,9 @@ extension ResumableCopier: CopyQueueCopier {}
 
     /// Parts noted while their disk was away, once it is writable.
     private func removeLeftoverParts() async {
-        for cleanup in cleanups where !sessionEnding {
-            guard let root = await writableDisk(cleanup.diskKey)?.root, !sessionEnding else { continue }
-            await Self.removeParts(cleanup.targets, root: root)
+        for cleanup in cleanups {
+            guard let disk = await writableDisk(cleanup.diskKey), !ending(disk.session) else { continue }
+            await Self.removeParts(cleanup.targets, root: disk.root)
             cleanups.removeAll { $0 == cleanup }
             store.saveCleanups(cleanups)
         }

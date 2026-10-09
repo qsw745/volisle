@@ -17,7 +17,7 @@ for file in $files; do cp "$source_dir/ntfsprogs/$file" "$out/ntfsprogs/"; done
 patch --quiet --forward -p1 -d "$out" < packages/VolisleNTFS/patches/mkntfs-external-device.patch
 grep -q 'nk_mkntfs_main' "$out/ntfsprogs/mkntfs.c" || { print -u2 'mkntfs 补丁未生效'; exit 1; }
 for file in mkntfs.c utils.c attrdef.c boot.c sd.c; do
-  clang -target "arm64-apple-macos${VOLISLE_MIN_MACOS:-15.4}" -c -fPIC -DHAVE_CONFIG_H -w \
+  clang -arch arm64 -arch x86_64 -mmacosx-version-min="${VOLISLE_MIN_MACOS:-15.4}" -c -fPIC -DHAVE_CONFIG_H -w \
     -I "$source_dir" -I "$source_dir/include" -I "$source_dir/include/ntfs-3g" -I "$out/ntfsprogs" \
     "$out/ntfsprogs/$file" -o "$out/${file:r}.o"
 done

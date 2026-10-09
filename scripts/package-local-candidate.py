@@ -50,7 +50,7 @@ def main():
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(packaged)], check=True)
     shutil.copy2(guide, stage / '开始使用.md')
     shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE.txt')  # an extension gives Finder a text icon
-    dmg = out / f'Volisle-{version}-arm64.dmg'
+    dmg = out / f'Volisle-{version}-universal.dmg'
     # The installer window (background, icon places, no toolbar) comes from
     # scripts/dmg_settings.py; dmgbuild writes Finder's layout without driving Finder.
     background = ROOT / 'assets/brand/dmg/background.tiff'

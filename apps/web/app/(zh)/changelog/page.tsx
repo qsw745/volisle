@@ -3,6 +3,10 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.8.4 · 2026 年 10 月 8 日</h2><ul>
+<li>拷贝完成后更快出现“打开文件”：盘屿改为按磁盘实际的写入状态确认，通常二十几秒，不再固定等一分钟；硬盘慢时会自动多等，确认前拔线仍会在插回后复查补齐。</li>
+<li>修复：一块盘正在读写时，再插入的另一块盘一直显示“正在处理”、按钮全灰。现在会说明它在等待，期间可以正常打开和查看盘里的文件。</li>
+</ul>
 <h2>0.8.3 · 2026 年 10 月 8 日</h2><ul>
 <li>新功能：在 Mac 上恢复。在 Windows 上没点“安全删除硬件”就拔下的盘，插到 Mac 后可以点“在 Mac 上恢复…”：盘屿先只读检查，确认后像 Windows 下次插上时那样，把没写完的改动补上；补不了时，检查确认盘上数据完整、并经你同意放弃 Windows 最后没写完的改动后，再开启读写。每次改动前都先备份，任何一步不通过都会原样还原。手边有 Windows 时，仍建议接回 Windows 安全弹出。</li>
 <li>新功能：设置中新增“拷贝期间不让 Mac 自动睡眠”（默认打开）。</li>

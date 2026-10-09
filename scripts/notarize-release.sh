@@ -30,7 +30,7 @@ xcrun stapler validate "$app"
 codesign --verify --deep --strict "$app"
 
 python3 scripts/package-local-candidate.py --candidate "$app" --output-dir "$out/package"
-dmg=$(ls "$out"/package/Volisle-*-arm64.dmg)
+dmg=$(ls "$out"/package/Volisle-*-universal.dmg)
 submit "$dmg" dmg
 xcrun stapler staple "$dmg"
 xcrun stapler validate "$dmg"

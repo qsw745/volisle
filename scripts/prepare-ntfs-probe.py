@@ -25,13 +25,17 @@ if not source.exists():
             if not target.is_relative_to(WORK.resolve()) or member.issym() or member.islnk():
                 raise SystemExit('归档含非预期路径或链接')
         tar.extractall(WORK, filter='data')
-env = dict(os.environ, MACOSX_DEPLOYMENT_TARGET='15.4')
+# Apple silicon and Intel in one static library: both are little-endian LP64,
+# so one configure result serves both slices.
+ARCH_FLAGS = '-arch arm64 -arch x86_64'
+env = dict(os.environ, MACOSX_DEPLOYMENT_TARGET='15.4', CFLAGS=ARCH_FLAGS + ' -g -O2', LDFLAGS=ARCH_FLAGS)
 stamp = source / '.volisle-deployment-target'
-if (source/'Makefile').exists() and (args.clean or not stamp.exists() or stamp.read_text() != '15.4'):
+STAMP = '15.4 ' + ARCH_FLAGS
+if (source/'Makefile').exists() and (args.clean or not stamp.exists() or stamp.read_text() != STAMP):
     subprocess.run(['make','clean'], cwd=source, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=120)
 with (WORK/'ntfs-configure.log').open('w') as log:
     subprocess.run(['./configure','--disable-ntfs-3g','--disable-shared','--enable-static','--disable-crypto','--disable-nls'],cwd=source,env=env,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=120)
 with (WORK/'ntfs-build.log').open('w') as log:
     subprocess.run(['make','-j4'],cwd=source,env=env,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=180)
-stamp.write_text('15.4')
+stamp.write_text(STAMP)
 print('已验证上游哈希并构建隔离 NTFS 工具；未安装驱动。')
