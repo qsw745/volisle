@@ -255,7 +255,7 @@ typedef struct nk_windows_log {
     int discard_checked;      /* the check ran */
     int discard_ok;           /* every record reachable, nothing in use marked free */
     long long checked_items;  /* files and folders it checked */
-    char discard_reason[128]; /* why it did not pass */
+    char discard_reason[192]; /* why it did not pass (fixed wording, numbers only) */
     long long held_bytes;     /* marked used but mapped by no record (a leak) */
 } nk_windows_log;
 int nk_windows_log_examine(const nk_io *io, nk_windows_log *out, char *errbuf, size_t errlen);
@@ -274,6 +274,43 @@ int nk_windows_log_recover(const nk_io *io, nk_windows_log *before, long long *i
  * a replay. On EIO after the reset the host restores the disk from its
  * before-images. */
 int nk_windows_log_discard(const nk_io *io, nk_windows_log *before, long long *items, char *errbuf, size_t errlen);
+/* Root helper only. A folder entry whose MFT reference carries another
+ * sequence number than the record now has is stale: the record was freed (and
+ * perhaps reused by another file or folder) after the entry was written, as
+ * when the index write is lost to an unplug. "Check on This Mac" refuses such
+ * a disk ("stale entry, record reused" / "record free"). */
+#define NK_STALE_MAX 8
+typedef struct nk_stale_entry {
+    uint64_t folder;          /* MFT number of the folder holding the entry */
+    uint64_t reference;       /* the entry's MFT reference (number and sequence) */
+    int record_in_use;        /* the record now belongs to another file or folder */
+    int record_seq;           /* the record's sequence number now */
+} nk_stale_entry;
+typedef struct nk_stale_entries {
+    int dirty;                /* "needs check" flag set */
+    int count;                /* stale entries found (at most NK_STALE_MAX) */
+    int repairable;           /* every condition for removing them holds */
+    long long checked_items;  /* files and folders checked */
+    nk_stale_entry entry[NK_STALE_MAX];
+    char reason[192];         /* why not repairable: fixed wording, numbers only */
+} nk_stale_entries;
+/* Read-only: the whole check (records and space in use), listing stale
+ * entries instead of stopping at them. Repairable only when nothing else is
+ * wrong, each entry is a leaf of its folder's index that leaves its index
+ * block non-empty, the folder's index is in order and every entry of it is
+ * found where the index says, a reused record is also reached through its
+ * own folder, and no record in use names a stale entry as its folder.
+ * errno: EBUSY hibernated, Windows maintenance pending or log not clean; EIO
+ * a read failed. */
+int nk_stale_entries_examine(const nk_io *io, nk_stale_entries *out, char *errbuf, size_t errlen);
+/* Examines again, then marks the volume "needs check" (first write), removes
+ * only those index entries (the records they name are not touched), requires
+ * every folder changed to look up entry by entry, and finishes as
+ * nk_clear_check_marker: the whole check, then the mark cleared last. Every
+ * state before that last write is marked "needs check". errno: EALREADY
+ * nothing stale, ENOTSUP not repairable (errbuf says why; nothing written),
+ * EBUSY as above, EIO after writing: the host restores its before-images. */
+int nk_stale_entries_repair(const nk_io *io, nk_stale_entries *before, long long *items, char *errbuf, size_t errlen);
 const char *nk_engine_version(void);
 #ifdef __cplusplus
 }

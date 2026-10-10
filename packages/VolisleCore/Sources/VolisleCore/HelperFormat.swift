@@ -101,6 +101,15 @@ public protocol PartitionMaintenanceEngine: Sendable {
     /// When the log does not replay: resets it after a read-only check that the
     /// disk holds together without it; restores from `undoFile` on failure.
     func discardWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> WindowsLogRecoveryResult
+    /// `descriptor` is open read-only: folder entries naming a record by an
+    /// older sequence number ("stale"), and whether the Mac may remove them.
+    func examineStaleEntries(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> StaleEntryExamination
+    /// Removes those entries, saving every overwritten range to `undoFile`
+    /// (which names `identity`) first; on a failed result the disk is put back.
+    func repairStaleEntries(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL,
+                            identity: PartitionUndoIdentity) throws -> StaleEntryRepairResult
+    /// Read-only: the "needs check" flag and where the Windows log begins.
+    func volumeFacts(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> NTFSVolumeFacts
 }
 
 public enum HelperMaintenanceEngine {
@@ -130,9 +139,14 @@ enum HelperPartitionFormatter {
         let request = try HelperDiskRequest.decode(JSONEncoder().encode(input))
         guard request.version == 1 else { throw HelperServiceError.invalidRequest }
         let started = Date()
-        let items = try await withVerifiedPartition(request.bsdName, registryID: request.registryID, byteCount: request.byteCount) {
+        let directory = undoDirectory, log = logger
+        let items: Int64 = try await withVerifiedPartition(request.bsdName, registryID: request.registryID, byteCount: request.byteCount) {
             engine, descriptor, blockSize in
-            try engine.clearCheckMarker(descriptor: descriptor, blockSize: blockSize, byteCount: request.byteCount)
+            // A repair interrupted earlier is undone first: the check then
+            // judges the disk as it was before it, as the user last saw it.
+            _ = try LeftoverUndo.settle(engine: engine, descriptor: descriptor, blockSize: blockSize, byteCount: request.byteCount,
+                                        directory: directory, log: log)
+            return try engine.clearCheckMarker(descriptor: descriptor, blockSize: blockSize, byteCount: request.byteCount)
         }
         logger.notice("检查标记已清除：设备=\(request.bsdName, privacy: .public) 项目=\(items, privacy: .public) 用时=\(Int(Date().timeIntervalSince(started)), privacy: .public)s")
         return items
@@ -187,9 +201,13 @@ enum HelperPartitionFormatter {
 public struct CheckMarkerRefusal: Error, Equatable, LocalizedError {
     public let failure: HelperDiskFailure
     public let detail: String
+    /// The check found folder entries naming records by an older sequence
+    /// number: "Repair on This Mac" may remove them.
+    public var isStaleEntry: Bool { failure == .checkFoundProblems && detail.contains(": stale entry, record ") }
     public init?(_ failure: HelperDiskFailure, detail: String?) {
-        guard let detail, detail.count <= 120,
-              detail.wholeMatch(of: /(inconsistent record [0-9]+: [a-z ,]+|read failed at record [0-9]+)/) != nil else { return nil }
+        // Record numbers, sequence numbers and a fixed kind; never a name.
+        guard let detail, detail.count <= 160,
+              detail.wholeMatch(of: /(inconsistent record [0-9]+: [a-z ,]+(; folder [0-9]+, entry seq [0-9]+(, record seq [0-9]+)?)?|read failed at record [0-9]+)/) != nil else { return nil }
         self.failure = failure; self.detail = detail
     }
     public var errorDescription: String? {

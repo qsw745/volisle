@@ -238,6 +238,100 @@ struct NTFSMaintenanceEngine: PartitionMaintenanceEngine {
         withUnsafeBytes(of: s.note) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 
+    func examineStaleEntries(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> StaleEntryExamination {
+        let io = try Self.io(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount)
+        guard Self.lock.try() else { throw HelperDiskFailure.busy }
+        defer { Self.lock.unlock() }
+        var device = io.makeIO(readOnly: true)
+        var found = nk_stale_entries()
+        var errbuf = [CChar](repeating: 0, count: 256)
+        let rc = withExtendedLifetime(io) { nk_stale_entries_examine(&device, &found, &errbuf, errbuf.count) }
+        let code = errno
+        guard rc == 0 else { throw Self.staleRefusal(code, Self.reason(errbuf), io: io) }
+        return Self.examination(found)
+    }
+
+    /// Removes the stale entries. Every write first saves what it overwrites;
+    /// a result that does not verify is put back exactly.
+    func repairStaleEntries(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL,
+                            identity: PartitionUndoIdentity) throws -> StaleEntryRepairResult {
+        let io = try Self.io(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount)
+        guard Self.lock.try() else { throw HelperDiskFailure.busy }
+        defer { Self.lock.unlock() }
+        let undo = try PartitionUndoLog(url: undoFile, identity: identity)
+        io.undo = undo
+        var device = io.makeIO()
+        var before = nk_stale_entries()
+        var items: Int64 = 0
+        var errbuf = [CChar](repeating: 0, count: 256)
+        let rc = withExtendedLifetime(io) { nk_stale_entries_repair(&device, &before, &items, &errbuf, errbuf.count) }
+        let code = errno
+        let reason = Self.reason(errbuf)
+        let log = Logger(subsystem: "top.qisw.volisle.helper", category: "stale-entries")
+        if rc == 0 {
+            undo.discard()
+            return StaleEntryRepairResult(removed: Int(before.count), checkedItems: items)
+        }
+        log.error("失效条目修复未完成：\(reason, privacy: .public) 已写=\(undo.records, privacy: .public)")
+        if undo.records == 0 {
+            undo.discard()
+            if code == EALREADY { return StaleEntryRepairResult(removed: 0, checkedItems: 0) }
+            throw Self.staleRefusal(code, reason, io: io)
+        }
+        // Something was written and the result did not verify: put it all back,
+        // then the disk must examine as before (the same stale entries).
+        var again = nk_stale_entries()
+        var probe = RawPartitionIO(descriptor: descriptor, blockSize: blockSize, size: io.size).makeIO(readOnly: true)
+        guard undo.restore(to: descriptor), nk_stale_entries_examine(&probe, &again, nil, 0) == 0, again.count == before.count else {
+            log.fault("失效条目修复失败且未能还原，撤销记录保留：\(undo.url.lastPathComponent, privacy: .public)")
+            throw HelperDiskFailure.staleEntriesRestoreFailed
+        }
+        undo.discard()
+        log.notice("失效条目修复失败，已按撤销记录还原 \(undo.records, privacy: .public) 处")
+        throw CheckMarkerRefusal(.staleEntriesRepairRestored, detail: reason) ?? HelperDiskFailure.staleEntriesRepairRestored
+    }
+
+    func volumeFacts(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> NTFSVolumeFacts {
+        let io = try Self.io(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount)
+        var device = io.makeIO(readOnly: true)
+        var flags: UInt16 = 0
+        var offset: Int64 = 0, length: Int64 = 0
+        let rc = withExtendedLifetime(io) { nk_volume_state(&device, &flags, &offset, &length) }
+        guard rc == 0, offset > 0, length > 0 else { throw io.failed ? HelperDiskFailure.checkReadFailed : HelperDiskFailure.unavailable }
+        return NTFSVolumeFacts(markedForCheck: flags & 0x0001 != 0, logOffset: offset, logLength: length)
+    }
+
+    /// The bridge's refusals before anything was written.
+    private static func staleRefusal(_ code: Int32, _ reason: String, io: RawPartitionIO) -> any Error {
+        switch (code, reason) {
+        case (EBUSY, "hibernated"): return HelperDiskFailure.windowsHibernated
+        case (EBUSY, "Windows maintenance pending"): return HelperDiskFailure.windowsMaintenancePending
+        case (EBUSY, _): return HelperDiskFailure.windowsLogUnclean
+        case (ENOTSUP, _):
+            if let refusal = CheckMarkerRefusal(.staleEntriesNotRepairable, detail: reason) { return refusal }
+            return HelperDiskFailure.staleEntriesNotRepairable
+        case (EIO, _) where reason.hasPrefix("read failed"):
+            if let refusal = CheckMarkerRefusal(.checkReadFailed, detail: reason) { return refusal }
+            return HelperDiskFailure.checkReadFailed
+        default: return io.failed ? HelperDiskFailure.checkReadFailed : HelperDiskFailure.unavailable
+        }
+    }
+
+    /// Record numbers and fixed wording only cross XPC; never a name.
+    private static func examination(_ s: nk_stale_entries) -> StaleEntryExamination {
+        let count = max(0, min(Int(s.count), Int(NK_STALE_MAX)))
+        let entries = withUnsafeBytes(of: s.entry) { raw in
+            (0..<count).map { raw.load(fromByteOffset: $0 * MemoryLayout<nk_stale_entry>.stride, as: nk_stale_entry.self) }
+        }
+        var folders: [UInt64] = []
+        for entry in entries where !folders.contains(entry.folder) { folders.append(entry.folder) }
+        let reason = withUnsafeBytes(of: s.reason) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        return StaleEntryExamination(markedForCheck: s.dirty != 0, staleEntries: count, folders: folders,
+                                     reusedRecords: entries.filter { $0.record_in_use != 0 }.count,
+                                     repairable: s.repairable != 0 && count > 0, checkedItems: s.checked_items,
+                                     detail: CheckMarkerRefusal(.staleEntriesNotRepairable, detail: reason)?.detail)
+    }
+
     func isBitLocker(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> Bool {
         let io = try Self.io(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount)
         var device = io.makeIO(readOnly: true)

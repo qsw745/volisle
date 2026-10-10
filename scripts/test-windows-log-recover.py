@@ -34,7 +34,7 @@ class WindowsLog(C.Structure):
                 ('log_readable', C.c_int), ('log_clean', C.c_int), ('log_major', C.c_int), ('log_minor', C.c_int),
                 ('replay_simulated', C.c_int), ('redo_actions', C.c_longlong), ('note', C.c_char * 256),
                 ('discard_checked', C.c_int), ('discard_ok', C.c_int), ('checked_items', C.c_longlong),
-                ('discard_reason', C.c_char * 128), ('held_bytes', C.c_longlong)]
+                ('discard_reason', C.c_char * 192), ('held_bytes', C.c_longlong)]
 
 
 ELIB = C.CDLL(LIB._name, use_errno=True)

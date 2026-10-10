@@ -38,6 +38,10 @@ public enum HelperIdentity {
     func examineWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
     func recoverWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
     func discardWindowsLog(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
+    /// Folder entries naming a record by an older sequence number: read-only
+    /// examination, and removing them once the user agreed.
+    func examineStaleEntries(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
+    func repairStaleEntries(_ request: Data, reply: @escaping @Sendable (Data) -> Void)
 }
 
 public struct HelperStatus: Codable, Equatable, Sendable {
@@ -243,6 +247,24 @@ private final class HelperStatusEndpoint: NSObject, VolisleHelperProtocol {
         Task {
             var result = HelperWindowsLogReply()
             do { result.result = try await HelperPartitionFormatter.recoverWindowsLog(HelperDiskRequest.decode(request)) }
+            catch let refusal as CheckMarkerRefusal { result.failure = refusal.failure; result.detail = refusal.detail }
+            catch { result.failure = .from(error) }
+            reply((try? JSONEncoder().encode(result)) ?? Data())
+        }
+    }
+    func examineStaleEntries(_ request: Data, reply: @escaping @Sendable (Data) -> Void) {
+        Task {
+            var result = HelperStaleEntryReply()
+            do { result.examination = try await HelperPartitionFormatter.examineStaleEntries(HelperDiskRequest.decode(request)) }
+            catch let refusal as CheckMarkerRefusal { result.failure = refusal.failure; result.detail = refusal.detail }
+            catch { result.failure = .from(error) }
+            reply((try? JSONEncoder().encode(result)) ?? Data())
+        }
+    }
+    func repairStaleEntries(_ request: Data, reply: @escaping @Sendable (Data) -> Void) {
+        Task {
+            var result = HelperStaleEntryReply()
+            do { result.result = try await HelperPartitionFormatter.repairStaleEntries(HelperDiskRequest.decode(request)) }
             catch let refusal as CheckMarkerRefusal { result.failure = refusal.failure; result.detail = refusal.detail }
             catch { result.failure = .from(error) }
             reply((try? JSONEncoder().encode(result)) ?? Data())

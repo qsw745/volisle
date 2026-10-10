@@ -10,8 +10,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import time
+from test_workdir import finish_workdir, make_workdir
 
 _spec = importlib.util.spec_from_file_location('fskit_journal', Path(__file__).resolve().parent / 'test-fskit-journal.py')
 _j = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_j)
@@ -67,7 +67,7 @@ def sha(path):
 
 def main():
     minutes = float(sys.argv[1]) if len(sys.argv) > 1 else 40
-    folder = Path(tempfile.mkdtemp(prefix='fskit-soak-', dir=ROOT / '.workbench'))
+    folder = make_workdir('fskit-soak-')
     result = {'folder': str(folder), 'rounds': [], 'success': False}
     image = Image(folder)
     expected = {}
@@ -136,8 +136,7 @@ def main():
         summary = {k: v for k, v in result.items() if k != 'rounds'}
         summary['round_count'] = len(result['rounds'])
         print(json.dumps(summary, indent=2, ensure_ascii=False))
-        if result['success']:
-            (folder / 'fixture.img').unlink()
+        finish_workdir(folder, result['success'])
 
 
 if __name__ == '__main__':

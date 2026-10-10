@@ -100,6 +100,11 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
     case windowsMaintenancePending, windowsLogUnreadable, windowsLogReplayRestored, windowsLogRestoreFailed
     /// Another disk with the same NTFS boot sector (a clone, same volume serial) is being written.
     case sameVolumeWriting
+    /// Removing stale folder entries on the Mac: the disk has more than that
+    /// (or they sit where removing them is more than taking one entry out),
+    /// the removal or the check after it failed and the disk was put back
+    /// exactly, or putting it back failed too.
+    case staleEntriesNotRepairable, staleEntriesRepairRestored, staleEntriesRestoreFailed
     public var errorDescription: String? {
         switch self {
         case .mountFailed: String(localized: "盘屿没能以读写方式挂载这块盘，磁盘仍可只读使用，数据不受影响。请重启 Mac 后重新插入；仍然出现时，请在设置 → 支持中导出诊断并反馈。")
@@ -112,6 +117,9 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
         case .windowsLogUnreadable: String(localized: "这块盘的 NTFS 日志读不出来或无法按顺序补写，盘屿不能代替 Windows 恢复，没有做任何修改。请接回 Windows 打开一次，用“安全删除硬件”弹出后再插回。")
         case .windowsLogReplayRestored: String(localized: "补写或之后的检查没有通过，盘屿已经把这块盘原样还原，没有留下任何改动。盘里的文件仍可只读打开和拷出；请接回 Windows 打开一次，安全弹出后再插回。")
         case .windowsLogRestoreFailed: String(localized: "补写中途失败，而且没能完全还原。请不要在 Mac 上继续写入这块盘，尽快接回 Windows，在“属性 → 工具 → 检查”中检查磁盘。")
+        case .staleEntriesNotRepairable: String(localized: "这块盘上的问题不只是失效的目录条目（或者条目的位置不适合在 Mac 上删除），盘屿不能在 Mac 上修，没有做任何修改。盘里的文件仍可只读打开和拷出；要恢复读写，请在 Windows 中检查磁盘（属性 → 工具 → 检查）。")
+        case .staleEntriesRepairRestored: String(localized: "删除失效条目或之后的检查没有通过，盘屿已经把这块盘原样还原，没有留下任何改动。盘里的文件仍可只读打开和拷出；请在 Windows 中检查磁盘（属性 → 工具 → 检查）。")
+        case .staleEntriesRestoreFailed: String(localized: "修复中途失败，而且没能完全还原。请不要在 Mac 上继续写入这块盘，尽快接回 Windows，在“属性 → 工具 → 检查”中检查磁盘。")
         case .sameVolumeWriting: String(localized: "另一块和这块一模一样的盘（例如克隆出来的盘）正在读写，两块盘的 NTFS 序列号相同，同一时间只能写其中一块。这块盘保持只读，数据不受影响；先推出另一块再开启读写。")
         case .notBitLocker: String(localized: "这个分区不是 BitLocker 加密分区。")
         case .bitLockerWrongSecret: String(localized: "密码或恢复密钥不正确。")

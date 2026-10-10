@@ -8,10 +8,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO, PWRITE
 from fixture_block_journal import BlockJournal, recover
 import fixture_block_journal as journal_module
+from test_workdir import finish_workdir, make_workdir
 
 BIN=ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 SENTINEL=b'preserve-existing-file'*128
@@ -35,7 +35,7 @@ def digest(path):
     with path.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
 
 def main():
-    folder=Path(tempfile.mkdtemp(prefix='block-journal-',dir=ROOT/'.workbench'))
+    folder=make_workdir('block-journal-')
     base=folder/'base.img'
     with base.open('xb') as f:f.truncate(64*1024*1024)
     subprocess.run([BIN/'mkntfs','-F','-Q',base],check=True,capture_output=True)
@@ -189,5 +189,6 @@ raise AssertionError('fault point not reached')
         report={'success':complete,'checks':checks,'fixture':str(folder),'productionIntegrated':False}
         (folder/'result.json').write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report),flush=True)
+        finish_workdir(folder,complete)
 
 if __name__=='__main__':main()

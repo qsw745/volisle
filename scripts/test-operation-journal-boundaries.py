@@ -6,11 +6,11 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 from ntfs_bridge_test_support import ROOT
 import fixture_operation_journal as module
 from fixture_operation_journal import OperationJournal, recover_session, parse
 from fixture_block_journal import canonical, sha
+from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 
@@ -20,7 +20,7 @@ def digest(image):
 
 
 def main():
-    folder = Path(tempfile.mkdtemp(prefix='block-journal-', dir=ROOT / '.workbench'))
+    folder = make_workdir('block-journal-')
     base = folder / 'base.img'
     with base.open('xb') as stream:
         stream.truncate(64 * 1024 * 1024)
@@ -197,6 +197,7 @@ def main():
         report = {'success': complete, 'checks': checks, 'fixture': str(folder), 'productionIntegrated': False}
         (folder / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report))
+        finish_workdir(folder, complete)
 
 
 if __name__ == '__main__':

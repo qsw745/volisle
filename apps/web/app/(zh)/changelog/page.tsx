@@ -3,6 +3,11 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.1 · 2026 年 10 月 9 日</h2><ul>
+<li>修复：盘在 Windows 上没有安全弹出、同时又被 Windows 标记为“需要检查”时，原先“在 Mac 上恢复”和“在 Mac 上检查”都不能用，只能接回 Windows。现在可以直接点“在 Mac 上恢复”：先补写 Windows 没写完的改动，再逐一检查所有文件和文件夹，全部正常才解除只读；有问题就原样还原。</li>
+<li>改进：Mac 自动生成的隐藏文件（.DS_Store、._ 开头的文件、.Trashes 等）在 Windows 上不再显示，即使打开了“显示隐藏的项目”也看不到。你自己建的点文件不受影响。此前已经生成的这类文件可以在 Windows 上直接删除。</li>
+<li>改进：英文界面的按钮文字缩短，不再显示不全。</li>
+</ul>
 <h2>0.9.0 · 2026 年 10 月 9 日</h2><ul>
 <li>新功能：最多两块 NTFS 盘同时读写。每块盘各自独立，一块拔线、恢复只读或推出，都不影响另一块；第三块盘保持只读，推出其中一块后自动开启读写。每块读写中的盘在自己的页面里都有“恢复只读”，菜单栏里也可以直接恢复只读。</li>
 <li>新功能：设置里可以切换界面语言（跟随系统、简体中文、繁體中文、English），并新增繁体中文界面。</li>

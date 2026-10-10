@@ -24,7 +24,10 @@ case ${1:-} in
 attach)
   disk=$(diskutil list external physical | awk '/^\/dev\/disk/ {print $1}' | while read d; do diskutil info $d | grep -q "Media Name:.*Expansion" && echo ${d#/dev/}; done | head -1)
   [[ -n $disk ]] || { echo "Mac 上找不到 Expansion"; exit 1; }
-  B=~/Applications/"Volisle Test.app"/Contents/MacOS/Volisle
+  # Where build-local-candidate.sh installs: /Applications since 0.8.1, VOLISLE_TEST_APP overrides.
+  app=${VOLISLE_TEST_APP:-}
+  [[ -n $app ]] || { [[ -d /Applications/Volisle.app ]] && app=/Applications/Volisle.app || app=~/Applications/"Volisle Test.app"; }
+  B=$app/Contents/MacOS/Volisle
   osascript -e 'tell application id "top.qisw.volisle" to quit' 2>/dev/null || true; sleep 3
   if mount | grep -q "^/dev/${disk}s[0-9]* on .*(volisle"; then
     id=$($B --helper-cycle-latest | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")

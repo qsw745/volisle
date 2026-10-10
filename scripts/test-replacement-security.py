@@ -8,9 +8,9 @@ import json
 import shutil
 import struct
 import subprocess
-import tempfile
 from pathlib import Path
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
+from test_workdir import finish_workdir, make_workdir
 
 UP=ROOT/'.workbench/ntfs-3g-2026.7.7'
 BIN=UP/'ntfsprogs'
@@ -34,7 +34,7 @@ def crash_child(image, point):
     raise AssertionError('write interruption did not trigger')
 
 def main():
-    folder=Path(tempfile.mkdtemp(prefix='replacement-security-',dir=ROOT/'.workbench'))
+    folder=make_workdir('replacement-security-')
     tool=folder/'security-fixture'
     subprocess.run(['clang','-DHAVE_CONFIG_H','-I',str(UP),'-I',str(UP/'include'),str(ROOT/'scripts/fixtures/ntfs-security.c'),str(UP/'libntfs-3g/.libs/libntfs-3g.a'),'-framework','CoreFoundation','-o',str(tool)],check=True)
     def security(image,path,value=None):
@@ -114,7 +114,8 @@ def main():
                     io=ImageIO(failed);assert io.mount() is None,'faulted image was reopened writable';io.close()
                     cases.append(kind+'-'+str(point))
     (folder/'result.json').write_text(json.dumps({'success':True,'cases':cases})+'\n')
-    print('Windows security replacement PASS:',cases,'evidence:',folder)
+    print('Windows security replacement PASS:',cases)
+    finish_workdir(folder,True)
 if __name__=='__main__':
     if len(sys.argv)==4 and sys.argv[1]=='--crash':crash_child(Path(sys.argv[2]).resolve(),int(sys.argv[3]))
     else:main()

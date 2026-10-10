@@ -16,6 +16,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO  # noqa: E402
+from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 APP = Path.home() / 'Applications/Volisle Test.app'
@@ -148,8 +149,7 @@ def kill_extension(image):
 
 
 def main():
-    work = ROOT / '.workbench'
-    folder = Path(tempfile.mkdtemp(prefix='fskit-journal-', dir=work))
+    folder = make_workdir('fskit-journal-')
     result = {'folder': str(folder), 'checks': [], 'success': False}
     image = Image(folder)
     try:
@@ -231,6 +231,7 @@ def main():
                              'subsystem == "Volisle.NTFSModule"'], check=False).stdout.decode(errors='replace')[-6000:]
         (folder / 'result.json').write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n')
         print(json.dumps({k: v for k, v in result.items() if k != 'log'}, indent=2, ensure_ascii=False))
+        finish_workdir(folder, result['success'])
 
 
 if __name__ == '__main__':

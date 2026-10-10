@@ -6,17 +6,17 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from journal_image_recovery import export_checkpoints
 from ntfs_replacement_recovery import image_hash
+from test_workdir import finish_workdir, make_workdir
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cross-directory', action='store_true')
     args = parser.parse_args()
-    root = Path(tempfile.mkdtemp(prefix='volisle-journal-large-', dir=ROOT / '.workbench'))
+    root = make_workdir('volisle-journal-large-')
     folder = root / 'published'; folder.mkdir()
     image = folder / 'fixture.img'
     with image.open('xb') as stream:
@@ -67,6 +67,7 @@ def main():
     finally:
         (root / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    finish_workdir(root, result['success'])
 
 
 if __name__ == '__main__':

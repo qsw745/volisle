@@ -8,7 +8,7 @@ import plistlib
 import shutil
 import signal
 import subprocess
-import tempfile
+from test_workdir import finish_workdir, make_workdir
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / '.workbench/reconnect-20260925'
@@ -61,7 +61,7 @@ def test_phase(folder,image,phase,mode,baseline,boot):
 
 
 def scenario(mode):
-    folder=Path(tempfile.mkdtemp(prefix='native-write-reconnect-',dir=ROOT/'.workbench'))
+    folder=make_workdir('native-write-reconnect-')
     original=folder/'original.img'
     with original.open('xb') as stream: stream.truncate(64*1024*1024)
     run([ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs','-F','-Q','-L','Volisle Reconnect',original])
@@ -100,9 +100,8 @@ def scenario(mode):
         'baselineSHA256':baseline,'beforeRestoreSHA256':before_restore,'finalSHA256':final,
         'normalDetachCompleted':True,'physicalDiskTouched':False,'prepared':prepared,'restored':restored}
     (folder/'result.json').write_text(json.dumps(result,indent=2)+'\n')
-    original.unlink()
-    if image!=original: image.unlink()
     print(json.dumps(result),flush=True)
+    finish_workdir(folder,True)
     return result
 
 

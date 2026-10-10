@@ -7,7 +7,7 @@ from pathlib import Path
 import plistlib
 import signal
 import subprocess
-import tempfile
+from test_workdir import finish_workdir, make_workdir
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / '.workbench/held-device-20260925'
@@ -19,7 +19,7 @@ def run(args, **kwargs):
 
 def main():
     OUT.mkdir(exist_ok=True)
-    folder = Path(tempfile.mkdtemp(prefix='native-claim-', dir=ROOT / '.workbench'))
+    folder = make_workdir('native-claim-')
     image = folder / 'readonly.img'
     with image.open('xb') as stream:
         stream.truncate(64*1024*1024)
@@ -72,8 +72,7 @@ def main():
         (folder / 'result.json').write_text(json.dumps(result, indent=2)+'\n')
         (OUT / 'runtime-result.json').write_text(json.dumps(result, indent=2)+'\n')
         print(json.dumps(result), flush=True)
-        if success and detached:
-            image.unlink()  # Only the newly created successful fixture.
+        finish_workdir(folder, success and detached)
 
 
 if __name__ == '__main__':

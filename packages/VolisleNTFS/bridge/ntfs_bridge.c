@@ -20,6 +20,7 @@
 #include <ntfs-3g/volume.h>
 #include <ntfs-3g/inode.h>
 #include <ntfs-3g/dir.h>
+#include <ntfs-3g/index.h>
 #include <ntfs-3g/attrib.h>
 #include <ntfs-3g/unistr.h>
 #include <ntfs-3g/ntfstime.h>
@@ -1468,6 +1469,7 @@ int nk_format(const nk_io *io, const char *label, int sector_size, char *errbuf,
 }
 #include "check_marker.inc"
 #include "windows_log.inc"
+#include "stale_entry.inc"
 #endif /* NK_WITH_FORMAT */
 
 #include "bitlocker.inc"

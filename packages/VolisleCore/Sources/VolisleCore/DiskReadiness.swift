@@ -172,7 +172,8 @@ public enum DiskReadiness {
         case .windowsHibernated, .windowsMaintenancePending, .windowsLogUnreadable, .windowsLogReplayRestored,
              .windowsLogRestoreFailed, .checkReadFailed, .writeProtected, .protectedMedia,
              .unsupportedFileSystem, .unsupportedPartition, .invalidRequest, .notBitLocker, .bitLockerWrongSecret,
-             .bitLockerUnsupported, .sameVolumeWriting:
+             .bitLockerUnsupported, .sameVolumeWriting, .staleEntriesNotRepairable, .staleEntriesRepairRestored,
+             .staleEntriesRestoreFailed:
             return nil
         }
     }

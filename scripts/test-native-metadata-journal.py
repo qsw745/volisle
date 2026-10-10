@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from fixture_block_journal import recover, sha
+from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 OUT = ROOT / '.workbench/metadata-pipeline-20260924'
@@ -29,7 +29,7 @@ def main():
                     str(OUT / 'ntfs_bridge.o'),
                     '.workbench/ntfs-3g-2026.7.7/libntfs-3g/.libs/libntfs-3g.a',
                     '-framework', 'CoreFoundation', '-o', str(OUT / 'driver')], cwd=ROOT, check=True)
-    folder = Path(tempfile.mkdtemp(prefix='block-journal-', dir=ROOT / '.workbench'))
+    folder = make_workdir('block-journal-')
     base = folder / 'base.img'
     with base.open('xb') as f:
         f.truncate(64 * 1024 * 1024)
@@ -101,6 +101,7 @@ def main():
                   'journalInProduction': False, 'actualFSKitRuntime': False}
         (folder / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report), flush=True)
+        finish_workdir(folder, success)
 
 
 if __name__ == '__main__':

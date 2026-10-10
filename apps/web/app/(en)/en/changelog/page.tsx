@@ -3,6 +3,11 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.1 · October 9, 2026</h2><ul>
+<li>Fixed: a disk that was not ejected safely from Windows and that Windows had also marked as needing a check could neither be recovered nor checked on the Mac, only on Windows. “Recover on Mac” now handles it: it finishes the changes Windows left unwritten, checks every file and folder, and only then allows writing; if anything is wrong, the disk is put back exactly as it was.</li>
+<li>Improved: hidden files the Mac creates on its own (.DS_Store, files starting with ._, .Trashes and the like) no longer show up in Windows, even with “Hidden items” turned on. Dot files you create yourself are not affected. Such files created before can simply be deleted in Windows.</li>
+<li>Improved: shorter button labels in the English interface, so none are cut off.</li>
+</ul>
 <h2>0.9.0 · October 9, 2026</h2><ul>
 <li>New: up to two NTFS disks can be written at once. Each disk is on its own: unplugging one, making it read-only or ejecting it leaves the other untouched. A third disk stays read-only and gets write access once you eject one of them. Every disk being written has its own “Make Read-Only” on its page, and the menu bar offers it too.</li>
 <li>New: choose the interface language in Settings (System, Simplified Chinese, Traditional Chinese or English), with a new Traditional Chinese interface.</li>

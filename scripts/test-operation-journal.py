@@ -9,10 +9,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO, PWRITE
 from fixture_operation_journal import OperationJournal, recover_session
 import fixture_operation_journal as module
+from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 OLD = b'previously acknowledged data\n' * 256
@@ -124,7 +124,7 @@ def worker(image, name, fault, point):
 
 
 def main():
-    folder = Path(tempfile.mkdtemp(prefix='block-journal-', dir=ROOT / '.workbench'))
+    folder = make_workdir('block-journal-')
     base = folder / 'base.img'
     with base.open('xb') as stream:
         stream.truncate(64 * 1024 * 1024)
@@ -195,6 +195,7 @@ def main():
                   'fixture': str(folder), 'productionIntegrated': False, 'clearsDirtyMarker': False}
         (folder / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report), flush=True)
+        finish_workdir(folder, complete)
 
 
 if __name__ == '__main__':

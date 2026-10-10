@@ -5,8 +5,8 @@ import ctypes as C
 import json
 from pathlib import Path
 import subprocess
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
+from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 LIB.nk_statvfs.argtypes = [C.c_void_p, C.POINTER(C.c_longlong), C.POINTER(C.c_longlong), C.POINTER(C.c_int)]
@@ -20,7 +20,7 @@ def free(v):
 
 
 def main():
-    folder = Path(tempfile.mkdtemp(prefix='statvfs-', dir=ROOT / '.workbench'))
+    folder = make_workdir('statvfs-')
     image = folder / 'fixture.img'
     with image.open('xb') as f:
         f.truncate(128 * 1024 * 1024)
@@ -47,8 +47,7 @@ def main():
     assert fresh == incremental, (fresh, incremental)
     checks.append('incremental-equals-fresh-scan-after-release')
     print(json.dumps({'success': True, 'checks': checks, 'free': [start, after_alloc, incremental, fresh]}))
-    for p in folder.iterdir(): p.unlink()
-    folder.rmdir()
+    finish_workdir(folder, True)
 
 
 if __name__ == '__main__':

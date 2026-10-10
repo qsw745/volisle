@@ -7,8 +7,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
+from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 LIB.nk_statvfs.argtypes = [C.c_void_p, C.POINTER(C.c_longlong), C.POINTER(C.c_longlong), C.POINTER(C.c_int)]
@@ -54,7 +54,7 @@ def blocked(io, volume):
 
 
 def main():
-    folder = Path(tempfile.mkdtemp(prefix='create-safety-', dir=ROOT/'.workbench'))
+    folder = make_workdir('create-safety-')
     results = []
     recovery_failures = []
     mirror_lag = []
@@ -171,6 +171,7 @@ raise AssertionError('crash callback not reached')
                                                     'completed': completed, 'checks': results,
                                                     'known_mirror_lag': mirror_lag,
                                                     'recovery_failures': recovery_failures}, ensure_ascii=False, indent=2)+'\n')
+        finish_workdir(folder, completed and not recovery_failures)
     if recovery_failures: raise SystemExit(1)
 
 

@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import time
 
 import importlib.util  # noqa: E402
@@ -14,6 +13,7 @@ _spec = importlib.util.spec_from_file_location('fskit_journal', Path(__file__).r
 _journal = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_journal)
 Image, make_image, offline_check, volisle_mounts, ROOT = (_journal.Image, _journal.make_image,
     _journal.offline_check, _journal.volisle_mounts, _journal.ROOT)
+from test_workdir import finish_workdir, make_workdir  # noqa: E402
 
 SWIFT_REPLACE = r'''
 import Foundation
@@ -48,7 +48,7 @@ def textedit_save(path, text):
 
 
 def main():
-    folder = Path(tempfile.mkdtemp(prefix='fskit-appsave-', dir=ROOT / '.workbench'))
+    folder = make_workdir('fskit-appsave-')
     result = {'folder': str(folder), 'checks': [], 'success': False}
     image = Image(folder)
     try:
@@ -108,6 +108,7 @@ def main():
             image.detach()
         (folder / 'result.json').write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n')
         print(json.dumps(result, indent=2, ensure_ascii=False))
+        finish_workdir(folder, result['success'])
 
 
 if __name__ == '__main__':

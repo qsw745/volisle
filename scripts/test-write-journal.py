@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """R1/R3 matrix: the FSKit extension's journal sources + real NTFS engine on
 disposable images. Every interruption point must recover to a clean,
-mountable volume whose existing data is intact, and allow the next session."""
+mountable volume whose existing data is intact, and allow the next session.
+
+The images folder is removed when the run passes; --keep keeps it anyway."""
 import ctypes as C
 import hashlib
 import json
@@ -10,9 +12,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
+from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
 SRC = ROOT / '.workbench/ntfs-3g-2026.7.7'
@@ -554,7 +556,7 @@ def full_matrix(m, base, folder):
 
 def main():
     build()
-    folder = Path(tempfile.mkdtemp(prefix='write-journal-', dir=ROOT / '.workbench'))
+    folder = make_workdir('write-journal-')
     m = Matrix(folder)
     result = {'completed': False, 'success': False}
     try:
@@ -572,8 +574,7 @@ def main():
         result.update(checks=len(m.checks), counts=m.counts, timings=m.timings, folder=str(folder))
         (OUT / 'result.json').write_text(json.dumps({**result, 'names': m.checks}, indent=2) + '\n')
         print(json.dumps(result, indent=2))
-    if result['success']:
-        shutil.rmtree(folder)
+    finish_workdir(folder, result['success'], keep='--keep' in sys.argv)
 
 
 if __name__ == '__main__':

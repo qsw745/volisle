@@ -30,6 +30,11 @@ struct MainView: View {
     /// "Recover on This Mac" for a disk Windows let go of without Safe Removal.
     @State private var windowsLog = WindowsLogRecoverer()
     @State private var windowsLogTarget: CheckMarkerTarget?
+    @State private var staleEntries = StaleEntryRepairer()
+    /// "Check on This Mac" found stale folder entries: offer the repair.
+    @State private var staleOffer: CheckMarkerTarget?
+    @State private var staleOfferMessage = ""
+    @State private var staleRepairTarget: CheckMarkerTarget?
     @State private var markerResult: String?
     @State private var showCopies = false
     @State private var bitLocker = BitLockerController()
@@ -44,6 +49,7 @@ struct MainView: View {
     private var bottomMessage: String? {
         if markerClearer.isWorking { return String(localized: "正在 Mac 上检查磁盘，请勿拔出…") }
         if windowsLog.phase == .recovering { return String(localized: "正在 Mac 上恢复磁盘，请勿拔出…") }
+        if staleEntries.phase == .repairing { return String(localized: "正在 Mac 上修复磁盘，请勿拔出…") }
         if let error = barCycle?.lastError ?? mountCycle.lastError { return named(error) }
         if mountCycle.isBusy { return named(String(localized: "正在检查磁盘，请稍候…")) }
         let errors: [String?] = [actions.lastError, autoMount.lastError, manualMount.lastError]
@@ -253,7 +259,7 @@ struct MainView: View {
                         if message == copiesWaiting {
                             Button("管理拷贝…") { showCopies = true }
                         }
-                        if mountCycle.isBusy || markerClearer.isWorking || windowsLog.isWorking { ProgressView().controlSize(.small) }
+                        if mountCycle.isBusy || markerClearer.isWorking || windowsLog.isWorking || staleEntries.isWorking { ProgressView().controlSize(.small) }
                         else if message == writingSummary { EmptyView() }
                         // A healthy session of the selected disk ends from its own page; the bar
                         // offers it for another disk, or when something needs attention.
@@ -284,7 +290,7 @@ struct MainView: View {
                     Divider()
                     Button("在 Mac 上检查…", systemImage: "checkmark.shield") { if let selected { markerTarget = checkTarget(for: selected) } }
                         .disabled(selected.map { !CheckMarkerClearer.applies(to: $0) || mountCycle.isWritable($0) || actions.isBusy($0) } ?? true
-                                  || markerClearer.isWorking || mountCycle.isBusy)
+                                  || markerClearer.isWorking || staleEntries.isWorking || mountCycle.isBusy)
                     Button("抹掉磁盘…", systemImage: "eraser") { showErase = true }
                         .disabled(!mountCycle.isReady || mountCycle.slots.contains { $0.blocksActions && !$0.onlyHoldsWriteSession } || mountCycle.isBusy || !actions.activeDevices.isEmpty || !manualMount.activeDevices.isEmpty)
                     Divider()
@@ -319,6 +325,8 @@ struct MainView: View {
             // Open confirmations hold a quit back as sheets do.
             writingVolume = nil; checkingVolume = nil; ejecting = nil; markerTarget = nil
             if !windowsLog.isWorking { windowsLogTarget = nil }  // a replay in progress finishes first
+            staleOffer = nil
+            if !staleEntries.isWorking { staleRepairTarget = nil }  // so does a repair
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in bitLocker.refreshMounts() }
         // Mounts made outside this window (another unlock, a command line) send no notification.
@@ -378,6 +386,14 @@ struct MainView: View {
                 Text("盘屿会只读检查“\(volume.name)”上全部文件和文件夹的记录，没有发现问题才清除“需要检查”标记，随后开启读写；发现问题则不做任何修改。这不等同于 Windows 的完整磁盘检查：如果盘里有重要且没有备份的数据，建议优先在 Windows 中检查。检查期间磁盘会暂时卸载，文件较多时需要几分钟。")
             }
         }
+        .alert("检查发现失效的目录条目", isPresented: Binding(get: { staleOffer != nil }, set: { if !$0 { staleOffer = nil } })) {
+            if let target = staleOffer {
+                Button("在 Mac 上修复…") { staleOffer = nil; staleRepairTarget = target }
+            }
+            Button("以后再说", role: .cancel) { staleOffer = nil }
+        } message: {
+            Text(staleOfferMessage + "\n\n" + String(localized: "盘屿可以在 Mac 上只删除这些条目，删除前会征得你的同意。更稳妥的办法是在 Windows 中检查磁盘（属性 → 工具 → 检查）。"))
+        }
         .alert("检查完成", isPresented: Binding(get: { markerResult != nil }, set: { if !$0 { markerResult = nil } })) {
             Button("好", role: .cancel) { markerResult = nil }
         } message: { Text(markerResult ?? "") }
@@ -390,6 +406,11 @@ struct MainView: View {
         }
         .sheet(item: $windowsLogTarget) { target in
             WindowsLogRecoveryView(target: target, recoverer: windowsLog) { Task { await writeAfterRecovery(target) } }
+        }
+        .sheet(item: $staleRepairTarget) { target in
+            StaleEntryRepairView(target: target, repairer: staleEntries,
+                                 finished: { Task { await writeAfterRecovery(target) } },
+                                 recheck: { Task { await clearCheckMarker(target) } })
         }
         .sheet(isPresented: $showSetup) {
             SetupGuideView(helperService: helperService, engineStatus: engineStatus, refreshRuntime: refreshRuntime)
@@ -497,6 +518,10 @@ struct MainView: View {
                DailyWriteAvailability.allows(fresh) {
                 await mountCycle.startWrite(fresh, resolver: discovery)
             }
+        } catch CheckMarkerError.staleEntries(let detail) {
+            // Nothing was changed; this kind can be repaired on the Mac.
+            staleOfferMessage = CheckMarkerError.staleEntries(detail).errorDescription ?? detail
+            staleOffer = volume
         } catch {
             operationError = error.localizedDescription
         }

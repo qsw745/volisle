@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
+from test_workdir import finish_workdir, make_workdir
 
 OLD, NEW = b'old-version-' * 4096, b'new-version-' * 8192
 PATHS = ['/incoming/draft', '/saved/document', '/saved/.backup']
@@ -18,7 +18,7 @@ def main():
     replace.argtypes = [C.c_void_p] + [C.c_char_p] * 5
     replace.restype = C.c_int
     tools = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
-    folder = Path(tempfile.mkdtemp(prefix='volisle-replacement-cross-', dir=ROOT / '.workbench'))
+    folder = make_workdir('volisle-replacement-cross-')
     base = folder / 'base.img'
     with base.open('xb') as stream: stream.truncate(64 * 1024 * 1024)
     subprocess.run([tools / 'mkntfs', '-F', '-Q', base], check=True, capture_output=True, timeout=45)
@@ -70,6 +70,7 @@ def main():
     report['success'] = True
     (folder / 'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps(report, ensure_ascii=False, indent=2))
+    finish_workdir(folder, report['success'])
 
 
 if __name__ == '__main__': main()

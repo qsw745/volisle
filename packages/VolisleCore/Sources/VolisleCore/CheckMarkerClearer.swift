@@ -7,11 +7,16 @@ import Observation
 /// not chkdsk, and the confirmation says so.
 public enum CheckMarkerError: Error, Equatable, LocalizedError {
     case unsupported, unmountFailed(String), failed(String)
+    /// The check found only what "Repair on This Mac" may be able to remove:
+    /// stale folder entries. Nothing was changed. Carries the technical detail.
+    case staleEntries(String)
     public var errorDescription: String? {
         switch self {
         case .unsupported: String(localized: "只能检查外接磁盘上的 NTFS 分区。")
         case .unmountFailed(let reason): String(localized: "无法卸载这块盘，没有做任何修改：\(reason)。请关闭正在使用盘内文件的应用后重试。")
         case .failed(let reason): reason
+        case .staleEntries(let detail):
+            String(localized: "检查发现这块盘的文件夹里有已经打不开的条目（失效的目录条目），没有做任何修改。盘里的文件仍可以只读打开和拷出。") + "\n" + String(localized: "技术信息：\(detail)")
         }
     }
 }
@@ -58,6 +63,7 @@ public enum CheckMarkerError: Error, Equatable, LocalizedError {
         _ = await runner.run(Self.diskutil, ["mount", bsd])
         switch result {
         case .success(let items): return items
+        case .failure(let refusal as CheckMarkerRefusal) where refusal.isStaleEntry: throw .staleEntries(refusal.detail)
         case .failure(let error): throw .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
     }

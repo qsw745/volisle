@@ -93,7 +93,17 @@ func checkMarkerReplyCarriesTheTechnicalReason() throws {
         #expect(refusal.errorDescription?.contains(detail) == true)
     }
     #expect(CheckMarkerRefusal(.checkReadFailed, detail: "read failed at record 99") != nil)
-    for bad in ["~/秘密.txt", "inconsistent record 12: 照片", "inconsistent record x: a", String(repeating: "a", count: 200)] {
+    // The folder holding the entry and both sequence numbers (a stale entry when they differ).
+    for good in ["inconsistent record 194973: listed as a folder, record is a file; folder 5, entry seq 3, record seq 7",
+                 "inconsistent record 281474976710655: listed as a folder, record is a file; folder 281474976710655, entry seq 65535, record seq 65535",
+                 "inconsistent record 99999: entry beyond the file table; folder 42, entry seq 1"] {
+        #expect(CheckMarkerRefusal(.checkFoundProblems, detail: good)?.detail == good)
+    }
+    for bad in ["~/秘密.txt", "inconsistent record 12: 照片", "inconsistent record x: a", String(repeating: "a", count: 200),
+                "inconsistent record 12: listed but not in use; folder 5", "inconsistent record 12: listed but not in use; folder 5, entry seq x",
+                "inconsistent record 12: listed but not in use; folder 5, entry seq 1, record seq 2; 照片",
+                "inconsistent record 12: listed but not in use; folder 5, record seq 2",
+                "inconsistent record 12: a; folder 5, entry seq 1, record seq 2" + String(repeating: "0", count: 120)] {
         #expect(CheckMarkerRefusal(.checkFoundProblems, detail: bad) == nil)
         #expect(throws: HelperDiskFailure.checkFoundProblems) {
             try HelperCheckMarkerReply.decode(JSONEncoder().encode(HelperCheckMarkerReply(items: nil, failure: .checkFoundProblems, detail: bad)))

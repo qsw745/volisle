@@ -12,7 +12,8 @@ protocol CopyQueueCopier: Sendable {
 extension ResumableCopier: CopyQueueCopier {}
 
 /// Copies onto NTFS disks that pause when the disk goes away and continue once
-/// it is writable again. One runs at a time; the others wait in order.
+/// it is writable again. Each disk takes one at a time, the others onto it wait
+/// in order; copies onto different disks run side by side.
 @MainActor @Observable public final class CopyQueue {
     public struct Job: Identifiable, Sendable {
         public let plan: CopyPlan
@@ -88,8 +89,16 @@ extension ResumableCopier: CopyQueueCopier {}
     @ObservationIgnored private let copierFactory: @Sendable (CopyPlan, URL) -> any CopyQueueCopier
     @ObservationIgnored private let durability: @Sendable (URL, Bool) -> WriteDurability?
     @ObservationIgnored private var watchingDurability = Set<UUID>()
-    @ObservationIgnored private var active: (id: UUID, session: UUID, copier: any CopyQueueCopier, task: Task<Void, Never>)?
-    @ObservationIgnored private var pendingStop: CopyProgress.Pause?
+    /// A copy being made, by its job.
+    private struct Run {
+        let diskKey: String
+        let session: UUID
+        let copier: any CopyQueueCopier
+        let task: Task<Void, Never>
+        /// Why it was asked to stop, if it was.
+        var pendingStop: CopyProgress.Pause?
+    }
+    @ObservationIgnored private var runs: [UUID: Run] = [:]
     @ObservationIgnored private var cancelling = Set<UUID>()
     @ObservationIgnored private var notBefore: [UUID: Date] = [:]
     @ObservationIgnored private var failures: [UUID: Int] = [:]
@@ -170,7 +179,7 @@ extension ResumableCopier: CopyQueueCopier {}
 
     public func pause(_ id: UUID) async {
         setWriteRequest(id, enabled: false, userPaused: true)
-        if active?.id == id { _ = await stopActive(as: .user) }
+        if runs[id] != nil { _ = await stop(id, as: .user) }
         else { update(id) { $0.progress.pause = .user; $0.progress.pausedAt = Date() } }
     }
 
@@ -185,7 +194,7 @@ extension ResumableCopier: CopyQueueCopier {}
     /// unreadable file), a folder with everything in it, and goes on. While
     /// rechecking, that item lies before `next`.
     public func skip(_ id: UUID) async {
-        guard active?.id != id, let job = jobs.first(where: { $0.id == id }), !job.progress.finished,
+        guard runs[id] == nil, let job = jobs.first(where: { $0.id == id }), !job.progress.finished,
               let at = job.progress.failedAt, at < job.plan.items.count else { return }
         await removeParts([at], of: job)
         let end = (job.plan.leftOut([at]).max() ?? at) + 1
@@ -204,7 +213,7 @@ extension ResumableCopier: CopyQueueCopier {}
         setWriteRequest(id, enabled: false, userPaused: true)
         cancelling.insert(id)
         defer { cancelling.remove(id) }
-        if active?.id == id { _ = await stopActive(as: .user) }
+        if runs[id] != nil { _ = await stop(id, as: .user) }
         if let job = jobs.first(where: { $0.id == id }), !job.progress.finished {
             // Parts can only belong to the items from the recheck point to the next one.
             let progress = job.progress, last = min(progress.next, job.plan.items.count - 1)
@@ -228,13 +237,22 @@ extension ResumableCopier: CopyQueueCopier {}
     /// Never waits for ever: a copy stuck in the system is left to the unmount.
     public func sessionWillEnd(session: UUID? = nil, reconnecting: Bool = false) async {
         if let session { endingSessions.insert(session) } else { endingAll += 1 }
-        if !reconnecting {
-            do { try revokeWriteRequests(session: session ?? active?.session) }
-            catch { Self.log.error("拷贝读写请求未能撤销：\(error.localizedDescription, privacy: .public)") }
-        }
         // Only the copy onto this session's disk: one onto another disk goes on.
-        if let session, let active, active.session != session { return }
-        if await !stopActive(as: .disk) { Self.log.error("拷贝未能在 \(Int(Self.stopTimeout), privacy: .public) 秒内停下") }
+        let stopping = runs.filter { session == nil || $0.value.session == session }
+        if !reconnecting {
+            for ended in session.map({ [$0] }) ?? Array(Set(stopping.values.map(\.session))) {
+                do { try revokeWriteRequests(session: ended) }
+                catch { Self.log.error("拷贝读写请求未能撤销：\(error.localizedDescription, privacy: .public)") }
+            }
+        }
+        // Together: several stuck copies still hold the unmount up for one timeout only.
+        let stopped = await withTaskGroup(of: Bool.self) { group in
+            for id in stopping.keys { group.addTask { await self.stop(id, as: .disk) } }
+            var all = true
+            for await one in group where !one { all = false }
+            return all
+        }
+        if !stopped { Self.log.error("拷贝未能在 \(Int(Self.stopTimeout), privacy: .public) 秒内停下") }
     }
 
     /// The pending copy's current request, consumed once by the mount controller.
@@ -319,14 +337,16 @@ extension ResumableCopier: CopyQueueCopier {}
         defer { advancing = false }
         repeat {
             advanceAgain = false
-            if await startNext() { return }
+            await startWaiting()
         } while advanceAgain
     }
 
-    /// Starts the first copy that can run now; true once one runs.
-    private func startNext() async -> Bool {
-        guard active == nil else { return true }
-        for job in jobs where waiting(job) {
+    /// Starts every copy that can run now: the first waiting one of each disk
+    /// that is writable and has none running.
+    private func startWaiting() async {
+        for id in jobs.map(\.id) {
+            // As it is now: an earlier one's disk may have taken a moment to answer.
+            guard let job = jobs.first(where: { $0.id == id }), waiting(job), !copying(onto: job.plan.diskKey) else { continue }
             if let paused = job.progress.pausedAt, Date().timeIntervalSince(paused) > Self.staleAfter {
                 update(job.id) {
                     $0.progress.pause = .user
@@ -336,17 +356,19 @@ extension ResumableCopier: CopyQueueCopier {}
             }
             if let wait = notBefore[job.id], wait > Date() { continue }
             guard let disk = await writableDisk(job.plan.diskKey), !ending(disk.session) else { continue }
-            if active != nil { return true }
             // Paused, cancelled or started meanwhile.
-            guard let current = jobs.first(where: { $0.id == job.id }), waiting(current) else { continue }
+            guard let current = jobs.first(where: { $0.id == job.id }), waiting(current),
+                  !copying(onto: current.plan.diskKey) else { continue }
             start(current, on: disk)
-            return true
         }
-        return false
     }
 
+    private func copying(onto diskKey: String) -> Bool { runs.values.contains { $0.diskKey == diskKey } }
+
+    /// Not one being cancelled: removing its parts takes a moment, and it must not start meanwhile.
     private func waiting(_ job: Job) -> Bool {
-        !job.progress.finished && !job.running && (job.progress.pause == nil || job.progress.pause == .disk)
+        !job.progress.finished && !job.running && !cancelling.contains(job.id)
+            && (job.progress.pause == nil || job.progress.pause == .disk)
     }
 
     private func start(_ job: Job, on disk: WritableDisk) {
@@ -359,8 +381,10 @@ extension ResumableCopier: CopyQueueCopier {}
         update(job.id) { $0.progress = progress; $0.running = true }
         // A long copy should not slow down with the window closed or let the Mac
         // sleep idly halfway: sleep and unplugging are what interrupts copies.
-        activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
-                                                          reason: String(localized: "正在拷贝到磁盘"))
+        if activity == nil {
+            activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
+                                                              reason: String(localized: "正在拷贝到磁盘"))
+        }
         let id = job.id, store = store, initial = progress, probe = durability, root = disk.root
         Self.log.notice("拷贝开始：\(job.plan.items.count, privacy: .public) 项，续传=\(resuming, privacy: .public)")
         let task = Task { [weak self] in
@@ -401,17 +425,15 @@ extension ResumableCopier: CopyQueueCopier {}
             }
             await self?.finish(id, result, reached: reached, mark: mark)
         }
-        active = (id, disk.session, copier, task)
+        runs[id] = Run(diskKey: job.plan.diskKey, session: disk.session, copier: copier, task: task)
     }
 
     /// `reached`: how far the run got, so a pause does not lose (and recheck) what it copied.
     private func finish(_ id: UUID, _ result: Result<CopyProgress, any Error>, reached: CopyProgress,
                         mark: WriteDurability? = nil) async {
-        guard let run = active, run.id == id else { return }
-        active = nil
-        if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
-        let stop = pendingStop
-        pendingStop = nil
+        guard let run = runs.removeValue(forKey: id) else { return }
+        if runs.isEmpty, let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
+        let stop = run.pendingStop
         let present = diskPresent(jobs.first { $0.id == id }?.plan.diskKey ?? "")
         update(id) { job in
             job.running = false
@@ -484,14 +506,14 @@ extension ResumableCopier: CopyQueueCopier {}
         if !cancelling.contains(id) { await advance() }
     }
 
-    /// Stops the running copy (between two chunks) and waits for its files to
+    /// Stops a running copy (between two chunks) and waits for its files to
     /// be closed, at most `stopTimeout`. An explicit pause by the user wins over
     /// a later stop for another reason.
-    private func stopActive(as reason: CopyProgress.Pause) async -> Bool {
-        guard let active else { return true }
-        if pendingStop != .user { pendingStop = reason }
-        active.copier.stop()
-        return await Self.wait(for: active.task, seconds: Self.stopTimeout)
+    private func stop(_ id: UUID, as reason: CopyProgress.Pause) async -> Bool {
+        guard let run = runs[id] else { return true }
+        if run.pendingStop != .user { runs[id]?.pendingStop = reason }
+        run.copier.stop()
+        return await Self.wait(for: run.task, seconds: Self.stopTimeout)
     }
 
     private static func wait(for task: Task<Void, Never>, seconds: TimeInterval) async -> Bool {

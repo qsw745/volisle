@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
+from test_workdir import finish_workdir, make_workdir
 
 UPSTREAM = ROOT / '.workbench/ntfs-3g-2026.7.7'
 BINARY = ROOT / '.workbench/volume-sync-20260924/probe.dylib'
@@ -33,7 +33,7 @@ def main():
     lib.probe_pending_security_index.restype = C.c_int
     lib.probe_close_security.argtypes = [C.c_void_p]
     lib.probe_close_security.restype = C.c_int
-    folder = Path(tempfile.mkdtemp(prefix='volume-sync-', dir=ROOT / '.workbench'))
+    folder = make_workdir('volume-sync-')
     base = folder / 'base.img'
     with base.open('xb') as stream:
         stream.truncate(64 * 1024 * 1024)
@@ -161,6 +161,7 @@ def main():
         report = {'success': success, 'checks': checks, 'metadataWriteCounts': counts, 'fixture': str(folder)}
         (folder / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report), flush=True)
+        finish_workdir(folder, success)
 
 
 if __name__ == '__main__':

@@ -7,9 +7,9 @@ import ctypes as C
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from fixture_block_journal import sha
+from test_workdir import finish_workdir, make_workdir
 
 OUT = ROOT / '.workbench/device-recovery-20260925'
 UPSTREAM = ROOT / '.workbench/ntfs-3g-2026.7.7'
@@ -40,7 +40,7 @@ def main():
                     'apps/extension/Sources/NTFSReadOnlyInspection.swift', 'scripts/test-readonly-inspection.swift',
                     str(OUT / 'ntfs_bridge.o'), str(UPSTREAM / 'libntfs-3g/.libs/libntfs-3g.a'),
                     '-framework', 'CoreFoundation', '-o', str(OUT / 'inspection')], cwd=ROOT, check=True)
-    folder = Path(tempfile.mkdtemp(prefix='block-journal-', dir=ROOT / '.workbench'))
+    folder = make_workdir('block-journal-')
     base = folder / 'base.img'
     with base.open('xb') as stream:
         stream.truncate(64 * 1024 * 1024)
@@ -369,6 +369,7 @@ def main():
                   'fixture': str(folder)}
         (folder / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps({'success': success, 'passed': len(checks), 'report': str(folder / 'result.json')}), flush=True)
+        finish_workdir(folder, success)
 
 
 if __name__ == '__main__':
