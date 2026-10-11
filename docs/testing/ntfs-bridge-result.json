@@ -1,6 +1,6 @@
 {
-  "executed_at": "2026-10-06T05:21:20.583965+00:00",
-  "engine": "NTFS-3G 2026.7.7 + Volisle callback bridge",
+  "executed_at": "2026-10-11T07:04:43.844246+00:00",
+  "engine": "NTFS-3G 2026.9.28 + Volisle callback bridge",
   "scope": "新建普通文件镜像，未 attach，未访问原始设备",
   "checks": [
     {

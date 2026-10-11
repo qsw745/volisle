@@ -5,6 +5,7 @@ import ctypes as C
 import errno
 import hashlib
 import json
+import signal
 import struct
 import subprocess
 import tempfile
@@ -84,6 +85,28 @@ def corrupt_record(path, mft_number):
         assert f.read(4) == b'FILE'
         f.seek(mft * cluster + mft_number * record)
         f.write(b'BAAD')
+
+
+def circular_attributes(path, mft_number=12):
+    """Two attributes that send a walk of the record in a circle: 24 bytes
+    forward, then 2^32 - 24 "forward", which in 32 bits is 24 back. Record 12
+    is reserved: in use, in no folder, so only the allocation check reads it."""
+    cluster, record, mft, _ = geometry(path)
+    with path.open('r+b') as f:
+        pos = mft * cluster + mft_number * record
+        f.seek(pos)
+        data = bytearray(f.read(record))
+        assert data[:4] == b'FILE' and struct.unpack_from('<H', data, 22)[0] & 1, '记录应在使用中'
+        at = struct.unpack_from('<H', data, 20)[0]
+        assert at + 56 < 510, '改动不能碰到扇区末尾的更新序列'
+        struct.pack_into('<II', data, at, 0x10, 24)
+        data[at + 8] = 0  # resident
+        struct.pack_into('<II', data, at + 24, 0x10, (1 << 32) - 24)
+        data[at + 32] = 0
+        struct.pack_into('<I', data, at + 48, 0xffffffff)
+        struct.pack_into('<I', data, 24, at + 56)  # bytes in use
+        f.seek(pos)
+        f.write(data)
 
 
 def clear(device):
@@ -175,6 +198,22 @@ with tempfile.TemporaryDirectory(prefix='volisle-check-', dir=ROOT / '.workbench
     device.close()
     assert digest(path) == before
     passed('文件记录损坏的卷：检查失败并报告记录号，零写入，镜像一个字节不变，仍标记为需要检查')
+
+    # An attribute length near 4 GiB: adding it to the offset wraps. Before
+    # 0.9.3 the check then walked the record in a circle and never returned.
+    path, _, _ = build(folder, 'wrapped-length.img')
+    circular_attributes(path)
+    mark_dirty(path)
+    before = digest(path)
+    device = ImageIO(path)
+    signal.alarm(120)  # a check that hangs ends this test instead of passing never
+    rc, error, _, reason = clear(device)
+    signal.alarm(0)
+    assert (rc, error, reason) == (-1, errno.EIO, 'inconsistent record 12: record layout broken'), (rc, error, reason)
+    assert device.writes == 0 and device.inspect() == 1
+    device.close()
+    assert digest(path) == before
+    passed('属性长度接近 4 GiB（与偏移相加会回绕）的记录：检查立即拒绝并报告记录号，不卡住，零写入，镜像不变')
 
     # The disk stops answering partway through (a bad sector, a loose cable):
     # at every read the check makes. A read failure is never reported as a

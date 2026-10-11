@@ -1,0 +1,6 @@
+盘屿 0.9.3 · Volisle 0.9.3
+
+· 安全修复：“在 Mac 上检查”遇到文件记录被破坏（或被人故意改坏）的磁盘时，可能卡住不动，或读到不属于这块盘的内存。现在会认出这种记录并拒绝检查，磁盘不做任何改动。建议所有用户更新。
+· 改进：内置的 NTFS 读写核心升级到 NTFS-3G 2026.9.28，它对损坏的磁盘结构多做了几项检查（权限信息、属性列表、日志、扩展属性、文件夹索引），遇到坏盘更稳。
+· Security fix: “Check on Mac” could hang, or read memory that doesn’t belong to the disk, when a disk’s file records were damaged (or deliberately tampered with). Such records are now recognized and the check is refused, with nothing changed on the disk. Everyone is encouraged to update.
+· Improved: the built-in NTFS core is now NTFS-3G 2026.9.28, which checks damaged disk structures more thoroughly (permissions, attribute lists, the log, extended attributes, folder indexes) and copes better with bad disks.

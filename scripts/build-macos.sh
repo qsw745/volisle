@@ -10,6 +10,9 @@ bin_dir="$(swift build --package-path apps/macos -c release --arch arm64 --arch 
 app_dir="$project_root/apps/macos/build/Volisle.app"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 cp "$bin_dir/Volisle" "$app_dir/Contents/MacOS/Volisle"
+# The build folder is reused: nothing an earlier build (of another branch) put
+# beside the helper may ride along unsigned into this package.
+rm -rf "$app_dir/Contents/Library"
 mkdir -p "$app_dir/Contents/Library/LaunchServices" "$app_dir/Contents/Library/LaunchDaemons"
 cp "$bin_dir/VolisleMountHelper" "$app_dir/Contents/Library/LaunchServices/VolisleMountHelper"
 cp "$project_root/apps/macos/Helper/top.qisw.volisle.mount-helper.plist" "$app_dir/Contents/Library/LaunchDaemons/"
