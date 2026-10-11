@@ -8,7 +8,7 @@ from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from fixture_block_journal import recover, sha
 from test_workdir import finish_workdir, make_workdir
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 OUT = ROOT / '.workbench/metadata-pipeline-20260924'
 SENTINEL = b'previous-existing-content\n' * 256
 
@@ -17,7 +17,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     # Compile current sources directly; never reuse a potentially stale C
     # object left by a previous extension build. No experimental C switches.
-    upstream = ROOT / '.workbench/ntfs-3g-2026.7.7'
+    upstream = ROOT / '.workbench/ntfs-3g-2026.9.28'
     subprocess.run(['clang', '-target', 'arm64-apple-macos26.4', '-c', '-fPIC', '-DHAVE_CONFIG_H',
                     '-I', str(upstream), '-I', str(upstream / 'include'),
                     'packages/VolisleNTFS/bridge/ntfs_bridge.c', '-o', str(OUT / 'ntfs_bridge.o')],
@@ -27,7 +27,7 @@ def main():
                     'apps/extension/Sources/MetadataWritePipeline.swift',
                     'scripts/fixtures/metadata_pipeline_driver.swift',
                     str(OUT / 'ntfs_bridge.o'),
-                    '.workbench/ntfs-3g-2026.7.7/libntfs-3g/.libs/libntfs-3g.a',
+                    '.workbench/ntfs-3g-2026.9.28/libntfs-3g/.libs/libntfs-3g.a',
                     '-framework', 'CoreFoundation', '-o', str(OUT / 'driver')], cwd=ROOT, check=True)
     folder = make_workdir('block-journal-')
     base = folder / 'base.img'

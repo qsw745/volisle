@@ -40,7 +40,7 @@ def prepare(size=SIZE):
         stream.truncate(size)
     payload = folder / 'payload.txt'
     payload.write_text('盘屿 FSKit 只读镜像验收\n' * 4096, encoding='utf-8')
-    tools = WORK / 'ntfs-3g-2026.7.7/ntfsprogs'
+    tools = WORK / 'ntfs-3g-2026.9.28/ntfsprogs'
     run([tools / 'mkntfs', '-F', '-Q', '-L', 'VOLISLE_RO_TEST', image])
     run([tools / 'ntfscp', image, payload, '/' + NAME])
     observed = run([tools / 'ntfscat', image, '/' + NAME]).stdout

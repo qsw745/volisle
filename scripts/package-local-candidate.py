@@ -38,7 +38,7 @@ def main():
     source_inputs = validate_corresponding_source(app, ROOT)
     subprocess.run([str(ROOT / 'apps/macos/.build/out/Products/Release/VolisleHelperProbe'), '--check-package', str(app)], check=True)
     upstream = ROOT / '.workbench/ntfs-3g.tgz'
-    if digest(upstream) != 'd67b769025d32860549d35c2147e45024d172f81c540d750390ce3602c059dab': parser.error('对应上游源码不匹配')
+    if digest(upstream) != '350d9415c59f7c3fa74e23985ad2d56423c6a168337368f672e2e362d8f295c8': parser.error('对应上游源码不匹配')
     guide = ROOT / 'docs/release/开始使用.md'
     if not guide.is_file(): parser.error('缺少开始使用说明')
     version = json.loads((ROOT / 'config/updates.json').read_text())['version']

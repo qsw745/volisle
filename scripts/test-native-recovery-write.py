@@ -26,7 +26,7 @@ def scenario(mode):
     image = folder / 'recovery.img'
     with image.open('xb') as stream:
         stream.truncate(64 * 1024 * 1024)
-    run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs', '-F', '-Q', '-L', 'Volisle Recovery Test', image])
+    run([ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs', '-F', '-Q', '-L', 'Volisle Recovery Test', image])
     baseline = digest(image)
     boot = hashlib.sha256(image.read_bytes()[:512]).hexdigest()
     with image.open('r+b') as stream:

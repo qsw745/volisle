@@ -3,6 +3,11 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.2 · October 10, 2026</h2><ul>
+<li>New: when &quot;Check on This Mac&quot; finds folder entries pointing to files or folders that were deleted, Volisle can remove those entries on your Mac, with your consent, and turn on writing. Everything it changes is backed up first and restored if any step fails. Checking the disk in Windows is still the safer option.</li>
+<li>Improved: &quot;Check on This Mac&quot; is stricter and verifies that every folder entry still points to the original file; when it fails, it shows more specific technical details (without file names).</li>
+<li>New: copies to different disks now run at the same time; copies to the same disk wait in line.</li>
+</ul>
 <h2>0.9.1 · October 9, 2026</h2><ul>
 <li>Fixed: a disk that was not ejected safely from Windows and that Windows had also marked as needing a check could neither be recovered nor checked on the Mac, only on Windows. “Recover on Mac” now handles it: it finishes the changes Windows left unwritten, checks every file and folder, and only then allows writing; if anything is wrong, the disk is put back exactly as it was.</li>
 <li>Improved: hidden files the Mac creates on its own (.DS_Store, files starting with ._, .Trashes and the like) no longer show up in Windows, even with “Hidden items” turned on. Dot files you create yourself are not affected. Such files created before can simply be deleted in Windows.</li>

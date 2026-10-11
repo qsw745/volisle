@@ -23,7 +23,7 @@ def main():
     image = folder / 'readonly.img'
     with image.open('xb') as stream:
         stream.truncate(64*1024*1024)
-    mkntfs = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs'
+    mkntfs = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs'
     run([mkntfs, '-F', '-Q', '-L', 'Volisle Claim Test', image])
     original = hashlib.sha256(image.read_bytes()).hexdigest()
     device = None

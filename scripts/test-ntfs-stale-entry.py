@@ -36,7 +36,7 @@ from pathlib import Path
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO, PREAD, PWRITE, SYNC, IO
 import ntfs_stale_entry_fixture as fixture
 
-TOOLS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+TOOLS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 KEEP = Path(sys.argv[sys.argv.index('--keep-images') + 1]) if '--keep-images' in sys.argv else None
 NK_STALE_MAX = 8
 CHECK_CLEAN, CHECK_DIRTY, CHECK_UNKNOWN = 0, 1, 4

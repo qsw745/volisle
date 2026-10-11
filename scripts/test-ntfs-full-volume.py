@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 LIB.nk_write.argtypes = [C.c_void_p, C.c_char_p, C.c_longlong, C.c_longlong, C.c_char_p]
 LIB.nk_write.restype = C.c_longlong
 LIB.nk_read.argtypes = [C.c_void_p, C.c_char_p, C.c_longlong, C.c_longlong, C.c_char_p]

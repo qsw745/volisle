@@ -60,7 +60,7 @@ def main(folder,signed):
             assert result['dirty_status']==1 and inspection.writes==0
         finally: inspection.close()
         before=sha256(image)
-        assert run([WORK/'ntfs-3g-2026.7.7/ntfsprogs/ntfscat','-f',image,'/durable.bin']).stdout==content
+        assert run([WORK/'ntfs-3g-2026.9.28/ntfsprogs/ntfscat','-f',image,'/durable.bin']).stdout==content
         assert sha256(image)==before  # ntfscat opens read-only, even with dirty-volume inspection enabled.
         result['checks'].append('durable-content-preserved-independent-reader')
         with fixture_write.mounted(image,True,result) as root:

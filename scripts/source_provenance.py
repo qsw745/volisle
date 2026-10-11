@@ -9,7 +9,7 @@ from pathlib import Path
 import stat
 import tarfile
 
-UPSTREAM_SHA = 'd67b769025d32860549d35c2147e45024d172f81c540d750390ce3602c059dab'
+UPSTREAM_SHA = '350d9415c59f7c3fa74e23985ad2d56423c6a168337368f672e2e362d8f295c8'
 REQUIRED = ['LICENSE', 'LICENSE_SCOPE.md', 'README.md', 'config/signing.json', 'config/updates.json', '.workbench/Sparkle-2.10.0-source.tar.gz',
             'apps/macos/Package.swift', 'docs/release/自己发布新版本.md', 'docs/release/自动更新.md', '.workbench/ntfs-3g.tgz']
 FOLDERS = ['apps/macos/Sources', 'apps/macos/Helper', 'apps/extension', 'apps/web',

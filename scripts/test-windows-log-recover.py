@@ -24,7 +24,7 @@ from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 
 FIXTURES = ROOT / '.workbench/log-fixtures'
 DIRTY = ROOT / '.workbench/check-fixtures/rich.img'
-TOOLS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+TOOLS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 CHECK_CLEAN, CHECK_DIRTY, CHECK_LOG_UNSAFE = 0, 1, 3
 EALREADY, EBUSY, EIO = 37, 16, 5
 

@@ -23,7 +23,7 @@ LIB.nk_reference_path.argtypes=[C.c_void_p,C.c_char_p,C.POINTER(C.c_uint64)]
 LIB.nk_set_file_mode.argtypes=[C.c_void_p,C.c_char_p,C.c_uint32]
 DIR_CB=C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_void_p)
 LIB.nk_list.argtypes=[C.c_void_p,C.c_char_p,DIR_CB,C.c_void_p]
-BIN=ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN=ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 
 def extract(image,path,attr=None):
     if attr=='security':

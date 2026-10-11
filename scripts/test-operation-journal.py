@@ -14,7 +14,7 @@ from fixture_operation_journal import OperationJournal, recover_session
 import fixture_operation_journal as module
 from test_workdir import finish_workdir, make_workdir
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 OLD = b'previously acknowledged data\n' * 256
 NEW = b'next acknowledged version\n' * 256
 

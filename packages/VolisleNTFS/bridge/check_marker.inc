@@ -201,7 +201,8 @@ static int check_allocation(ntfs_volume *vol, u64 records, u64 *failed_at, const
             ATTR_RECORD *a = (ATTR_RECORD *)((char *)m + at);
             if (a->type == AT_END) break;
             u32 length = le32_to_cpu(a->length);
-            if (length < 16 || at + length > used) { *why = "record layout broken"; goto out; }
+            /* Subtract, never add: a huge on-disk length would wrap at + length. */
+            if (length < 16 || length > used - at) { *why = "record layout broken"; goto out; }
             /* Removing a stale entry must not leave a record in use whose
              * folder (its file name's parent) is that entry. */
             if (stale_count && a->type == AT_FILE_NAME && !a->non_resident && length >= 24) {

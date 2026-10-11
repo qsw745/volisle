@@ -12,7 +12,7 @@ from fixture_block_journal import sha
 from test_workdir import finish_workdir, make_workdir
 
 OUT = ROOT / '.workbench/device-recovery-20260925'
-UPSTREAM = ROOT / '.workbench/ntfs-3g-2026.7.7'
+UPSTREAM = ROOT / '.workbench/ntfs-3g-2026.9.28'
 BIN = UPSTREAM / 'ntfsprogs'
 SENTINEL = b'authenticated-native-transaction-sentinel\n' * 256
 

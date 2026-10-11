@@ -29,7 +29,7 @@ def read(v,path,size,offset=0):
 with tempfile.TemporaryDirectory(prefix='volisle-bridge-',dir=ROOT/'.workbench') as tmp:
     folder=Path(tmp);base=folder/'clean.img'
     with base.open('xb') as f:f.truncate(64*1024*1024)
-    subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs'),'-F','-Q','-L','VOLISLE_TEST',str(base)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,check=True,timeout=45)
+    subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs'),'-F','-Q','-L','VOLISLE_TEST',str(base)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,check=True,timeout=45)
     clean_hash=digest(base);device=ImageIO(base)
     assert device.inspect()==0
     assert device.writes==0 and digest(base)==clean_hash
@@ -61,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix='volisle-bridge-',dir=ROOT/'.workbench')
     assert LIB.nk_umount(v)==0;device.close()
     passed('创建、随机覆盖、中文路径、移动改名、截断、同步与关闭')
     # New native process, independent engine API, read the same persisted file.
-    observed=subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfscat'),str(base),destination.decode()],capture_output=True,check=True,timeout=30).stdout
+    observed=subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfscat'),str(base),destination.decode()],capture_output=True,check=True,timeout=30).stdout
     assert hashlib.sha256(observed).digest()==hashlib.sha256(payload).digest()
     passed('新进程 ntfscat 重新读取，内容 SHA-256 一致')
     device=ImageIO(base);v=device.mount();assert v
@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix='volisle-bridge-',dir=ROOT/'.workbench')
     badlog=folder/'badlog.img';shutil.copyfile(base,badlog)
     # Offline fixture tool only; production bridge cannot modify metadata files.
     logpayload=folder/'log.bin';logpayload.write_bytes(b'BROKEN_LOG'*4096)
-    subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfscp'),str(badlog),str(logpayload),'/$LogFile'],capture_output=True,check=True,timeout=30)
+    subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfscp'),str(badlog),str(logpayload),'/$LogFile'],capture_output=True,check=True,timeout=30)
     before=digest(badlog);device=ImageIO(badlog)
     assert device.inspect()!=0 and not device.mount()
     assert device.writes==0 and digest(badlog)==before;device.close()
@@ -165,7 +165,7 @@ with tempfile.TemporaryDirectory(prefix='volisle-bridge-',dir=ROOT/'.workbench')
     assert LIB.nk_xattr_remove(v,path,b'empty')==0
     assert LIB.nk_xattr_remove(v,path,b'empty')==-1 and C.get_errno()==errno.ENOATTR
     assert LIB.nk_umount(v)==0;device.close()
-    observed=subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfscat'),'-n',name.decode(),str(attrs),path.decode()],capture_output=True,check=True,timeout=30).stdout
+    observed=subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfscat'),'-n',name.decode(),str(attrs),path.decode()],capture_output=True,check=True,timeout=30).stdout
     assert observed==value
     passed('扩展属性新增、替换策略、空值、中文名、大值缩短、删除与独立进程持久化')
     device=ImageIO(attrs,readonly=True);v=device.mount();assert v;before=digest(attrs)
@@ -225,7 +225,7 @@ os._exit(73)
     # writing inside existing allocation works and the volume closes clean.
     assert write(v,b'/sentinel',b'allowed!!')==9
     assert LIB.nk_umount(v)==0 and device.inspect()==0;device.close()
-    observed=subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfscat'),'-f',str(full),'/sentinel'],capture_output=True,check=True,timeout=30).stdout
+    observed=subprocess.run([str(ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfscat'),'-f',str(full),'/sentinel'],capture_output=True,check=True,timeout=30).stdout
     assert observed==b'allowed!!'+sentinel[9:]
     passed('真实镜像写满时返回空间不足，会话不锁定，已有文件仍可写入，卸载后卷干净')
     closing=folder/'close-baseline.img';shutil.copyfile(base,closing);device=ImageIO(closing)
@@ -248,5 +248,5 @@ os._exit(73)
     assert LIB.nk_umount(v)!=0
     assert device.inspect()==1;device.close()
     passed('同步失败锁定会话并保留 dirty 标记')
-report={'executed_at':datetime.now(timezone.utc).isoformat(),'engine':'NTFS-3G 2026.7.7 + Volisle callback bridge','scope':'新建普通文件镜像，未 attach，未访问原始设备','checks':checks,'temporary_images_removed':not folder.exists(),'not_covered':['FSKit 扩展安装与 Finder 挂载','Windows 与 chkdsk','真实拔盘、断电、睡眠','完整特性与兼容性矩阵']}
+report={'executed_at':datetime.now(timezone.utc).isoformat(),'engine':'NTFS-3G 2026.9.28 + Volisle callback bridge','scope':'新建普通文件镜像，未 attach，未访问原始设备','checks':checks,'temporary_images_removed':not folder.exists(),'not_covered':['FSKit 扩展安装与 Finder 挂载','Windows 与 chkdsk','真实拔盘、断电、睡眠','完整特性与兼容性矩阵']}
 (ROOT/'docs/testing/ntfs-bridge-result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')

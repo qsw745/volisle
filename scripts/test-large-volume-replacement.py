@@ -11,7 +11,7 @@ LIB.nk_replace_preserving.restype = C.c_int
 with tempfile.TemporaryDirectory(prefix='volisle-large-volume-', dir=ROOT/'.workbench') as tmp:
     image = Path(tmp)/'fixture.img'
     with image.open('xb') as f: f.truncate(512 * 1024 * 1024)
-    subprocess.run([ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs','-F','-Q',image],capture_output=True,check=True)
+    subprocess.run([ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs','-F','-Q',image],capture_output=True,check=True)
     io=ImageIO(image);v=io.mount();assert v
     try:
         for name,data in [(b'draft',b'new'),(b'document',b'old')]:
@@ -21,13 +21,13 @@ with tempfile.TemporaryDirectory(prefix='volisle-large-volume-', dir=ROOT/'.work
     finally:
         assert LIB.nk_umount(v)==0;io.close()
     for name,expected in [('/document',b'new'),('/.saved-old',b'old')]:
-        assert subprocess.check_output([ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfscat',image,name])==expected
+        assert subprocess.check_output([ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfscat',image,name])==expected
 print('512 MiB 桥接覆盖及独立新旧版本读取通过。')
 
 with tempfile.TemporaryDirectory(prefix='volisle-large-volume-', dir=ROOT/'.workbench') as tmp:
     image=Path(tmp)/'outside-size.img'
     with image.open('xb') as f:f.truncate(128*1024*1024)
-    subprocess.run([ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs','-F','-Q',image],capture_output=True,check=True)
+    subprocess.run([ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs','-F','-Q',image],capture_output=True,check=True)
     io=ImageIO(image);v=io.mount();assert v
     try:
         before=io.writes

@@ -64,7 +64,7 @@ def scenario(mode):
     folder=make_workdir('native-write-reconnect-')
     original=folder/'original.img'
     with original.open('xb') as stream: stream.truncate(64*1024*1024)
-    run([ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs','-F','-Q','-L','Volisle Reconnect',original])
+    run([ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs','-F','-Q','-L','Volisle Reconnect',original])
     baseline=sha(original); boot=hashlib.sha256(original.read_bytes()[:512]).hexdigest()
     with original.open('r+b') as stream:
         stream.seek(16*1024*1024); assert stream.read(4096)==bytes(4096)

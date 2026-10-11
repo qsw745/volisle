@@ -17,7 +17,7 @@ def main():
     replace = LIB.nk_replace_between
     replace.argtypes = [C.c_void_p] + [C.c_char_p] * 5
     replace.restype = C.c_int
-    tools = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+    tools = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
     folder = make_workdir('volisle-replacement-cross-')
     base = folder / 'base.img'
     with base.open('xb') as stream: stream.truncate(64 * 1024 * 1024)

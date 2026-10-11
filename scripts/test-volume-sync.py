@@ -8,7 +8,7 @@ import subprocess
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from test_workdir import finish_workdir, make_workdir
 
-UPSTREAM = ROOT / '.workbench/ntfs-3g-2026.7.7'
+UPSTREAM = ROOT / '.workbench/ntfs-3g-2026.9.28'
 BINARY = ROOT / '.workbench/volume-sync-20260924/probe.dylib'
 STAMP = 1701234567
 

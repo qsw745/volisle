@@ -12,7 +12,7 @@ from pathlib import Path
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from test_workdir import finish_workdir, make_workdir
 
-UP=ROOT/'.workbench/ntfs-3g-2026.7.7'
+UP=ROOT/'.workbench/ntfs-3g-2026.9.28'
 BIN=UP/'ntfsprogs'
 replace=LIB.nk_replace_between
 replace.argtypes=[C.c_void_p]+[C.c_char_p]*5;replace.restype=C.c_int

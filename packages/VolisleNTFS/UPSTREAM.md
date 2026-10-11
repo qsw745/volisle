@@ -6,7 +6,7 @@ https://github.com/whereteam/ntfskit/tree/b7153a8dd51b895d0a87345c6ad8e95bda963e
 
 原文件标识 GPL-2.0-or-later；根 LICENSE 对驱动声明 GPL v2。保留文件标识和 GPL v2 全文，本组合按 GPL v2 条件准备。上游界面、品牌与二进制没有复制。
 
-链接核心：NTFS-3G 2026.7.7；来源与 SHA-256 固定在 scripts/prepare-ntfs-probe.py。对应源码当前下载到 .workbench，不在主应用中捆绑。公开二进制分发前必须提供实际对应的完整源代码及构建脚本，仅链接上游仓库不替代该义务。
+链接核心：NTFS-3G 2026.9.28；来源与 SHA-256 固定在 scripts/prepare-ntfs-probe.py。对应源码当前下载到 .workbench，不在主应用中捆绑。公开二进制分发前必须提供实际对应的完整源代码及构建脚本，仅链接上游仓库不替代该义务。
 
 2026-09-20 盘屿修改：
 - 删除原始设备路径接口，只允许宿主显式提供块 I/O 回调。
@@ -26,3 +26,5 @@ https://github.com/whereteam/ntfskit/tree/b7153a8dd51b895d0a87345c6ad8e95bda963e
 - 2026-10-10：仅后台组件构建（NK_WITH_FORMAT）。“在 Mac 上检查”对每个目录索引项比对 MFT 序列号，报告失效条目（附所在文件夹记录号与两个序列号，不含名字）。新增 stale_entry.inc：只读研判后，经用户同意用 NTFS-3G 的 ntfs_index_lookup/ntfs_index_rm 删除失效的叶子索引项，不改被指向的记录；先置 dirty，删除后逐项按索引查回核对、完整检查通过才清 dirty；写前由宿主保存被覆盖内容，失败原样还原。只在普通文件镜像验证。
 
 注意：上游的错误处理和文件特性支持仍须逐项测试。当前桥接不是可对真实用户卷开放的成品驱动。
+
+- 2026-10-11：链接核心升级到 NTFS-3G 2026.9.28（含 2026.9.18 的安全描述符/ACL、属性列表、$LogFile 重启区、扩展属性、外部属性名、索引项的越界校验，以及 ntfsrecover 的 realloc 检查）。SHA-256 取自上游 GitHub 发布说明；tuxera.com 证书于 2026-10-09 过期，源码包经 SHA-256 与 SHA-512 双重核对、并与 GitHub 标签源码逐字比对后手动放入 .workbench。两个本地补丁原样适用。

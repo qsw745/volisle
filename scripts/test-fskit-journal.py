@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO  # noqa: E402
 from test_workdir import finish_workdir, make_workdir
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 APP = Path.home() / 'Applications/Volisle Test.app'
 EXT = APP / 'Contents/Extensions/VolisleFS.appex/Contents/MacOS/VolisleFS'
 SENTINEL = b'fskit-journal-existing-data\n' * 512

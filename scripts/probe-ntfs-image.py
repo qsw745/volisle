@@ -4,8 +4,8 @@
 """
 import hashlib, json, pathlib, subprocess, tempfile, time
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TOOLS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
-report = {'engine': 'NTFS-3G 2026.7.7', 'scope': '离线可丢弃镜像；不是 Finder 挂载验证', 'checks': [],
+TOOLS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
+report = {'engine': 'NTFS-3G 2026.9.28', 'scope': '离线可丢弃镜像；不是 Finder 挂载验证', 'checks': [],
           'not_covered': ['Finder 挂载', '重命名', '移动', '删除', '卸载重挂', 'Windows 交叉读取和 chkdsk', '异常断电', '休眠/dirty 风险检测']}
 
 def run(tool, *args):

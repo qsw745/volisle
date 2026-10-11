@@ -12,7 +12,7 @@ LIB.nk_abort_write_session.restype = None
 with tempfile.TemporaryDirectory(prefix='volisle-abort-', dir=ROOT / '.workbench') as tmp:
     image = Path(tmp) / 'fixture.img'
     with image.open('xb') as stream: stream.truncate(64 * 1024 * 1024)
-    subprocess.run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs', '-F', '-Q', image],
+    subprocess.run([ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs', '-F', '-Q', image],
                    check=True, capture_output=True, timeout=45)
     io = ImageIO(image); volume = io.mount(); assert volume
     assert LIB.nk_create(volume, b'/', b'saved') == 0 and LIB.nk_sync(volume) == 0

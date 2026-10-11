@@ -13,7 +13,7 @@ from fixture_block_journal import BlockJournal, recover
 import fixture_block_journal as journal_module
 from test_workdir import finish_workdir, make_workdir
 
-BIN=ROOT/'.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN=ROOT/'.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 SENTINEL=b'preserve-existing-file'*128
 
 class JournalIO(ImageIO):

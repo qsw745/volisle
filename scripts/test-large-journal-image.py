@@ -21,7 +21,7 @@ def main():
     image = folder / 'fixture.img'
     with image.open('xb') as stream:
         stream.truncate(64 * 1024 * 1024)
-    tools = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+    tools = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
     subprocess.run([tools / 'mkntfs', '-F', '-Q', image], check=True, capture_output=True, timeout=45)
     io = ImageIO(image); volume = io.mount(); assert volume
     expected = {}

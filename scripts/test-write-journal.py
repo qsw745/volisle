@@ -16,8 +16,8 @@ import time
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from test_workdir import finish_workdir, make_workdir
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
-SRC = ROOT / '.workbench/ntfs-3g-2026.7.7'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
+SRC = ROOT / '.workbench/ntfs-3g-2026.9.28'
 OUT = ROOT / '.workbench/write-journal-20260925'
 SENTINEL = b'unchanged-existing-data' * 128
 SOURCES = ['MetadataBlocks', 'MetadataWritePipeline', 'WriteJournalStore', 'WriteJournal', 'WriteJournalRecovery']

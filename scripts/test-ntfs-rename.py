@@ -21,13 +21,13 @@ def create(volume, name, data):
 
 
 def read(image, name):
-    result = subprocess.run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfscat',
+    result = subprocess.run([ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfscat',
                              '-f', image, name], capture_output=True, timeout=15)
     return result.stdout if result.returncode == 0 else None
 
 
 def listing(image, path):
-    result = subprocess.run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfsls', '-f', '-p', path, image],
+    result = subprocess.run([ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfsls', '-f', '-p', path, image],
                             capture_output=True, timeout=15)
     return sorted(set(result.stdout.decode().split()) - {'.', '..'}) if result.returncode == 0 else None
 
@@ -37,7 +37,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='volisle-rename-', dir=ROOT / '.workbench') as tmp:
         folder = Path(tmp); base = folder / 'base.img'
         with base.open('xb') as stream: stream.truncate(64 * 1024 * 1024)
-        subprocess.run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs', '-F', '-Q', base],
+        subprocess.run([ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs', '-F', '-Q', base],
                        check=True, capture_output=True, timeout=45)
         io = ImageIO(base); volume = io.mount(); assert volume
         create(volume, b'source', PAYLOAD); create(volume, b'existing', SENTINEL)
@@ -81,7 +81,7 @@ def main():
         assert listing(tree, '/documents/report.rtfd') == ['Data', 'TXT.rtf']
         assert listing(tree, '/renamed-directory') == ['child'] and listing(tree, '/directory') is None
         assert 'saving' not in listing(tree, '/') and 'still-writable' in listing(tree, '/')
-        assert subprocess.run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfsfix', '-n', tree],
+        assert subprocess.run([ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfsfix', '-n', tree],
                               capture_output=True, timeout=30).returncode == 0
         report['checks'].append('non-empty-folders-rename-and-move-delete-refused-without-lock')
 

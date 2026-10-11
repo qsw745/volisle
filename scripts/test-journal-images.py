@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from journal_image_recovery import export_checkpoints
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 DRIVER = ROOT / '.workbench/test-journal-image'
 OLD = b'old-version' + b'A' * 16384
 NEW = b'new-version' + b'B' * 32768

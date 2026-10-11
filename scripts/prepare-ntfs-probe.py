@@ -6,8 +6,8 @@ parser.add_argument('--clean', action='store_true', help='从固定源码重新�
 args=parser.parse_args()
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 WORK=ROOT/'.workbench'; WORK.mkdir(exist_ok=True)
-VERSION='2026.7.7'
-SHA='d67b769025d32860549d35c2147e45024d172f81c540d750390ce3602c059dab'
+VERSION='2026.9.28'
+SHA='350d9415c59f7c3fa74e23985ad2d56423c6a168337368f672e2e362d8f295c8'
 archive=WORK/'ntfs-3g.tgz'
 if not archive.exists():
     # The host refuses Python's default User-Agent (HTTP 403); the hash check below still decides.

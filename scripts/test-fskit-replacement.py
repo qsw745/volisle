@@ -207,9 +207,9 @@ def main(folder, signed, ui_review=False, lifecycle_stress=False, app_review=Fal
                     time.sleep(1)
                 assert (destination / 'Finder 覆盖.txt').read_bytes() == 'Finder 新版本内容\n'.encode()
                 result['checks'].append('finder-overwrite-content-verified')
-        observed = fskit.run([WORK / 'ntfs-3g-2026.7.7/ntfsprogs/ntfscat', image, '/document.bin']).stdout
+        observed = fskit.run([WORK / 'ntfs-3g-2026.9.28/ntfsprogs/ntfscat', image, '/document.bin']).stdout
         assert observed == new_data
-        observed_large = fskit.run([WORK / 'ntfs-3g-2026.7.7/ntfsprogs/ntfscat', image, '/large-document.bin']).stdout
+        observed_large = fskit.run([WORK / 'ntfs-3g-2026.9.28/ntfsprogs/ntfscat', image, '/large-document.bin']).stdout
         assert observed_large == new_large
         from ntfs_bridge_test_support import ImageIO
         device = ImageIO(image, readonly=True)

@@ -2,7 +2,7 @@
 set -euo pipefail
 project_root="${0:A:h:h}"
 cd "$project_root"
-source_dir="$project_root/.workbench/ntfs-3g-2026.7.7"
+source_dir="$project_root/.workbench/ntfs-3g-2026.9.28"
 if [[ ! -f "$source_dir/libntfs-3g/.libs/libntfs-3g.a" ]]; then
   python3 scripts/prepare-ntfs-probe.py
 fi

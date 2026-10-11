@@ -6,7 +6,7 @@ without mounting it on the host, so neither Finder nor Volisle there touch it.
   make-ntfs-disk.py <out.img> [--size-gb 8] [--label NTFSTEST] [--mbr]
 
 Needs the NTFS tools and bridge the write-journal tests build:
-  make -C .workbench/ntfs-3g-2026.7.7/ntfsprogs mkntfs && zsh scripts/build-ntfs-bridge.sh
+  make -C .workbench/ntfs-3g-2026.9.28/ntfsprogs mkntfs && zsh scripts/build-ntfs-bridge.sh
 """
 import argparse
 import hashlib
@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from ntfs_bridge_test_support import LIB, ImageIO  # noqa: E402
 
-MKNTFS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs'
+MKNTFS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs'
 SECTOR = 512
 START = 2048  # 1 MiB, as Windows and Disk Utility align
 BASIC_DATA = uuid.UUID('EBD0A0A2-B9E5-4433-87C0-68B6B72699C7')

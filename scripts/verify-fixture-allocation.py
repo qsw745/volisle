@@ -37,7 +37,7 @@ def verify(folder):
     record_size = 2 ** -record_unit if record_unit < 0 else cluster_size * record_unit
     if record_size != 1024 or cluster_size != 4096:
         raise ValueError('尚未覆盖的镜像几何参数')
-    binary = WORK / 'ntfs-3g-2026.7.7/ntfsprogs'
+    binary = WORK / 'ntfs-3g-2026.9.28/ntfsprogs'
 
     def run(name, *args):
         return subprocess.check_output([binary / name, *map(str, args)], timeout=15)

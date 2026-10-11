@@ -296,7 +296,7 @@ def main(folder, signed, ui_review=False, daily=False):
             assert sha256(root / SEED) == receipt['payload_sha256']
         # Independent offline reader after normal unmount, before remount.
         for name, checksum in expected.items():
-            observed = run([WORK / 'ntfs-3g-2026.7.7/ntfsprogs/ntfscat', image, '/' + name]).stdout
+            observed = run([WORK / 'ntfs-3g-2026.9.28/ntfsprogs/ntfscat', image, '/' + name]).stdout
             assert hashlib.sha256(observed).hexdigest() == checksum, name
         result['checks'].append('independent-ntfscat')
         from ntfs_bridge_test_support import ImageIO

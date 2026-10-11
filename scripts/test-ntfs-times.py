@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory(prefix='volisle-times-', dir=ROOT / '.workbench
     image = Path(tmp) / 'fixture.img'
     with image.open('xb') as stream:
         stream.truncate(64 * 1024 * 1024)
-    subprocess.run([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/mkntfs', '-F', '-Q', image],
+    subprocess.run([ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/mkntfs', '-F', '-Q', image],
                    check=True, capture_output=True, timeout=45)
     io = ImageIO(image); volume = io.mount(); assert volume
     try:
@@ -66,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix='volisle-times-', dir=ROOT / '.workbench
         assert io.writes == 0
     finally:
         LIB.nk_umount(volume); io.close()
-    mft = subprocess.check_output([ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs/ntfscat',
+    mft = subprocess.check_output([ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs/ntfscat',
                                    image, '/$MFT'], timeout=15)
     record = mft[st.inode * 1024:(st.inode + 1) * 1024]
     offset = struct.unpack_from('<H', record, 20)[0]

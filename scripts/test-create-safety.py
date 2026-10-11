@@ -10,7 +10,7 @@ import sys
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 from test_workdir import finish_workdir, make_workdir
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 LIB.nk_statvfs.argtypes = [C.c_void_p, C.POINTER(C.c_longlong), C.POINTER(C.c_longlong), C.POINTER(C.c_int)]
 LIB.nk_statvfs.restype = C.c_int
 SENTINEL = b'unchanged-existing-data' * 128

@@ -30,7 +30,7 @@ class Dirent(C.Structure):
 DIR_CB = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(Dirent))
 LIB.nk_list.argtypes = [C.c_void_p, C.c_char_p, DIR_CB, C.c_void_p]
 LIB.nk_list.restype = C.c_int
-TOOLS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+TOOLS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 MIB = 1 << 20
 checks = []
 

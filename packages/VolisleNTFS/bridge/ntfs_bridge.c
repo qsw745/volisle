@@ -1576,4 +1576,4 @@ nk_volume *nk_mount_io(const nk_io *io, char *errbuf, size_t errlen) {
     v->owns_dirty = 1;
     return v;
 }
-const char *nk_engine_version(void) { return "ntfs-3g 2026.7.7 / Volisle bridge 2"; }
+const char *nk_engine_version(void) { return "ntfs-3g 2026.9.28 / Volisle bridge 2"; }

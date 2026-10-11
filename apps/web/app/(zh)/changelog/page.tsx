@@ -3,6 +3,11 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.2 · 2026 年 10 月 10 日</h2><ul>
+<li>新功能：“在 Mac 上检查”发现文件夹里有失效的条目（指向已删除的文件或文件夹）时，可以在征得你同意后直接在 Mac 上删除这些条目并开启读写；删除前会先备份，任何一步不通过都会还原。Windows 的磁盘检查仍是更稳妥的办法。</li>
+<li>改进：“在 Mac 上检查”更严格，会核对每个目录条目是否仍指向原来的文件；检查失败时显示更具体的技术信息（不含文件名）。</li>
+<li>新功能：拷贝到不同的磁盘可以同时进行；拷到同一块盘的任务会排队等待。</li>
+</ul>
 <h2>0.9.1 · 2026 年 10 月 9 日</h2><ul>
 <li>修复：盘在 Windows 上没有安全弹出、同时又被 Windows 标记为“需要检查”时，原先“在 Mac 上恢复”和“在 Mac 上检查”都不能用，只能接回 Windows。现在可以直接点“在 Mac 上恢复”：先补写 Windows 没写完的改动，再逐一检查所有文件和文件夹，全部正常才解除只读；有问题就原样还原。</li>
 <li>改进：Mac 自动生成的隐藏文件（.DS_Store、._ 开头的文件、.Trashes 等）在 Windows 上不再显示，即使打开了“显示隐藏的项目”也看不到。你自己建的点文件不受影响。此前已经生成的这类文件可以在 Windows 上直接删除。</li>

@@ -16,7 +16,7 @@ from ntfs_replacement_recovery import prepare_plan, recover
 
 LIB.nk_replace_preserving.argtypes = [C.c_void_p] + [C.c_char_p] * 4
 LIB.nk_replace_preserving.restype = C.c_int
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 OLD = b'previous-document\x00' * 8192
 NEW = b'updated-document\xff' * 16384
 SENTINEL = b'do-not-change-this-file\x00' * 4096
@@ -64,7 +64,7 @@ def main():
         # The app's normal C build has no replacement experiment macro.
         # Exercise that compiled branch with a real clean writable image.
         guarded_library = folder / 'default-bridge.dylib'
-        upstream = ROOT / '.workbench/ntfs-3g-2026.7.7'
+        upstream = ROOT / '.workbench/ntfs-3g-2026.9.28'
         subprocess.run(['clang', '-shared', '-fPIC', '-DHAVE_CONFIG_H', '-I', str(upstream),
                         '-I', str(upstream / 'include'), str(ROOT / 'packages/VolisleNTFS/bridge/ntfs_bridge.c'),
                         str(upstream / 'libntfs-3g/.libs/libntfs-3g.a'), '-framework', 'CoreFoundation',

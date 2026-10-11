@@ -12,7 +12,7 @@ from fixture_operation_journal import OperationJournal, recover_session, parse
 from fixture_block_journal import canonical, sha
 from test_workdir import finish_workdir, make_workdir
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 
 
 def digest(image):

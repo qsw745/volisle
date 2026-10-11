@@ -15,7 +15,7 @@ NEW = b'new-version' + b'B' * 32768
 OLD_EDIT = b'OLD-edited!' + b'A' * 16384
 NEW_EDIT = b'NEW-edited!' + b'B' * 32768
 
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 DRIVER = ROOT / '.workbench/test-journal-image'
 POINTS = ['created', 'written', 'synced', 'renamed', 'committed', 'pruned-1', 'pruned-128', 'prune-committed']
 

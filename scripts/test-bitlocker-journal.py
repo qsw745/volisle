@@ -19,7 +19,7 @@ from pathlib import Path
 
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO, IO
 
-SRC = ROOT / '.workbench/ntfs-3g-2026.7.7'
+SRC = ROOT / '.workbench/ntfs-3g-2026.9.28'
 OUT = ROOT / '.workbench/write-journal-20260925'
 FIXTURES = ROOT / '.workbench/bitlocker-fixtures'
 SOURCES = ['MetadataBlocks', 'MetadataWritePipeline', 'WriteJournalStore', 'WriteJournal', 'WriteJournalRecovery']

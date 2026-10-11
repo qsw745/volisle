@@ -19,7 +19,7 @@ from pathlib import Path
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 
 FIXTURE = ROOT / '.workbench/check-fixtures/rich.img'
-TOOLS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+TOOLS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 ELIB = C.CDLL(LIB._name, use_errno=True)
 ELIB.nk_clear_check_marker.argtypes = [C.c_void_p, C.POINTER(C.c_longlong), C.c_char_p, C.c_size_t]
 ELIB.nk_clear_check_marker.restype = C.c_int

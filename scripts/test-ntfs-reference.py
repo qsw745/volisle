@@ -21,7 +21,7 @@ for name in ['nk_read_reference', 'nk_write_reference']:
     getattr(LIB, name).restype = C.c_longlong
 LIB.nk_replace_preserving.argtypes = [C.c_void_p] + [C.c_char_p] * 4
 LIB.nk_replace_preserving.restype = C.c_int
-BIN = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 
 
 def reference(volume, path):

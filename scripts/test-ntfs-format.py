@@ -16,7 +16,7 @@ LIB.nk_format.argtypes = [C.c_void_p, C.c_char_p, C.c_int, C.c_char_p, C.c_size_
 LIB.nk_format.restype = C.c_int
 LIB.nk_label.argtypes = [C.c_void_p, C.c_char_p, C.c_size_t]
 LIB.nk_label.restype = C.c_int
-TOOLS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+TOOLS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 MIB = 1024 * 1024
 checks = []
 

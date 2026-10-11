@@ -21,7 +21,7 @@ from pathlib import Path
 
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
 
-TOOLS = ROOT / '.workbench/ntfs-3g-2026.7.7/ntfsprogs'
+TOOLS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 
 
 class Dirent(C.Structure):
