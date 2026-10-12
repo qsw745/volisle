@@ -29,6 +29,9 @@
 #include <ntfs-3g/logfile.h>
 #include <ntfs-3g/security.h>
 #include <ntfs-3g/acls.h>
+#include <ntfs-3g/bootsect.h>
+#include <ntfs-3g/mst.h>
+#include <stddef.h>
 #include <limits.h>
 
 struct nk_devctx {
@@ -1473,12 +1476,18 @@ int nk_format(const nk_io *io, const char *label, int sector_size, char *errbuf,
 #endif /* NK_WITH_FORMAT */
 
 #include "bitlocker.inc"
+#include "volume_copies.inc"
 
 int nk_inspect(const nk_io *io) {
     if (!io || !io->pread || io->size < 512) return NK_CHECK_UNKNOWN;
     nk_io ro = *io; ro.readonly = 1;
     nk_volume *v = mount_unchecked(&ro, NULL, 0);
-    if (!v) return NK_CHECK_UNKNOWN;
+    if (!v) {
+        /* Not opened: say so when it is the one cause there is an answer for. */
+        nk_volume_copies copies;
+        return io->size >= 1024 * 1024 && !copies_examine(&ro, &copies, NULL, NULL, NULL) && copies.repairable
+            ? NK_CHECK_MARK_COPIES : NK_CHECK_UNKNOWN;
+    }
     int status = inspect_volume(v);
     if (release_volume(v)) status = NK_CHECK_UNKNOWN;
     return status;

@@ -53,7 +53,10 @@ def build():
 
 
 def driver(*args, env=None, expect=None):
-    p = subprocess.run([OUT / 'driver', *map(str, args)], capture_output=True, timeout=900, env={**os.environ, **(env or {})})
+    # SINCE_END: each run sees the disk again long after the last session ended
+    # (past the retention window) unless a case says otherwise.
+    p = subprocess.run([OUT / 'driver', *map(str, args)], capture_output=True, timeout=900,
+                       env={**os.environ, 'SINCE_END': '3600', **(env or {})})
     if expect is not None:
         assert p.returncode == expect, (args, p.returncode, p.stderr.decode()[-800:])
     return p
@@ -131,7 +134,13 @@ def healthy(image, meta, initial_flags, raw_before, new=()):
 
 
 def records(journal):
-    return sorted(p.name for p in journal.iterdir() if p.suffix in ('.session', '.epoch')) if journal.exists() else []
+    return sorted(p.name for p in journal.iterdir() if p.suffix in ('.session', '.finished', '.epoch')) if journal.exists() else []
+
+
+def ended(journal):
+    """A cleanly ended session: its finished record and the epochs it keeps."""
+    suffixes = [name.rsplit('.', 1)[1] for name in records(journal)]
+    return suffixes.count('finished') == 1 and 'epoch' in suffixes and 'session' not in suffixes
 
 
 build()
@@ -156,13 +165,16 @@ with tempfile.TemporaryDirectory(prefix='volisle-bde-journal-', dir=ROOT / '.wor
         initial = view.flags()
         view.close()
 
-        # 1. A whole session: committed, finished, nothing left behind.
+        # 1. A whole session: committed and finished; its records stay until the
+        # next connection has seen the writes on the device, then go.
         image, journal = fresh(n, 'clean')
         out = json.loads(driver('op', image, journal, 'big', 'none', 0, env=env, expect=0).stdout)
-        assert not out['failed'] and records(journal) == [] and out['skipped'] == 0, out
+        assert not out['failed'] and ended(journal) and out['skipped'] == 0, (out, records(journal))
         big = b''.join(pattern(i) for i in range(6))
         healthy(image, meta, initial, originals[n], new=[('/big', len(big), sha(big))])
-        assert json.loads(driver('recover', image, journal, env=env, expect=0).stdout)['outcome'] == 'none'
+        raw = image.read_bytes()
+        seen = json.loads(driver('recover', image, journal, env=env, expect=0).stdout)
+        assert seen == {'outcome': 'none', 'writes': 0} and records(journal) == [] and image.read_bytes() == raw, seen
         writes = out['deviceWrites']
         cases += 1
 
@@ -178,8 +190,8 @@ with tempfile.TemporaryDirectory(prefix='volisle-bde-journal-', dir=ROOT / '.wor
                     assert out['outcome'] in ('recovered', 'none'), out
                     assert records(journal) == []
                     healthy(image, meta, initial, originals[n])
-                    nxt = json.loads(driver('op', image, journal, 'next', 'none', 0, env=env, expect=0).stdout)
-                    assert not nxt['failed'] and records(journal) == []
+                    nxt = json.loads(driver('op', image, journal, 'next', 'none', 0, env={**env, 'ACTIVATE': '1'}, expect=0).stdout)
+                    assert not nxt['failed'] and ended(journal), records(journal)
                     cases += 1
         for point in (2, 5, 20):
             image, journal = fresh(n, f'engine-{point}')
@@ -199,6 +211,40 @@ with tempfile.TemporaryDirectory(prefix='volisle-bde-journal-', dir=ROOT / '.wor
             healthy(image, meta, initial, originals[n])
             cases += 1
 
+        # 3b. A clean end, then the drive loses its last writes (unplugged before
+        # it wrote its cache out): rolled back from the records kept past the end.
+        for loss in ('last:1', 'first:1', 'window'):
+            image, journal = fresh(n, f'finish-loss-{loss.replace(":", "")}')
+            p = driver('op', image, journal, 'file', 'finish-loss', 0, env={**env, 'FINISH_LOSS': loss})
+            assert p.returncode == 86 and b'LOST ' in p.stderr and ended(journal), (p.returncode, p.stderr.decode()[-400:])
+            out = json.loads(driver('recover', image, journal, env=env, expect=0).stdout)
+            assert out['outcome'] == 'recovered-after-end' and records(journal) == [], out
+            healthy(image, meta, initial, originals[n])
+            nxt = json.loads(driver('op', image, journal, 'next', 'none', 0, env={**env, 'ACTIVATE': '1'}, expect=0).stdout)
+            assert not nxt['failed'] and ended(journal), records(journal)
+            cases += 1
+        # 3c. Written again inside the window: the session is continued; an
+        # interruption then rolls back over the earlier mount's epochs too.
+        again = {**env, 'SINCE_END': '0', 'ACTIVATE': '1'}
+        image, journal = fresh(n, 'continued')
+        assert not json.loads(driver('op', image, journal, 'file', 'none', 0, env=env, expect=0).stdout)['failed']
+        nxt = json.loads(driver('op', image, journal, 'next', 'none', 0, env=again, expect=0).stdout)
+        assert not nxt['failed'] and nxt['firstEpoch'] > 1 and ended(journal), nxt
+        image, journal = fresh(n, 'continued-crash')
+        assert not json.loads(driver('op', image, journal, 'file', 'none', 0, env=env, expect=0).stdout)['failed']
+        assert driver('op', image, journal, 'next', 'crash', 2, env=again).returncode == 86
+        out = json.loads(driver('recover', image, journal, env=env, expect=0).stdout)
+        assert out['outcome'] == 'recovered' and records(journal) == [], out
+        healthy(image, meta, initial, originals[n])
+        cases += 2
+        # 3d. Without the key the records of a clean end cannot be judged: kept, nothing written.
+        image, journal = fresh(n, 'ended-nokey')
+        assert not json.loads(driver('op', image, journal, 'file', 'none', 0, env=env, expect=0).stdout)['failed']
+        raw = image.read_bytes()
+        out = json.loads(driver('recover', image, journal, env={'BLOCK': '4096'}, expect=0).stdout)
+        assert out['outcome'].startswith('refused') and out['writes'] == 0 and ended(journal) and image.read_bytes() == raw, out
+        cases += 1
+
         # 4. Recovery needs the key to read the volume: without it, refuse and write nothing.
         image, journal = fresh(n, 'nokey')
         assert driver('op', image, journal, 'big', 'crash', writes // 2, env=env).returncode == 86
@@ -211,10 +257,11 @@ with tempfile.TemporaryDirectory(prefix='volisle-bde-journal-', dir=ROOT / '.wor
         cases += 1
         print(f'  {n}：{meta["method"]} 通过（完整会话写入 {writes} 次）', flush=True)
 
-passed('四种加密方式：完整会话提交并清除记录；新文件读回一致；BitLocker 保留区域、卷头与 Windows 的卷标志不变')
+passed('四种加密方式：完整会话提交，记录保留到下次连接确认写入后清除；新文件读回一致；BitLocker 保留区域、卷头与 Windows 的卷标志不变')
 passed('新建与大文件写入在任意写入点崩溃或半写后，恢复到干净卷，Windows 写的文件完好，下一次会话正常')
 passed('引擎写入中途崩溃、硬盘缓存丢失部分已刷盘数据后，恢复结果同样干净完整')
-passed('没有密钥时恢复流程拒绝且零写入、记录保留；带上密钥后正常恢复')
+passed('正常结束后硬盘缓存丢失最后的写入：下次连接回滚到一致状态；窗口内再次写入接续原会话，中断后一并回滚')
+passed('没有密钥时恢复流程拒绝且零写入、记录保留（中断的和正常结束的都是）；带上密钥后正常恢复')
 assert all((FIXTURES / f'{n}.img').read_bytes() == originals[n] for n in names)
 passed('四块原始加密镜像在全部测试前后逐字节不变')
 

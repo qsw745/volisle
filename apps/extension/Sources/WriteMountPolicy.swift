@@ -23,6 +23,8 @@ enum WriteMountPolicy {
             case 1: reason = "NTFS 卷带有脏标记，拒绝可写挂载。"
             case 2: reason = "无法排除 Windows 休眠风险，拒绝可写挂载。"
             case 3: reason = "NTFS 日志未通过安全检查，拒绝可写挂载。"
+            // NK_CHECK_MARK_COPIES: the app offers "Check on This Mac" by this token.
+            case 5: reason = "卷的检查标记只写了一半，拒绝可写挂载。[check:markCopies]"
             default: reason = "无法确认 NTFS 卷安全，拒绝可写挂载。"
             }
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(EROFS),

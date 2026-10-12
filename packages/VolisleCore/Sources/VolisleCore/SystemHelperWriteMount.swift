@@ -292,6 +292,11 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         return nil
     }
     func restore(_ disk: HelperDiskRequest, originallyMounted: Bool) async throws { try await readOnly.restore(disk, originallyMounted: originallyMounted) }
+    func writeMountInPlace(_ operation: HelperMountOperation) async -> Bool {
+        guard operation.isWrite, let records = try? SystemMountRecord.current() else { return false }
+        let ofDevice = records.filter { $0.source == "/dev/" + operation.disk.bsdName }
+        return ofDevice.count == 1 && ofDevice[0].path == point(operation) && ofDevice[0].type == "volisle"
+    }
     func restoreWrite(_ operation: HelperMountOperation) async throws {
         guard operation.isWrite else { throw HelperDiskFailure.invalidRequest }
         let disk = operation.disk, path = point(operation)

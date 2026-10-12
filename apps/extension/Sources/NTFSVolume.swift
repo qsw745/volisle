@@ -34,6 +34,9 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     private var engineWritable = false          // guarded by engineQueue
     private var writeActivationFailed = false   // guarded by operationLock
     private var closeFailed = false             // guarded by engineQueue
+    /// This activation rolled back a cleanly ended session (unplugged before the
+    /// drive wrote its cache out). Guarded by operationLock.
+    private var rolledBackAfterEnd = false
     private let identityCache = ItemIdentityCache()
     /// Enumeration verifiers: bumped for each directory a namespace mutation
     /// touches, so a change elsewhere does not restart (or keep restarting) the
@@ -169,7 +172,9 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
                 // nk_inspect reads the decrypted view through a read-only descriptor.
                 let status = try journal.withVolume(writable: false) { nk_inspect(&$0) }
                 log.notice("挂载前只读预检状态=\(status, privacy: .public)（BitLocker）")
-                return status
+                // "Check on This Mac" does not reach inside BitLocker: without
+                // that remedy a half-written mark is just a volume that does not open.
+                return status == Int32(NK_CHECK_MARK_COPIES) ? Int32(NK_CHECK_UNKNOWN) : status
             }
             let status = NTFSReadOnlyInspection.inspect(deviceSize: deviceSize) { offset, count in
                 var data = Data(count: count)
@@ -1240,6 +1245,10 @@ extension NTFSVolume: FSVolume.XattrOperations {
     /// The actual module mode, including read-only fallback that old FSKit
     /// kernels do not expose in statfs. It is virtual and cannot be overwritten.
     static let mountModeAttribute = "top.qisw.volisle.mount-mode"
+    /// "after-end" for the life of a mount whose activation rolled back a
+    /// cleanly ended session: its last changes had not reached the disk when
+    /// it was unplugged. Absent otherwise. The app reads it to tell the user.
+    static let recoveryAttribute = "top.qisw.volisle.recovery"
     /// "v1 <session> <writtenBelow> <durableBelow>": the app reads it once after
     /// a copy (and a volume sync) and then until durableBelow reaches that
     /// writtenBelow in the same session: from then on an unplug cannot roll the
@@ -1287,6 +1296,10 @@ extension NTFSVolume: FSVolume.XattrOperations {
             if name == Self.mountModeAttribute && item.path == "/" {
                 return Data((writeStopped ? "stopped" : readOnly ? "read-only" : "read-write").utf8)
             }
+            if name == Self.recoveryAttribute && item.path == "/" {
+                guard rolledBackAfterEnd else { throw posix(ENOATTR) }
+                return Data("after-end".utf8)
+            }
             if name == Self.durabilityAttribute && item.path == "/" { return try durabilityReport() }
             let reference = item.fileReference
             return try engineQueue.sync {
@@ -1311,7 +1324,7 @@ extension NTFSVolume: FSVolume.XattrOperations {
                   policy: FSVolume.SetXattrPolicy) async throws {
         try operationLock.withLock {
             guard let item = item as? NTFSItem, let name = name.string else { throw posix(EINVAL) }
-            guard name != Self.writeStateAttribute, name != Self.mountModeAttribute,
+            guard name != Self.writeStateAttribute, name != Self.mountModeAttribute, name != Self.recoveryAttribute,
                   name != Self.durabilityAttribute else { throw posix(EPERM) }
             try requirePathIdentity(item)
             // Recovery fingerprints cover unnamed data, not named streams.
@@ -1375,7 +1388,8 @@ extension NTFSVolume: JournalBlockDevice {
     var journalBlockSize: Int { deviceBlockSize }
     var journalDeviceSize: Int64 { deviceSize }
     /// Before a kernel mount only plain synchronous I/O exists; recovery done
-    /// then is kept on record until a later metadata flush confirms it.
+    /// then is kept on record until a later metadata flush confirms it. The
+    /// flush itself only hands the data to the drive (see JournalBlockDevice).
     var flushIsDurable: Bool { ioMode == .metadata }
 
     func journalRead(into block: UnsafeMutableRawBufferPointer, at offset: Int64) throws {
@@ -1424,6 +1438,7 @@ extension NTFSVolume: JournalBlockDevice {
     /// back to its last checkpoint. Returns why writes must stay off, or nil.
     func recoverInterruptedWrites() -> WriteJournalError? {
         engineQueue.sync {
+            rolledBackAfterEnd = false
             let outcome: WriteJournalCoordinator.Outcome
             do { outcome = WriteJournalCoordinator.recover(store: try writeJournalStore(), serial: journalSerial, io: journal) }
             catch { outcome = .refused(.unavailable) }
@@ -1434,6 +1449,10 @@ extension NTFSVolume: JournalBlockDevice {
                 return nil
             case .recovered:
                 log.notice("上次写入中断已回滚到最后一致点并释放本机脏标记")
+                return nil
+            case .recoveredAfterEnd:
+                log.notice("上次正常结束后过早断开，最近的改动没有写到盘上：已回到之前的一致状态并释放本机脏标记")
+                rolledBackAfterEnd = true
                 return nil
             case .refused(let reason):
                 log.error("上次写入中断无法安全恢复（\(String(describing: reason), privacy: .public)）；保持只读，记录保留")
@@ -1472,7 +1491,7 @@ extension NTFSVolume: JournalBlockDevice {
         defer { journalLock = -1 }
         do {
             try WriteJournalCoordinator.finish(store: try writeJournalStore(), io: journal, lock: journalLock)
-            log.notice("写入日志会话正常结束：记录已清除")
+            log.notice("写入日志会话正常结束：记录保留到确认写入")
             return 0
         } catch {
             log.error("写入日志结束失败；记录保留，下次连接时恢复")

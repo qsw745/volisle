@@ -76,6 +76,23 @@ struct VolisleApp: App {
             await copies.sessionWillEnd(session: session, reconnecting: reconnecting)
         }
         mountCycle.didEndWriteSession = { session, clean in copies.sessionDidEnd(session, cleanly: clean) }
+        // An eject through Volisle right after a session ended vouches for its last copies.
+        let ejecting = EjectingDisks()
+        actions.willEjectDevice = { device in
+            let disks = discovery.volumes.filter { $0.deviceGroup == device }.compactMap(\.identity.resumeKey)
+            ejecting.disks[device] = disks
+            copies.ejectRequested(disks)
+        }
+        actions.didEjectDevice = { device, ejected in
+            let disks = ejecting.disks.removeValue(forKey: device) ?? []
+            // Ejected: "eject before unplugging" has been done. Refused: it vouches for nothing.
+            if ejected { mountCycle.clearEndedNotices() } else { copies.ejectFailed(disks) }
+        }
+        // Refused for files in use: the session goes on, and so do the copies paused for its end.
+        mountCycle.didKeepWriteSession = { session in
+            copies.sessionDidNotEnd(session)
+            Task { await copies.reconcile() }
+        }
         mountCycle.operationFinished = { OperationHistory.record($0) }
         _copies = State(initialValue: copies)
         let runtime = BackgroundDiskRuntime(discovery: discovery, actions: actions,
@@ -230,4 +247,9 @@ private enum CopyRevealError: LocalizedError {
         case .noItems: String(localized: "这次拷贝没有可打开的项目。")
         }
     }
+}
+
+/// The disks (resume keys) of each device being ejected, from the request to its result.
+@MainActor private final class EjectingDisks {
+    var disks: [String: [String]] = [:]
 }

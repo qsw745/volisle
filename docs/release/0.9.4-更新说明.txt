@@ -1,0 +1,10 @@
+盘屿 0.9.4 · Volisle 0.9.4
+
+· 修复：恢复只读后没有推出就马上拔线，硬盘可能还没把最后的内容写完，重新插上后这块盘会打不开读写。现在盘屿会把恢复记录多留一会儿，下次开启读写时自动核对：没写完的改动退回到之前完好的状态，并在底栏提示你检查最近的文件。恢复只读后也会提醒先推出、再拔线。
+· 修复：已经因为上面的情况打不开读写的盘，现在会给出专门的说明，点“在 Mac 上检查…”即可修好，检查通过后恢复读写。
+· 修复：拷贝还在进行时点“恢复只读”，以前会显示“暂时无法写入”，要重新插拔才能恢复。现在磁盘保持读写、拷贝继续，并提示等传输结束后再点。
+· 改进：用“拷贝到这块盘…”拷完的文件，恢复只读后要等硬盘确实写完（磁盘继续连着约 25 秒，或经盘屿推出）才算完成；拔得太早的，下次接上会自动复查。
+· Fixed: unplugging a disk right after making it read-only, without ejecting it, could leave its last changes unwritten, and the disk would then refuse to open for writing. Volisle now keeps its recovery records a little longer and verifies them the next time you enable writing: unfinished changes are rolled back to the last intact state, and a note at the bottom asks you to check your most recent files. After making a disk read-only you are also reminded to eject before unplugging.
+· Fixed: a disk already stuck that way now gets a specific explanation, and “Check on Mac…” repairs it; once the check passes, writing works again.
+· Fixed: clicking “Make Read-Only” while a copy was still running used to show “Writing is temporarily unavailable” until the disk was replugged. The disk now stays writable, the copy continues, and you are asked to try again once the transfer is done.
+· Improved: files copied with “Copy to This Disk…” count as finished only once the drive has really written them (the disk stays connected for about 25 seconds, or is ejected from Volisle); if it was unplugged too early, they are verified again on the next connection.

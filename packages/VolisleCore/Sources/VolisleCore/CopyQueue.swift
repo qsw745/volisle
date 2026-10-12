@@ -110,6 +110,22 @@ extension ResumableCopier: CopyQueueCopier {}
     @ObservationIgnored private var endingAll = 0
     private func ending(_ session: UUID?) -> Bool { endingAll > 0 || session.map(endingSessions.contains) == true }
     @ObservationIgnored private var sessionOutcomes: [UUID: Bool] = [:]
+    /// Sessions that ended cleanly, and when (time awake). The end only handed
+    /// the last writes to the drive: unplugged before the drive wrote its own
+    /// cache out, they are rolled back at the next connection. A copy finished
+    /// in such a session is confirmed once its disk has stayed connected this
+    /// long after the end, or was ejected through Volisle (an eject makes the
+    /// drive write its cache out); gone before that, it is checked again.
+    @ObservationIgnored private var cleanEnds: [UUID: TimeInterval] = [:]
+    static let settleAfterCleanEnd: TimeInterval = 25
+    /// Disks Volisle is ejecting, and since when: gone shortly after, it was
+    /// that eject. Only one asked for after the session ended counts, and one
+    /// that failed is withdrawn: neither an earlier eject nor a refused one
+    /// may vouch for a later pull.
+    @ObservationIgnored private var ejectRequests: [String: TimeInterval] = [:]
+    static let ejectTakes: TimeInterval = 60
+    /// Time awake; a test's own clock.
+    @ObservationIgnored var uptime: @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     @ObservationIgnored private var activity: NSObjectProtocol?
     @ObservationIgnored private var cleanups: [CopyJobStore.Cleanup] = []
 
@@ -293,16 +309,54 @@ extension ResumableCopier: CopyQueueCopier {}
     }
 
     /// The write session `session` ended. `cleanly`: a healthy session on a
-    /// disk still connected, ended by unmounting it — everything was written,
-    /// nothing is rolled back, so copies finished in it are safe. Otherwise
-    /// (unplugged, an error) they recheck their last files once the disk is
-    /// writable again.
+    /// disk still connected, ended by unmounting it — everything was handed
+    /// to the drive, and copies finished in it are confirmed once the drive
+    /// has had its time (see `cleanEnds`). Otherwise (unplugged, an error)
+    /// they recheck their last files once the disk is writable again.
     public func sessionDidEnd(_ session: UUID?, cleanly: Bool) {
         if let session, endingSessions.remove(session) != nil {} else { endingAll = max(0, endingAll - 1) }
-        if let session { sessionOutcomes[session] = cleanly }
-        for job in jobs where job.progress.finished && !job.confirmed && job.finishedIn == session {
-            if cleanly { confirm(job.id) } else { reopen(job.id) }
+        if let session {
+            sessionOutcomes[session] = cleanly
+            cleanEnds[session] = cleanly ? uptime() : nil
         }
+        for job in jobs where job.progress.finished && !job.confirmed && job.finishedIn == session {
+            if cleanly { settle(job.id) } else { reopen(job.id) }
+        }
+    }
+
+    /// Volisle is about to eject these disks (resume keys). One that goes away
+    /// soon after was ejected, not pulled: its drive wrote its cache out.
+    public func ejectRequested(_ disks: [String]) {
+        for disk in disks { ejectRequests[disk] = uptime() }
+    }
+
+    /// That eject did not go through: the disks are still there, as written to as before.
+    public func ejectFailed(_ disks: [String]) {
+        for disk in disks { ejectRequests[disk] = nil }
+    }
+
+    /// A finished copy whose session ended cleanly: confirmed, checked again,
+    /// or left waiting, by where its disk is now. Returns whether it is decided.
+    @discardableResult
+    private func settle(_ id: UUID) -> Bool {
+        guard let job = jobs.first(where: { $0.id == id }), job.progress.finished, !job.confirmed,
+              let session = job.finishedIn, let ended = cleanEnds[session] else { return false }
+        let now = uptime(), disk = job.plan.diskKey
+        if !diskPresent(disk) {
+            if let asked = ejectRequests[disk], asked >= ended, now - asked < Self.ejectTakes { confirm(id) } else { reopen(id) }
+            return true
+        }
+        guard now - ended >= Self.settleAfterCleanEnd else { return false }
+        confirm(id)
+        return true
+    }
+
+    /// The end of `session` was asked for and refused (files in use): it goes
+    /// on as it was. Nothing is recorded about how it ended, since it did not:
+    /// copies paused for the end continue, and ones finishing in it later are
+    /// judged by how it really ends.
+    public func sessionDidNotEnd(_ session: UUID?) {
+        if let session, endingSessions.remove(session) != nil {} else { endingAll = max(0, endingAll - 1) }
     }
 
     /// The disk list or write state changed, or time passed: continue copies
@@ -313,7 +367,15 @@ extension ResumableCopier: CopyQueueCopier {}
             // Gone for real: its return is reason enough to retry at once.
             notBefore[job.id] = nil; failures[job.id] = nil
         }
+        // An eject asked for long ago says nothing about a disk that leaves now.
+        let now = uptime()
+        ejectRequests = ejectRequests.filter { now - $0.value < Self.ejectTakes }
         for job in jobs where job.progress.finished && !job.confirmed {
+            if settle(job.id) { continue }
+            // Its session ended cleanly and the disk has been here since (it
+            // would have been checked again the moment it left): written to
+            // again or not, it only waits for the drive's time to be up.
+            if let session = job.finishedIn, cleanEnds[session] != nil { continue }
             guard let disk = await writableDisk(job.plan.diskKey),
                   let current = jobs.first(where: { $0.id == job.id }), current.progress.finished, !current.confirmed else { continue }
             if disk.session != current.finishedIn {
@@ -493,7 +555,7 @@ extension ResumableCopier: CopyQueueCopier {}
         }
         if jobs.first(where: { $0.id == id })?.progress.finished == true,
            let clean = sessionOutcomes[run.session] {
-            if clean { confirm(id) } else { reopen(id) }
+            if clean { settle(id) } else { reopen(id) }
         }
         if let job = jobs.first(where: { $0.id == id }), job.progress.finished, !job.confirmed, job.durableMark != nil {
             watchDurability(id)

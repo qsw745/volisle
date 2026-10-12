@@ -169,9 +169,39 @@ int nk_create_symlink(nk_volume *v, const char *dir_path, const char *name,
 int nk_is_dirty(nk_volume *v);
 
 
+/* NK_CHECK_MARK_COPIES: the volume cannot be opened, for the one reason
+ * nk_volume_copies_examine calls repairable (below). */
 enum { NK_CHECK_CLEAN = 0, NK_CHECK_DIRTY = 1, NK_CHECK_HIBERNATED = 2,
-       NK_CHECK_LOG_UNSAFE = 3, NK_CHECK_UNKNOWN = 4 };
+       NK_CHECK_LOG_UNSAFE = 3, NK_CHECK_UNKNOWN = 4, NK_CHECK_MARK_COPIES = 5 };
 int nk_inspect(const nk_io *io);
+
+/* $Volume (file record 3) is kept twice, in $MFT and in $MFTMirr, and both
+ * are written whenever the "needs check" mark is set or released. A USB drive
+ * unplugged with one of the two writes still in its own cache leaves the
+ * copies differing in that mark, and NTFS-3G then refuses the volume
+ * altogether ("$MFTMirr does not match $MFT (record 3)"). */
+typedef struct nk_volume_copies {
+    int differ;        /* one of the first four records differs from its copy */
+    int repairable;    /* only $Volume, and only as such an unfinished write leaves it */
+    int marked_copy;   /* the copy holding the mark: 0 in $MFT, 1 in $MFTMirr */
+    int marked_newer;  /* the mark was being set (1) or released (0) */
+    int half_written;  /* the other copy is part one, part the other: a repair cut off */
+    char reason[96];   /* why not repairable: fixed wording */
+} nk_volume_copies;
+/* Read-only, without opening the volume: the boot sector and those eight
+ * records. Repairable only when the first three records agree and one copy of
+ * $Volume is complete and marked while the other is, sector by sector, that
+ * same record or the record one write away without the mark. errno: EINVAL
+ * not an NTFS volume this can read, EIO a read failed. */
+int nk_volume_copies_examine(const nk_io *io, nk_volume_copies *out);
+/* Root helper only. Examines again, then writes the marked copy over the
+ * other, raw (one file record, the only write), and requires the copies to
+ * agree and the volume to open marked "needs check". Nothing else is repaired:
+ * "Check on This Mac" decides the rest. Safe to repeat after an interruption.
+ * errno: EALREADY the copies agree, ENOTSUP not repairable (errbuf says why;
+ * nothing written), EINVAL not an NTFS volume, EIO a read or the write failed,
+ * or the result did not verify: the host restores its before-image. */
+int nk_volume_copies_repair(const nk_io *io, nk_volume_copies *before, char *errbuf, size_t errlen);
 /* Named NTFS streams for xattrs; 4 MiB maximum per value. No silent short
  * reads. Host serializes every call on this volume, including policy checks. */
 typedef int (*nk_name_cb)(void *ctx, const char *name);

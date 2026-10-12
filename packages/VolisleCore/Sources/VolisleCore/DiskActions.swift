@@ -29,6 +29,13 @@ public enum DiskActionPolicy {
     public private(set) var activeDevices: Set<String> = []
     public private(set) var lastError: String?
     public private(set) var notice: String?
+    /// Just before a device (VolumeSnapshot.deviceGroup) is ejected, its volumes
+    /// already unmounted: an eject makes the drive write its own cache out, so
+    /// what was written to it shortly before is then really on the disk.
+    @ObservationIgnored public var willEjectDevice: (@MainActor (String) -> Void)?
+    /// How that eject ended: `true` once the device is ejected, `false` when
+    /// the system refused it (the device is still connected).
+    @ObservationIgnored public var didEjectDevice: (@MainActor (String, Bool) -> Void)?
     private let backend: any DiskActionBackend
     private let gate: DeviceOperationGate
     public init(backend: any DiskActionBackend, gate: DeviceOperationGate = .shared) {
@@ -64,7 +71,10 @@ public enum DiskActionPolicy {
             let refreshed = try backend.resolve(expected)
             try DiskActionPolicy.validate(expected, current: refreshed)
             guard refreshed.deviceGroup == volume.deviceGroup else { throw VolumeError.identityChanged }
-            try await backend.eject(refreshed)
+            willEjectDevice?(volume.deviceGroup)
+            do { try await backend.eject(refreshed) }
+            catch { didEjectDevice?(volume.deviceGroup, false); throw error }
+            didEjectDevice?(volume.deviceGroup, true)
             notice = String(localized: "设备已推出，可以拔下连接线。")
         } else {
             notice = String(localized: "磁盘已卸载，设备上的其他卷未被推出。")

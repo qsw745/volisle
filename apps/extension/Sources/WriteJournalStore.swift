@@ -25,6 +25,22 @@ struct WriteJournalSessionRecord: Codable, Equatable {
     var state: State
 }
 
+/// What stays on record after a clean session end (`<serial>.finished`, a name
+/// versions before it never read): the flush that ended the session only handed
+/// the last writes to the drive, so its retained epochs wait here until the
+/// next connection finds them on the device, or missing and rolls them back.
+struct WriteJournalFinishedRecord: Codable, Equatable {
+    var version = 1
+    let record: WriteJournalSessionRecord
+    /// The epochs kept, all checkpointed: rolling back needs every one of them.
+    let firstEpoch: UInt64
+    let lastEpoch: UInt64
+    /// System uptime at the end, the clock of the retention window.
+    let finishedUptime: TimeInterval
+    /// Seconds since 1970 at the end; only decides when the record expires.
+    let finishedWall: TimeInterval
+}
+
 /// One epoch file: header, groups, and (after a durable device barrier) a
 /// checkpoint. Groups are appended and made durable BEFORE their blocks are
 /// written to the device, so a torn tail frame never has device effects.
@@ -183,12 +199,88 @@ final class WriteJournalStore {
               fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
     }
 
-    /// Only after the device holds everything the records describe. The session
-    /// goes first: without it nothing is replayed, so an interruption leaves only
-    /// orphan epochs (removed by the next session), never a partial set that
-    /// recovery would roll back.
+    // MARK: finished record
+
+    /// Kept this long after a clean end. It is a safety net only: without it the
+    /// volume is judged as it is found.
+    static let finishedLifetime: TimeInterval = 30 * 24 * 3600
+
+    func finishedRecord(serial: String) throws -> WriteJournalFinishedRecord? {
+        let fd = openat(directory, serial + ".finished", O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        if fd < 0 { if errno == ENOENT { return nil }; throw WriteJournalError.unavailable }
+        defer { Darwin.close(fd) }
+        let data = try Self.readAll(fd, limit: 64 * 1024)
+        guard data.count > 32 else { throw WriteJournalError.corrupt }
+        let body = data.prefix(data.count - 32), mac = data.suffix(32)
+        guard HMAC<SHA256>.isValidAuthenticationCode(mac, authenticating: Data("finished|".utf8) + body, using: key) else {
+            throw WriteJournalError.corrupt
+        }
+        let finished: WriteJournalFinishedRecord
+        do { finished = try JSONDecoder().decode(WriteJournalFinishedRecord.self, from: body) }
+        catch { throw WriteJournalError.corrupt }
+        guard finished.record.serial == serial, finished.record.bootSector.count == 512,
+              finished.firstEpoch >= 1, finished.firstEpoch <= finished.lastEpoch else { throw WriteJournalError.corrupt }
+        guard finished.version == 1, finished.record.version == 1 else { throw WriteJournalError.unsupportedFormat }
+        return finished
+    }
+
+    /// Whether the file is there, readable or not.
+    func hasFinishedRecord(serial: String) -> Bool {
+        faccessat(directory, serial + ".finished", F_OK, AT_SYMLINK_NOFOLLOW) == 0
+    }
+
+    func saveFinishedRecord(_ finished: WriteJournalFinishedRecord) throws {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let body = try encoder.encode(finished)
+        let mac = Data(HMAC<SHA256>.authenticationCode(for: Data("finished|".utf8) + body, using: key))
+        let temporary = finished.record.serial + ".finished.tmp"
+        _ = unlinkat(directory, temporary, 0)
+        let fd = openat(directory, temporary, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw WriteJournalError.unavailable }
+        defer { Darwin.close(fd) }
+        try Self.writeAll(fd, body + mac)
+        guard fcntl(fd, F_FULLFSYNC) == 0,
+              renameat(directory, temporary, directory, finished.record.serial + ".finished") == 0,
+              fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
+        #if VOLISLE_WRITE_JOURNAL_TESTING
+        Self.afterFinishedSaved?()
+        #endif
+    }
+
+    /// One of the two records, durably; the epochs stay.
+    func removeSessionRecord(serial: String) throws { try removeRecord(serial + ".session") }
+    func removeFinishedRecord(serial: String) throws { try removeRecord(serial + ".finished") }
+    private func removeRecord(_ name: String) throws {
+        guard unlinkat(directory, name, 0) == 0 || errno == ENOENT,
+              fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
+    }
+
+    /// Drops finished records past their lifetime, of any volume not in use
+    /// right now. Best effort: one that cannot be read or removed just stays.
+    func removeExpiredFinished(wallClock: TimeInterval = Date().timeIntervalSince1970) {
+        guard let names = try? Self.listNames(directory) else { return }
+        for name in names where name.hasSuffix(".finished") {
+            let serial = String(name.dropLast(".finished".count))
+            guard let held = try? lock(serial: serial) else { continue }
+            defer { Darwin.close(held) }
+            // One that cannot be read is dated by its file instead.
+            var info = stat()
+            guard let ended = (try? finishedRecord(serial: serial))?.finishedWall ??
+                    (fstatat(directory, name, &info, AT_SYMLINK_NOFOLLOW) == 0 ? TimeInterval(info.st_mtimespec.tv_sec) : nil),
+                  wallClock - ended >= Self.finishedLifetime else { continue }
+            // Beside a session record it is not the one in charge: recovery decides.
+            do { guard try sessionRecord(serial: serial) == nil else { continue } } catch { continue }
+            try? removeAll(serial: serial)
+        }
+    }
+
+    /// Only once the records are no longer needed. The session and finished
+    /// records go first: without them nothing is replayed, so an interruption
+    /// leaves only orphan epochs (removed by the next session), never a partial
+    /// set that recovery would roll back.
     func removeAll(serial: String) throws {
         guard unlinkat(directory, serial + ".session", 0) == 0 || errno == ENOENT,
+              unlinkat(directory, serial + ".finished", 0) == 0 || errno == ENOENT,
               fcntl(directory, F_FULLFSYNC) == 0 else { throw WriteJournalError.unavailable }
         #if VOLISLE_WRITE_JOURNAL_TESTING
         Self.afterSessionRemoved?()
@@ -197,6 +289,7 @@ final class WriteJournalStore {
     }
     #if VOLISLE_WRITE_JOURNAL_TESTING
     nonisolated(unsafe) static var afterSessionRemoved: (() -> Void)?
+    nonisolated(unsafe) static var afterFinishedSaved: (() -> Void)?
     #endif
 
     /// Epochs with no session record describe nothing that can be recovered.
@@ -216,7 +309,7 @@ final class WriteJournalStore {
     /// this volume stay, whatever other volumes archived meanwhile.
     func archive(serial: String, keep: Int = 3) throws {
         let names = try Self.listNames(directory).filter {
-            $0 == serial + ".session" || ($0.hasPrefix(serial + "-") && $0.hasSuffix(".epoch"))
+            $0 == serial + ".session" || $0 == serial + ".finished" || ($0.hasPrefix(serial + "-") && $0.hasSuffix(".epoch"))
         }
         guard !names.isEmpty else { return }
         if mkdirat(directory, Self.supersededName, 0o700) != 0 && errno != EEXIST { throw WriteJournalError.unavailable }

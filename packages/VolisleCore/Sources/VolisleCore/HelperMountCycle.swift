@@ -69,6 +69,13 @@ protocol HelperWritableMountBackend: HelperMountCycleBackend {
     /// Also called after process restart: recover using only the saved record,
     /// never a transient session object or caller-supplied replacement target.
     func restoreWrite(_ operation: HelperMountOperation) async throws
+    /// The operation's write mount is still the device's one mount, at its own
+    /// place: a restore that was refused because files are in use changed nothing.
+    func writeMountInPlace(_ operation: HelperMountOperation) async -> Bool
+}
+
+extension HelperWritableMountBackend {
+    func writeMountInPlace(_ operation: HelperMountOperation) async -> Bool { false }
 }
 
 /// The daemon runs one cycle per physical disk, up to `maximumActive` disks at
@@ -303,6 +310,20 @@ actor HelperMountCycleService {
             operations[id]?.recoveryFailure = nil
             try change(id, to: .finished)
         } catch {
+            // Files in use: the unmount was refused, and it is never forced. The
+            // write session goes on exactly as before, so say that (the reason
+            // goes with it) instead of "needs recovery": the disk stays usable,
+            // and ending the session can be asked for again once nothing uses it.
+            // Only a session that had been set up: after a failed start (its
+            // failure on record) the mount left behind is not a write session.
+            if current.isWrite, current.failure == nil, error as? HelperDiskFailure == .busy,
+               let writable = backend as? any HelperWritableMountBackend, await writable.writeMountInPlace(current) {
+                cycleFailureLog.notice("恢复只读被占用拒绝：有文件正在使用，读写会话保持")
+                operations[id]?.phase = .writeMounted
+                operations[id]?.recoveryFailure = .busy
+                if let record = operations[id] { try? journal.write(record) }
+                return
+            }
             cycleFailureLog.error("恢复失败：阶段=\(self.operations[id]?.phase.rawValue ?? "-", privacy: .public) 原因=\(String(describing: error), privacy: .public)")
             operations[id]?.phase = .needsRecovery
             operations[id]?.recoveryFailure = .from(error)

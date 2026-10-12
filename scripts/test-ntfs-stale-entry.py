@@ -39,7 +39,7 @@ import ntfs_stale_entry_fixture as fixture
 TOOLS = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
 KEEP = Path(sys.argv[sys.argv.index('--keep-images') + 1]) if '--keep-images' in sys.argv else None
 NK_STALE_MAX = 8
-CHECK_CLEAN, CHECK_DIRTY, CHECK_UNKNOWN = 0, 1, 4
+CHECK_CLEAN, CHECK_DIRTY, CHECK_UNKNOWN, CHECK_MARK_COPIES = 0, 1, 4, 5
 
 
 class StaleEntry(C.Structure):
@@ -433,9 +433,10 @@ with tempfile.TemporaryDirectory(prefix='volisle-stale-', dir=ROOT / '.workbench
             assert os.WEXITSTATUS(status) == 86, (point, status)
             assert log_head(work, where) == head, ('修复写到了 Windows 日志', point)
             state = inspect(work)
-            if state in (CHECK_DIRTY, CHECK_UNKNOWN):
-                # Still marked "needs check" (or unreadable): nothing mounts it for
-                # writing, and the leftover undo record puts it back exactly.
+            if state in (CHECK_DIRTY, CHECK_UNKNOWN, CHECK_MARK_COPIES):
+                # Still marked "needs check" (or unreadable, or the mark itself cut
+                # off between its two places): nothing mounts it for writing, and
+                # the leftover undo record puts it back exactly.
                 restore(work, undo)
                 assert digest(work) == digest(pristine), ('中断后未能用遗留撤销记录原样还原', point)
             else:

@@ -110,6 +110,16 @@ public protocol PartitionMaintenanceEngine: Sendable {
                             identity: PartitionUndoIdentity) throws -> StaleEntryRepairResult
     /// Read-only: the "needs check" flag and where the Windows log begins.
     func volumeFacts(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> NTFSVolumeFacts
+    /// Before a check: when the volume cannot be opened only because the
+    /// "needs check" mark reached one of its two places, writes it to the
+    /// other (saving what that overwrites to `undoFile` first) and returns
+    /// true. False when there was nothing of the kind. Throws
+    /// `checkFoundProblems` when the two places differ in more than that.
+    func settleMarkCopies(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> Bool
+}
+
+public extension PartitionMaintenanceEngine {
+    func settleMarkCopies(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> Bool { false }
 }
 
 public enum HelperMaintenanceEngine {
@@ -140,12 +150,21 @@ enum HelperPartitionFormatter {
         guard request.version == 1 else { throw HelperServiceError.invalidRequest }
         let started = Date()
         let directory = undoDirectory, log = logger
+        // Not identity-bearing, so never replayed later: writing the mark to
+        // its second place can simply be done again. Created only when used.
+        let undo = directory.appending(path: "\(request.bsdName)-\(request.registryID)-\(Int(started.timeIntervalSince1970))-\(UUID().uuidString.prefix(8))-mark.undo")
         let items: Int64 = try await withVerifiedPartition(request.bsdName, registryID: request.registryID, byteCount: request.byteCount) {
             engine, descriptor, blockSize in
             // A repair interrupted earlier is undone first: the check then
             // judges the disk as it was before it, as the user last saw it.
             _ = try LeftoverUndo.settle(engine: engine, descriptor: descriptor, blockSize: blockSize, byteCount: request.byteCount,
                                         directory: directory, log: log)
+            // A volume that does not open only because the mark is half
+            // written is made consistently "needs check" first; the check
+            // below then decides, as for any marked volume.
+            if try engine.settleMarkCopies(descriptor: descriptor, blockSize: blockSize, byteCount: request.byteCount, undoFile: undo) {
+                log.notice("检查标记只写了一半，已写到另一处：设备=\(request.bsdName, privacy: .public)")
+            }
             return try engine.clearCheckMarker(descriptor: descriptor, blockSize: blockSize, byteCount: request.byteCount)
         }
         logger.notice("检查标记已清除：设备=\(request.bsdName, privacy: .public) 项目=\(items, privacy: .public) 用时=\(Int(Date().timeIntervalSince(started)), privacy: .public)s")

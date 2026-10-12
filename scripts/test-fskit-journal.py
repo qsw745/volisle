@@ -19,7 +19,9 @@ from ntfs_bridge_test_support import ROOT, LIB, ImageIO  # noqa: E402
 from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
-APP = Path.home() / 'Applications/Volisle Test.app'
+# Since 0.8.1 the test build replaces /Applications/Volisle.app (see build-local-candidate.sh).
+APP = Path(os.environ.get('VOLISLE_TEST_APP') or next(
+    (p for p in ['/Applications/Volisle.app'] if Path(p).is_dir()), Path.home() / 'Applications/Volisle Test.app'))
 EXT = APP / 'Contents/Extensions/VolisleFS.appex/Contents/MacOS/VolisleFS'
 SENTINEL = b'fskit-journal-existing-data\n' * 512
 SIZE = 512 * 1024 * 1024

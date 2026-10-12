@@ -43,7 +43,7 @@ struct DiskReadinessTests {
 
     @Test func theLastRefusalLeadsToItsOwnRemedy() {
         let cases: [(HelperDiskFailure, DiskReadiness.Action?)] = [
-            (.ntfsDirty, .checkOnMac), (.interruptedWriteUnverified, .exportDiagnostics), (.interruptedWriteRetry, .retry),
+            (.ntfsDirty, .checkOnMac), (.markHalfWritten, .checkOnMac), (.interruptedWriteUnverified, .exportDiagnostics), (.interruptedWriteRetry, .retry),
             (.interruptedWriteUnsupportedFormat, .exportDiagnostics),
             (.mountFailed, .retry), (.writeNotEnabled, .retry), (.windowsHibernated, nil), (.permissionDenied, .fullDiskAccess),
         ]

@@ -164,7 +164,7 @@ public enum DiskReadiness {
     /// What helps after this refusal: what the message itself describes stays without a button.
     static func action(for failure: HelperDiskFailure) -> Action? {
         switch failure {
-        case .ntfsDirty: return .checkOnMac
+        case .ntfsDirty, .markHalfWritten: return .checkOnMac
         case .windowsLogUnclean: return .recoverOnMac
         case .interruptedWriteUnverified, .interruptedWriteUnsupportedFormat, .checkFoundProblems: return .exportDiagnostics
         case .interruptedWriteRetry, .mountFailed, .writeNotEnabled, .busy, .unavailable, .changedMedia: return .retry

@@ -14,10 +14,12 @@ B=$app/Contents/MacOS/Volisle
 tag=$1
 logs=.workbench/logs; mkdir -p "$logs"
 # The disk number changes between connections: find qsw by hardware and name, never by number.
+# VOLISLE_TEST_VOLUME names it after a rename test left it with another name.
+name=${VOLISLE_TEST_VOLUME:-qsw}
 dev=none
 for d in $(diskutil list external physical | awk '/^\/dev\/disk/ {sub("/dev/","",$1); print $1}'); do
   diskutil info $d | grep -q "Media Name:.*Expansion" || continue
-  p=$(diskutil list $d | awk '/(Windows_NTFS|Microsoft Basic Data) +qsw / {print $NF}' | head -1)
+  p=$(diskutil list $d | awk -v name="$name" 'index($0, " " name " ") && /(Windows_NTFS|Microsoft Basic Data) / {print $NF}' | head -1)
   [[ -n $p ]] && dev=$p
 done
 [[ $dev == none ]] && echo 'test disk partition not found; skipping restore'

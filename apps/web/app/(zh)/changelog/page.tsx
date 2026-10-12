@@ -3,6 +3,10 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.3 · 2026 年 10 月 11 日</h2><ul>
+<li>安全修复：“在 Mac 上检查”遇到文件记录被破坏（或被人故意改坏）的磁盘时，可能卡住不动，或读到不属于这块盘的内存。现在会认出这种记录并拒绝检查，磁盘不做任何改动。建议所有用户更新。</li>
+<li>改进：内置的 NTFS 读写核心升级到 NTFS-3G 2026.9.28，它对损坏的磁盘结构多做了几项检查（权限信息、属性列表、日志、扩展属性、文件夹索引），遇到坏盘更稳。</li>
+</ul>
 <h2>0.9.2 · 2026 年 10 月 10 日</h2><ul>
 <li>新功能：“在 Mac 上检查”发现文件夹里有失效的条目（指向已删除的文件或文件夹）时，可以在征得你同意后直接在 Mac 上删除这些条目并开启读写；删除前会先备份，任何一步不通过都会还原。Windows 的磁盘检查仍是更稳妥的办法。</li>
 <li>改进：“在 Mac 上检查”更严格，会核对每个目录条目是否仍指向原来的文件；检查失败时显示更具体的技术信息（不含文件名）。</li>

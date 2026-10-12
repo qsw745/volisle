@@ -21,6 +21,13 @@ final class ImageDevice: JournalBlockDevice {
     /// VOLATILE_LOSS=middle|scatter: a drive cache that loses power. Writes the
     /// last checkpoint flush "made durable" are partly undone at a crash.
     let loss = ProcessInfo.processInfo.environment["VOLATILE_LOSS"]
+    /// FINISH_LOSS: device writes a clean session end still had in the drive's
+    /// cache when the cable was pulled (seen on a real USB disk, 2026-10-11).
+    /// Of the writes the final checkpoint flushed, "last:N" loses the last N,
+    /// "first:N" the first N and "window" all; "others:<offsets>" loses every
+    /// second one of those not at the listed offsets (which land). "recent"
+    /// loses every write since the session's first checkpoint.
+    let finishLoss = ProcessInfo.processInfo.environment["FINISH_LOSS"]
     private var undo: [(Int64, Data)] = []
     private var flushMarks: [Int] = []
 
@@ -53,7 +60,7 @@ final class ImageDevice: JournalBlockDevice {
         let hit = writes == target
         if hit && fault == "fail" { throw POSIXError(.EIO) }
         let count = hit && (fault == "partial" || fault == "short") ? block.count / 2 : block.count
-        if loss != nil {
+        if loss != nil || finishLoss != nil {
             var prior = Data(count: block.count)
             _ = prior.withUnsafeMutableBytes { Darwin.pread(fd, $0.baseAddress, block.count, off_t(offset)) }
             undo.append((offset, prior))
@@ -77,11 +84,41 @@ final class ImageDevice: JournalBlockDevice {
         }
         FileHandle.standardError.write(Data("LOST \(lost.count) of \(window.count)\n".utf8))
     }
+    /// After a clean session end: the flushes reported success, the records
+    /// are gone, and the drive never wrote these from its cache.
+    func loseAfterFinish() {
+        guard let finishLoss else { return }
+        // The last two flushes are the final checkpoint's and the one before the
+        // records are removed; nothing is written between them.
+        guard flushMarks.count >= 3 else { fail("finish loss: too few flushes") }
+        let final = Array(undo[flushMarks[flushMarks.count - 3]...])
+        let parts = finishLoss.split(separator: ":")
+        let count = parts.count == 2 ? min(Int(parts[1]) ?? 0, final.count) : final.count
+        let lost: [(Int64, Data)]
+        switch parts.first {
+        case "last": lost = Array(final.suffix(count))
+        case "first": lost = Array(final.prefix(count))
+        case "window": lost = final
+        case "others":
+            let landed = Set(parts.count == 2 ? parts[1].split(separator: ",").compactMap { Int64($0) } : [])
+            lost = final.filter { !landed.contains($0.0) }.enumerated().filter { $0.offset % 2 == 1 }.map(\.element)
+        case "recent": lost = Array(undo[flushMarks[0]...])
+        default: fail("finish loss")
+        }
+        for (offset, prior) in lost.reversed() {
+            _ = prior.withUnsafeBytes { Darwin.pwrite(fd, $0.baseAddress, prior.count, off_t(offset)) }
+        }
+        fsync(fd)
+        let offsets = lost.map { String($0.0) }.joined(separator: ",")
+        FileHandle.standardError.write(Data("LOST \(lost.count) of \(final.count) at \(offsets)\n".utf8))
+    }
     func journalFlush() throws {
         flushes += 1
         if fault == "flush-fail" && flushes == target { throw POSIXError(.EIO) }
         guard fsync(fd) == 0 else { throw POSIXError(.EIO) }
-        if loss != nil {
+        if finishLoss != nil {
+            flushMarks.append(undo.count)  // small sessions only: everything is kept
+        } else if loss != nil {
             flushMarks.append(undo.count)
             if flushMarks.count > 2 {
                 let drop = flushMarks[flushMarks.count - 3]
@@ -179,22 +216,41 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
         let io = JournaledIO(device: device)
         io.bitLockerKey = bitLockerKey
         let serial = "0123456789abcdef"
+        // SINCE_END: seconds of uptime this run pretends have passed since it
+        // started, so a cleanly ended session's retention window is over (the
+        // disk comes back later) or not (it is used again at once).
+        let now = ProcessInfo.processInfo.systemUptime + TimeInterval(ProcessInfo.processInfo.environment["SINCE_END"] ?? "0")!
+        // REMOVE_CRASH: dies once the records' head is gone and their epochs are not yet.
+        if ProcessInfo.processInfo.environment["REMOVE_CRASH"] != nil { WriteJournalStore.afterSessionRemoved = { _exit(86) } }
+        func describe(_ outcome: WriteJournalCoordinator.Outcome) -> String {
+            switch outcome {
+            case .none: return "none"
+            case .recovered: return "recovered"
+            case .recoveredAfterEnd: return "recovered-after-end"
+            case .superseded: return "superseded"
+            case .refused(let error): return "refused-\(error)"
+            }
+        }
         switch a[1] {
         case "recover":
             if a.count == 6 { device.fault = a[4]; device.target = Int(a[5])! }
-            let outcome = WriteJournalCoordinator.recover(store: store, serial: serial, io: io)
-            let text: String
-            switch outcome {
-            case .none: text = "none"
-            case .recovered: text = "recovered"
-            case .superseded: text = "superseded"
-            case .refused(let error): text = "refused-\(error)"
-            }
-            print("{\"outcome\":\"\(text)\",\"writes\":\(device.writes)}")
+            let outcome = WriteJournalCoordinator.recover(store: store, serial: serial, io: io, now: now)
+            print("{\"outcome\":\"\(describe(outcome))\",\"writes\":\(device.writes)}")
         case "op":
             // op <image> <dir> <kind> <fault> <n>
             let kind = a[4], fault = a[5], n = Int(a[6])!
-            let (session, lock) = try WriteJournalCoordinator.begin(store: store, serial: serial, io: io)
+            // ACTIVATE: as a write activation does, recovery first; only then
+            // may a cleanly ended session's records be continued or dropped.
+            var activation = "none"
+            if ProcessInfo.processInfo.environment["ACTIVATE"] != nil {
+                activation = describe(WriteJournalCoordinator.recover(store: store, serial: serial, io: io, now: now))
+                guard !activation.hasPrefix("refused") else { print("{\"failed\":true,\"activation\":\"\(activation)\"}"); return }
+            }
+            let (session, lock) = try WriteJournalCoordinator.begin(store: store, serial: serial, io: io, now: now)
+            let firstEpoch = session.epoch
+            // STOP_AFTER_BEGIN: the write session never gets to write (as when
+            // the writable engine does not open).
+            if ProcessInfo.processInfo.environment["STOP_AFTER_BEGIN"] != nil { _exit(86) }
             if let seconds = ProcessInfo.processInfo.environment["RETENTION"] { session.retention = TimeInterval(seconds)! }
             let counting = CountingIO(io)
             var counted = counting.makeIO()
@@ -285,7 +341,11 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
                 if result == 0 { result = fill("/new", 7) }
             default: fail("kind")
             }
-            if result == 0 { do { try checkpoint(volume, io) } catch { result = -1 } }  // checkpoint B
+            // UNCHECKPOINTED_END: unmounted right after the operation, as a real
+            // session is: the final checkpoint then carries it and the marker release.
+            if result == 0, ProcessInfo.processInfo.environment["UNCHECKPOINTED_END"] == nil {
+                do { try checkpoint(volume, io) } catch { result = -1 }  // checkpoint B
+            }
             if result == 0 { FileHandle.standardError.write(Data("COMMITTED\n".utf8)) }
             if result != 0 {
                 _ = nk_umount(volume)
@@ -293,7 +353,7 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
                 return
             }
             // Interrupted cleanup: the session record is gone, the epochs are not.
-            if fault == "finish-crash" { WriteJournalStore.afterSessionRemoved = { _exit(86) } }
+            if fault == "finish-crash" { WriteJournalStore.afterFinishedSaved = { _exit(86) } }
             // A failed clean unmount keeps every record for the next connection.
             guard nk_umount(volume) == 0,
                   (try? WriteJournalCoordinator.finish(store: store, io: io, lock: lock)) != nil else {
@@ -301,7 +361,8 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
                 return
             }
             if fault == "after-finish-crash" { _exit(86) }
-            print("{\"failed\":false,\"deviceWrites\":\(device.writes - before),\"engineWrites\":\(counting.pwrites - pwritesBefore),\"skipped\":\(session.skippedBytes),\"unreadableReads\":\(device.unreadableReads),\"unreadableLeft\":\(device.unreadable.count)}")
+            if fault == "finish-loss" { device.loseAfterFinish(); _exit(86) }
+            print("{\"failed\":false,\"deviceWrites\":\(device.writes - before),\"engineWrites\":\(counting.pwrites - pwritesBefore),\"skipped\":\(session.skippedBytes),\"unreadableReads\":\(device.unreadableReads),\"unreadableLeft\":\(device.unreadable.count),\"activation\":\"\(activation)\",\"firstEpoch\":\(firstEpoch)}")
         case "durability":
             // durability <image> <dir> <before|after>: a "copy" (one new file),
             // then the report the app polls (NTFSVolume.durabilityReport) on a
@@ -337,6 +398,9 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
             state = report()
             guard state.durableBelow >= mark.writtenBelow else { fail("not reported durable after the window") }
             print("{\"durable\":true}"); fflush(stdout); _exit(86)
+        case "expire":
+            // expire <image> <dir> <days>: the cleanup as it runs <days> from now.
+            store.removeExpiredFinished(wallClock: Date().timeIntervalSince1970 + Double(a[4])! * 86400)
         case "archive-keep":
             // archive-keep <image> <dir> <serial>...: archives a record of each serial
             // in order and prints what the superseded folder keeps.

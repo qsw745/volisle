@@ -32,6 +32,9 @@ public struct MountCycleStillRunning: LocalizedError, Equatable {
     func waitForUpdate() async throws
     /// Whether the write mount still exists and can still write.
     func writeSessionHealth(_ record: HelperMountOperation) async -> WriteSessionHealth
+    /// Whether this write mount began by rolling back a cleanly ended session
+    /// whose last changes never reached the disk (unplugged without ejecting).
+    func rolledBackAfterCleanEnd(_ record: HelperMountOperation) async -> Bool
     /// Whether the operation's media is still connected (IORegistry), whatever the disk list says.
     func mediaPresent(_ record: HelperMountOperation) -> Bool
     /// The caller's records at the daemon: every unfinished one and the newest finished one.
@@ -41,6 +44,7 @@ public struct MountCycleStillRunning: LocalizedError, Equatable {
 public extension MountCycleClientBackend {
     func verifyWritable(_ record: HelperMountOperation) async throws -> URL { throw HelperDiskFailure.unavailable }
     func writeSessionHealth(_ record: HelperMountOperation) async -> WriteSessionHealth { .writing }
+    func rolledBackAfterCleanEnd(_ record: HelperMountOperation) async -> Bool { false }
     func mediaPresent(_ record: HelperMountOperation) -> Bool { false }
     func list() async throws -> [HelperMountOperation] {
         try await send(.init(action: .latest)).map { [$0] } ?? []
@@ -101,9 +105,15 @@ public extension MountCycleClientBackend {
     /// a disk that was still connected, unmounted and verified read-only or
     /// unmounted — then everything was written and nothing will be rolled back.
     public var didEndWriteSession: (@MainActor (UUID?, Bool) -> Void)?
+    /// Asked to end one, but it goes on as it was: files in use kept the disk
+    /// from unmounting. Not an end of any kind, so nothing finished in it is
+    /// judged; what was paused for the end may continue.
+    public var didKeepWriteSession: (@MainActor (UUID?) -> Void)?
     /// Each operation that reached its end, for the diagnostics history.
     public var operationFinished: (@MainActor (HelperMountOperation) -> Void)?
     private var initialized = false
+    /// The write session whose rollback notice has been shown.
+    private var rollbackNoticeFor: UUID?
     private var intent: MountCycleIntent?
     private var barrier: UUID?
     private let backend: any MountCycleClientBackend
@@ -137,6 +147,8 @@ public extension MountCycleClientBackend {
     /// The disk this slot's request or session concerns, if any.
     public var disk: HelperDiskRequest? { intent?.disk ?? operation.flatMap { $0.phase == .finished ? nil : $0.disk } }
     public func clearMessage() { notice = nil; if !needsAttention { lastError = nil } }
+    /// Only the notice: what it advised (eject before unplugging) has been done.
+    public func clearNotice() { notice = nil }
     /// A submitted request whose end is unknown (a lost reply, a long check that
     /// outlasted following it): asking again by its ID never repeats disk work.
     public var awaitsResult: Bool {
@@ -293,7 +305,11 @@ public extension MountCycleClientBackend {
         defer {
             let clean = healthy && present && operation?.id == ending?.id && operation?.phase == .finished
                 && operation?.failure == nil && (verifiedState == .readOnly || verifiedState == .unmounted)
-            didEndWriteSession?(ending?.id, clean)
+            if operation?.id == ending?.id, operation?.phase == .writeMounted, writableURL != nil {
+                didKeepWriteSession?(ending?.id)
+            } else {
+                didEndWriteSession?(ending?.id, clean)
+            }
         }
         do {
             if let willEndWriteSession { try await willEndWriteSession(automatically && !present) }
@@ -302,6 +318,11 @@ public extension MountCycleClientBackend {
                 throw HelperServiceError.invalidReply
             }
             try await follow(record)
+            // Refused because files are in use: the session goes on, writable as before.
+            if operation?.id == ending?.id, operation?.phase == .writeMounted, operation?.recoveryFailure == .busy, writableURL != nil {
+                cycleLog.notice("恢复只读被占用拒绝，读写会话保持")
+                notice = String(localized: "这块盘上有文件正在使用（例如还在拷贝），暂时不能恢复只读，磁盘仍保持读写。等传输结束、关闭盘里正在使用的文件后，再点“恢复只读”。")
+            }
         } catch { attention(error) }
     }
     /// MountCycles: take over one of the daemon's unfinished records (after a
@@ -364,6 +385,10 @@ public extension MountCycleClientBackend {
                 if let failure = record.failure { lastError = failure.localizedDescription }
                 else {
                     switch restored {
+                    // After writing, the drive may still hold the last of it in
+                    // its own cache; only an eject makes it write that out.
+                    case .readOnly where record.isWrite: notice = String(localized: "磁盘已恢复只读。硬盘可能还在写入最后的内容，请先推出，再拔下数据线。")
+                    case .unmounted where record.isWrite: notice = String(localized: "读写已结束，磁盘保持未挂载。硬盘可能还在写入最后的内容，请先推出，再拔下数据线。")
                     case .readOnly: notice = record.report == nil ? String(localized: "已核对磁盘恢复只读。") : String(localized: "检查完成，磁盘已恢复只读。")
                     case .unmounted: notice = String(localized: "后台操作已结束，磁盘保持未挂载。")
                     case .disconnected: notice = String(localized: "原设备已断开，后台操作已结束。")
@@ -379,7 +404,14 @@ public extension MountCycleClientBackend {
                 guard acceptWriteSessionHealth(await backend.writeSessionHealth(record)) else { return }
                 writableURL = root
                 needsAttention = false; lastError = nil
-                notice = String(localized: "读写已启用，使用完毕后请安全推出。")
+                // Said once per session: every later look at the same mount finds it again.
+                if rollbackNoticeFor != record.id, await backend.rolledBackAfterCleanEnd(record) {
+                    rollbackNoticeFor = record.id
+                    cycleLog.notice("已提示：上次正常结束后过早拔线，开始读写前回滚过")
+                    notice = String(localized: "读写已启用。上次用完后这块盘没有推出就被拔下，最后一小段时间里的改动没有写到盘上，盘屿已把它恢复到之前的一致状态；请检查最近拷入或修改的文件。用完后请先推出，再拔下数据线。")
+                } else {
+                    notice = String(localized: "读写已启用，使用完毕后请安全推出。")
+                }
                 return
             default: break
             }
@@ -464,6 +496,14 @@ public extension MountCycleClientBackend {
             let size = getxattr(path, "top.qisw.volisle.write-state", &value, value.count, 0, 0)
             if size < 0, [ESTALE, ENXIO, ENODEV].contains(errno) { return .extensionEnded }
             return size > 0 && String(decoding: value.prefix(size), as: UTF8.self) == "stopped" ? .stopped : .writing
+        }.value
+    }
+    public func rolledBackAfterCleanEnd(_ record: HelperMountOperation) async -> Bool {
+        let path = "/private/var/run/volisle-write-mounts/" + record.id.uuidString.lowercased()
+        return await Task.detached(priority: .utility) {
+            var value = [UInt8](repeating: 0, count: 16)
+            let size = getxattr(path, "top.qisw.volisle.recovery", &value, value.count, 0, 0)
+            return size > 0 && String(decoding: value.prefix(size), as: UTF8.self) == "after-end"
         }.value
     }
     public func mediaPresent(_ record: HelperMountOperation) -> Bool {

@@ -19,6 +19,8 @@ import Testing
             #expect(HelperDiskFailure.mountRefusal(prefix + recovery + "[journal:\(transient)]") == .interruptedWriteRetry)
         }
         #expect(HelperDiskFailure.mountRefusal(prefix + "磁盘处于写保护状态，拒绝可写挂载。[media:writeProtected]") == .writeProtected)
+        // The "needs check" mark reached one of its two places: offered the check, not a generic failure.
+        #expect(HelperDiskFailure.mountRefusal(prefix + "卷的检查标记只写了一半，拒绝可写挂载。[check:markCopies]") == .markHalfWritten)
         // The token decides even if the words were to mention the log.
         #expect(HelperDiskFailure.mountRefusal(prefix + "日志 [journal:foreignChange]") == .interruptedWriteUnverified)
         #expect(HelperDiskFailure.mountRefusal("[journal:foreignChange] without the mount prefix") == nil)

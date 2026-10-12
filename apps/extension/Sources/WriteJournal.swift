@@ -4,8 +4,11 @@ import CryptoKit
 import Darwin
 
 /// Fixed cache-block device. A write may stay in the system cache until
-/// `journalFlush`, the durable barrier (unavailable before a kernel mount,
-/// where `flushIsDurable` is false).
+/// `journalFlush`, the barrier (unavailable before a kernel mount, where
+/// `flushIsDurable` is false). The barrier hands the data to the drive; it does
+/// not make a USB drive empty its own write cache (2026-10-11: a 16-minute
+/// session never sent the drive a cache flush), which is what the retention
+/// window and the finished record are for.
 protocol JournalBlockDevice: AnyObject {
     var journalBlockSize: Int { get }
     var journalDeviceSize: Int64 { get }
@@ -44,6 +47,11 @@ enum WriteJournalLimits {
     /// Before-images kept across retained epochs; beyond this the oldest go first.
     /// Recovery reads them all into memory.
     static let retainedBytes = 128 * 1024 * 1024
+    /// After a clean end, how much of what was written into free space (file
+    /// data, which keeps no before-image) the next connection reads back,
+    /// newest first. Above a drive's own write cache, so what it could still
+    /// have been holding is covered, and the read stays a matter of seconds.
+    static let landingFreeBytes = 256 * 1024 * 1024
 }
 
 /// Where the volume's cluster bitmap lies on the device (from nk_bitmap_layout).
@@ -221,6 +229,28 @@ final class WriteJournalSession {
         } catch { stop(); throw error }
     }
 
+    /// The checkpointed epochs still on record, for the finished record.
+    var retainedRange: (first: UInt64, last: UInt64)? {
+        guard let first = retained.first, let last = retained.last else { return nil }
+        return (first.epoch, last.epoch)
+    }
+
+    /// Runs once, before this session's first group is recorded (so before its
+    /// first device write). A continued session takes its records over here and
+    /// not earlier: one that never gets to write leaves them as they were.
+    var beforeFirstGroup: (() throws -> Void)?
+
+    /// Continues a cleanly ended session inside its retention window: its
+    /// epochs (oldest first, numbered up to just below this session's) stay on
+    /// record until they age out. Their bitmap is not known here, so until then
+    /// every block written keeps its before-image.
+    func adopt(_ epochs: [WriteJournalEpoch], at: TimeInterval) {
+        retained = epochs.map { epoch in
+            .init(epoch: epoch.header.epoch, name: epoch.name, at: at, bitmap: [:], bitmapKnown: false,
+                  bytes: epoch.groups.reduce(0) { $0 + $1.before.reduce(0) { $0 + $1.bytes.count } })
+        }
+    }
+
     /// Drops retained epochs past the window, oldest first. A file is forgotten
     /// only once its removal is durable: a record that reappeared after a crash
     /// would roll back past a boundary later writes no longer protected.
@@ -242,6 +272,10 @@ final class WriteJournalSession {
 
     private func flushGroup() throws {
         guard !overlay.isEmpty else { return }
+        if let takeOver = beforeFirstGroup {
+            try takeOver()
+            beforeFirstGroup = nil
+        }
         if file < 0 {
             (file, previous) = try store.createEpoch(serial: record.serial,
                 header: .init(session: record.session, epoch: epoch, kind: kind))
@@ -364,6 +398,11 @@ final class JournaledIO {
     unowned let device: JournalBlockDevice
     private let pipeline = MetadataWritePipeline()
     var session: WriteJournalSession?
+    /// A cleanly ended session whose records are still kept and whose every
+    /// write this volume instance knows to be on the device as far as it can be
+    /// read: it ended here, or this activation's recovery read them back. Only
+    /// such a session may be continued or have its records dropped by `begin`.
+    var landedSession: UUID?
     /// BitLocker: the volume master key (64 hex digits). The journal itself
     /// always works on the device's ciphertext; only reads of the NTFS volume
     /// (its flags, log and header) go through the decrypted view.

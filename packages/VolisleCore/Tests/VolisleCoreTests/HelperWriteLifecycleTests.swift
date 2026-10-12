@@ -103,6 +103,38 @@ struct HelperWriteLifecycleTests {
         #expect(try journal.read()?.recoveryFailure == nil)
         #expect(try journal.read()?.failure == nil)
     }
+    @Test func aRestoreRefusedForFilesInUseLeavesTheSessionWritable() async throws {
+        let journal = try journal(); defer { try? FileManager.default.removeItem(at: journal.directory) }
+        let backend = WriteDisk(journal: journal, failRestore: true)
+        await backend.keepMountInPlace()
+        let service = try HelperMountCycleService(journal: journal, backend: backend, bootSession: "boot")
+        let id = UUID(); _ = try await service.startWrite(id: id, disk: disk(), uid: 501)
+        _ = try await wait(service, id: id)
+        _ = try await service.recover(id: id, uid: 501)
+        // The unmount was refused and nothing changed: still the write session, with the reason.
+        let refused = try await wait(service, id: id)
+        #expect(refused.phase == .writeMounted && refused.recoveryFailure == .busy && refused.isWrite)
+        #expect(try journal.read() == refused)
+        #expect(await backend.state == .readWrite)
+        // Other work is still kept off the disk, as for any write session.
+        await #expect(throws: (any Error).self) { _ = try await service.start(id: UUID(), disk: disk(), uid: 501) }
+        // Once nothing uses it, ending the session works and clears the reason.
+        await backend.allowRestore()
+        _ = try await service.recover(id: id, uid: 501)
+        let ended = try await wait(service, id: id)
+        #expect(ended.phase == .finished && ended.recoveryFailure == nil && ended.failure == nil)
+        #expect(await backend.state == .readOnly)
+    }
+    @Test func aFailedStartIsNeverReportedAsAWriteSessionWhateverRefusesItsCleanup() async throws {
+        // The mount came up but writing was not granted; then the cleanup's unmount is refused too.
+        let journal = try journal(); defer { try? FileManager.default.removeItem(at: journal.directory) }
+        let backend = WriteDisk(journal: journal, failAfterMount: true, failRestore: true)
+        await backend.keepMountInPlace()
+        let service = try HelperMountCycleService(journal: journal, backend: backend, bootSession: "boot")
+        let id = UUID(); _ = try await service.startWrite(id: id, disk: disk(), uid: 501)
+        let record = try await wait(service, id: id)
+        #expect(record.phase == .needsRecovery && record.failure != nil && record.recoveryFailure == .busy)
+    }
     @Test func previousBootNeverClosesReusedDevice() async throws {
         let journal = try journal(); defer { try? FileManager.default.removeItem(at: journal.directory) }
         let backend = WriteDisk(journal: journal)
@@ -192,4 +224,7 @@ private actor WriteDisk: HelperWritableMountBackend {
         state = originallyMounted ? .readOnly : .unmounted
     }
     func allowRestore() { failRestore = false }
+    var mountInPlace = false
+    func keepMountInPlace() { mountInPlace = true }
+    func writeMountInPlace(_ operation: HelperMountOperation) -> Bool { mountInPlace && state == .readWrite }
 }

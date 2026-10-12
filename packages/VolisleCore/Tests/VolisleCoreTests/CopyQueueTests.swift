@@ -358,12 +358,124 @@ import Testing
         let id = try #require(queue.jobs.first).id
         queue.dismiss(id)
         #expect(queue.jobs.count == 1, "kept while it may still have to recheck")
+        var now: TimeInterval = 1000
+        queue.uptime = { now }
         await queue.sessionWillEnd()
+        bench.writable = false
         queue.sessionDidEnd(bench.session, cleanly: true)
-        #expect(queue.jobs.first?.confirmed == true)
+        await queue.reconcile()
+        #expect(queue.jobs.first?.confirmed == false, "the drive may still hold the last writes in its own cache")
+        now += CopyQueue.settleAfterCleanEnd - 1
+        await queue.reconcile()
+        #expect(queue.jobs.first?.confirmed == false)
+        now += 2
+        await queue.reconcile()
+        #expect(queue.jobs.first?.confirmed == true, "still connected once the drive has had its time")
         #expect(bench.store.load().isEmpty, "nothing left to resume")
         queue.dismiss(id)
         #expect(queue.jobs.isEmpty)
+    }
+
+    @Test func pulledRightAfterACleanEndTheCopyIsCheckedAgain() async throws {
+        let bench = try Bench()
+        let queue = bench.queue()
+        try await bench.add(queue)
+        try await finished(queue)
+        var now: TimeInterval = 1000
+        queue.uptime = { now }
+        await queue.sessionWillEnd()
+        bench.writable = false
+        queue.sessionDidEnd(bench.session, cleanly: true)
+        now += 2
+        bench.present = false   // unplugged without ejecting
+        await queue.reconcile()
+        let job = try #require(queue.jobs.first)
+        #expect(!job.confirmed && !job.progress.finished && job.progress.pause == .disk, "its last files may be rolled back at the next connection")
+        // Back and writable: the copy runs again over what is there and finishes.
+        bench.present = true; bench.writable = true; bench.session = UUID()
+        await queue.reconcile()
+        try await finished(queue)
+        #expect(try bench.same("Album/movie.bin"))
+    }
+
+    @Test func ejectedThroughVolisleRightAfterACleanEndTheCopyIsConfirmed() async throws {
+        let bench = try Bench()
+        let queue = bench.queue()
+        try await bench.add(queue)
+        try await finished(queue)
+        var now: TimeInterval = 1000
+        queue.uptime = { now }
+        await queue.sessionWillEnd()
+        bench.writable = false
+        queue.sessionDidEnd(bench.session, cleanly: true)
+        now += 2
+        queue.ejectRequested(["VOL"])
+        now += 1
+        bench.present = false   // the eject went through: the drive wrote its cache out
+        await queue.reconcile()
+        #expect(queue.jobs.first?.confirmed == true)
+        #expect(bench.store.load().isEmpty)
+    }
+
+    @Test func aRefusedOrEarlierEjectDoesNotVouchForAPull() async throws {
+        for refused in [true, false] {
+            let bench = try Bench()
+            let queue = bench.queue()
+            try await bench.add(queue)
+            try await finished(queue)
+            var now: TimeInterval = 1000
+            queue.uptime = { now }
+            // Not refused: an eject that went through before this session (the disk came back since).
+            if !refused { queue.ejectRequested(["VOL"]); now += 5 }
+            await queue.sessionWillEnd()
+            bench.writable = false
+            queue.sessionDidEnd(bench.session, cleanly: true)
+            now += 2
+            if refused { queue.ejectRequested(["VOL"]); now += 1; queue.ejectFailed(["VOL"]) }
+            now += 2
+            bench.present = false   // pulled
+            await queue.reconcile()
+            #expect(queue.jobs.first?.confirmed == false && queue.jobs.first?.progress.finished == false, "refused=\(refused)")
+        }
+    }
+
+    @Test func writingAgainRightAfterACleanEndNeitherConfirmsNorChecksAgain() async throws {
+        let bench = try Bench()
+        let queue = bench.queue()
+        try await bench.add(queue)
+        try await finished(queue)
+        var now: TimeInterval = 1000
+        queue.uptime = { now }
+        await queue.sessionWillEnd()
+        bench.writable = false
+        queue.sessionDidEnd(bench.session, cleanly: true)
+        now += 3
+        bench.writable = true; bench.session = UUID()   // read-write again at once, never unplugged
+        await queue.reconcile()
+        var job = try #require(queue.jobs.first)
+        #expect(job.progress.finished && !job.confirmed && !job.running, "the disk never left: nothing to check again")
+        now += CopyQueue.settleAfterCleanEnd
+        await queue.reconcile()
+        job = try #require(queue.jobs.first)
+        #expect(job.confirmed)
+    }
+
+    @Test func anEjectAskedLongAgoDoesNotVouchForALaterPull() async throws {
+        let bench = try Bench()
+        let queue = bench.queue()
+        try await bench.add(queue)
+        try await finished(queue)
+        var now: TimeInterval = 1000
+        queue.uptime = { now }
+        queue.ejectRequested(["VOL"])   // refused (a file was in use): the disk stayed
+        now += CopyQueue.ejectTakes + 1
+        await queue.sessionWillEnd()
+        bench.writable = false
+        queue.sessionDidEnd(bench.session, cleanly: true)
+        now += 2
+        bench.present = false
+        await queue.reconcile()
+        #expect(queue.jobs.first?.confirmed == false && queue.jobs.first?.progress.finished == false)
     }
 
     @Test func cancellingRemovesOnlyThePartAndKeepsAnOlderFile() async throws {
@@ -494,6 +606,29 @@ import Testing
         await queue.reconcile()
         #expect(!FileManager.default.fileExists(atPath: part.path))
         #expect(bench.store.loadCleanups().isEmpty)
+    }
+
+    @Test func anEndThatWasRefusedLeavesCopiesOfThatSessionAsTheyWere() async throws {
+        // "Make Read-Only" while another app still copies: asked, refused, the session goes on.
+        let bench = try Bench()
+        let queue = bench.queue()
+        try await bench.add(queue)
+        await queue.sessionWillEnd(session: bench.session)   // pauses the copy for the end
+        #expect(queue.jobs.first?.running == false)
+        queue.sessionDidNotEnd(bench.session)
+        await queue.reconcile()
+        // It continues in the same session and, once finished, stays finished:
+        // no end was recorded for that session to judge it by.
+        try await finished(queue)
+        await queue.reconcile()
+        let job = try #require(queue.jobs.first)
+        #expect(job.progress.finished && job.progress.pause == nil && !job.running)
+        #expect(try bench.same("Album/movie.bin"))
+        // A finished copy is not checked again by a refused end either.
+        await queue.sessionWillEnd(session: bench.session)
+        queue.sessionDidNotEnd(bench.session)
+        await queue.reconcile()
+        #expect(queue.jobs.first?.progress.finished == true && queue.jobs.first?.progress.pause == nil)
     }
 
     @Test func onlyTheSessionACopyFinishedInCanConfirmIt() async throws {

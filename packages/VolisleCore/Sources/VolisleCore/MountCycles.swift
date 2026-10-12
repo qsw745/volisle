@@ -27,6 +27,7 @@ private let cyclesLog = Logger(subsystem: "top.qisw.volisle", category: "cycle")
     /// Runs before Volisle ends a slot's write session (its operation then), see MountCycleClient.
     public var willEndWriteSession: (@MainActor (_ operation: HelperMountOperation?, _ reconnecting: Bool) async throws -> Void)?
     public var didEndWriteSession: (@MainActor (UUID?, Bool) -> Void)?
+    public var didKeepWriteSession: (@MainActor (UUID?) -> Void)?
     public var operationFinished: (@MainActor (HelperMountOperation) -> Void)?
 
     /// `deviceKey`: the VolumeSnapshot.deviceGroup a request's disk is on now, nil when not connected.
@@ -54,6 +55,7 @@ private let cyclesLog = Logger(subsystem: "top.qisw.volisle", category: "cycle")
             try await self?.willEndWriteSession?(slot?.operation, reconnecting)
         }
         slot.didEndWriteSession = { [weak self] id, clean in self?.didEndWriteSession?(id, clean) }
+        slot.didKeepWriteSession = { [weak self] id in self?.didKeepWriteSession?(id) }
         slot.operationFinished = { [weak self] record in self?.operationFinished?(record) }
         slots.append(slot)
         slotIDs[ObjectIdentifier(slot)] = id
@@ -116,6 +118,9 @@ private let cyclesLog = Logger(subsystem: "top.qisw.volisle", category: "cycle")
     // MARK: actions
 
     public func clearMessage() { slots.forEach { $0.clearMessage() } }
+    /// After an eject: what an ended session's notice advised has been done.
+    /// Errors and the notices of sessions still under way stay.
+    public func clearEndedNotices() { slots.filter { !$0.blocksActions }.forEach { $0.clearNotice() } }
 
     /// At launch and when asked: every slot settles its own request, then the
     /// daemon's records not held by any slot are taken over, one slot each.

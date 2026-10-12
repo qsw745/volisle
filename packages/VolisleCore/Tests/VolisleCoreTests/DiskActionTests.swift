@@ -17,7 +17,11 @@ import Testing
         if let failure { throw failure }
         if let afterUnmount { self.volume = afterUnmount }
     }
-    func eject(_ volume: VolumeSnapshot) async throws { calls.append("eject") }
+    var ejectFailure: Error?
+    func eject(_ volume: VolumeSnapshot) async throws {
+        calls.append("eject")
+        if let ejectFailure { throw ejectFailure }
+    }
 }
 private func actionVolume(identity: VolumeIdentity? = nil, external: Bool = true, mounted: Bool = true) -> VolumeSnapshot {
     .init(identity: identity ?? .init(volumeUUID: "v", mediaUUID: "m", devicePath: "physical-device"),
@@ -33,6 +37,24 @@ private func actionVolume(identity: VolumeIdentity? = nil, external: Bool = true
         #expect(actions.notice != nil)
         actions.reconcile(previous: [], current: [actionVolume()])
         #expect(actions.notice == nil)
+    }
+    @Test func anEjectIsAnnouncedButAPlainUnmountOrARefusedOneIsNot() async throws {
+        let backend = ActionBackend(); let actions = DiskActions(backend: backend, gate: DeviceOperationGate())
+        var announced: [String] = [], results: [Bool] = []
+        actions.willEjectDevice = { announced.append($0) }
+        actions.didEjectDevice = { _, ejected in results.append(ejected) }
+        try await actions.execute(.unmountVolume, on: backend.volume.identity)
+        #expect(announced.isEmpty && results.isEmpty)
+        try await actions.execute(.ejectDevice, on: backend.volume.identity)
+        #expect(announced == [backend.volume.deviceGroup] && results == [true])
+        // The system refuses the eject itself: announced, then taken back.
+        backend.ejectFailure = DiskSystemError.busy
+        await actions.perform(.ejectDevice, on: backend.volume.identity)
+        #expect(announced.count == 2 && results == [true, false])
+        // A file still in use: the unmount is refused, so nothing is ejected.
+        backend.ejectFailure = nil; backend.failure = DiskSystemError.busy
+        await actions.perform(.ejectDevice, on: backend.volume.identity)
+        #expect(announced.count == 2 && results.count == 2)
     }
     @Test func remountedVolumeClearsUnmountNoticeButPreservesFailure() async throws {
         let backend = ActionBackend(); let actions = DiskActions(backend: backend, gate: DeviceOperationGate())

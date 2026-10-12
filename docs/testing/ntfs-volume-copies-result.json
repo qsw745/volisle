@@ -1,0 +1,75 @@
+{
+  "executed_at": "2026-10-11T13:22:10+00:00",
+  "engine": "NTFS-3G 2026.9.28",
+  "scope": "离线可丢弃镜像；不是实盘验证",
+  "checks": [
+    {
+      "name": "两份一致：研判为无事可做，修复不写盘",
+      "passed": true
+    },
+    {
+      "name": "释放标记只写到一处（mirror 那份没写上）：带标记的那份写回，卷一致地需要检查，全盘检查后可读写",
+      "passed": true
+    },
+    {
+      "name": "释放标记只写到一处（mft 那份没写上）：带标记的那份写回，卷一致地需要检查，全盘检查后可读写",
+      "passed": true
+    },
+    {
+      "name": "设置标记只写到一处：同样以带标记的那份为准",
+      "passed": true
+    },
+    {
+      "name": "两份只在记录未使用的部分不同：与 NTFS-3G 一样视为一致，不拦“在 Mac 上检查”",
+      "passed": true
+    },
+    {
+      "name": "不处理：两份都带标记、只差更新序号（NTFS-3G 同样拒绝）",
+      "passed": true
+    },
+    {
+      "name": "不处理：the record differs in more",
+      "passed": true
+    },
+    {
+      "name": "不处理：another record differs",
+      "passed": true
+    },
+    {
+      "name": "不处理：a record is incomplete",
+      "passed": true
+    },
+    {
+      "name": "不处理：other flags differ",
+      "passed": true
+    },
+    {
+      "name": "写回本身被打断（只写上一个扇区）：再做一次即可写齐",
+      "passed": true
+    },
+    {
+      "name": "不处理：两份之间隔了不止一次写入",
+      "passed": true
+    },
+    {
+      "name": "写入失败：报告失败，镜像未变",
+      "passed": true
+    },
+    {
+      "name": "同一次拔线还丢了别的：两份写齐后仍是“需要检查”，全盘检查拒绝清除标记",
+      "passed": true
+    },
+    {
+      "name": "大簇卷：第四条之后的记录不一致也不处理",
+      "passed": true
+    },
+    {
+      "name": "不是 NTFS 卷：研判报告无法读取",
+      "passed": true
+    },
+    {
+      "name": "Windows 11 格式化的卷：研判为一致",
+      "passed": true
+    }
+  ]
+}

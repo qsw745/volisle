@@ -143,6 +143,60 @@ struct NTFSMaintenanceEngine: PartitionMaintenanceEngine {
         }
     }
 
+    /// The mark's two places differ only as an unfinished write of it leaves
+    /// them: the marked copy goes over the other. The write first saves what
+    /// it overwrites; a result that does not verify is put back.
+    func settleMarkCopies(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> Bool {
+        let io = try Self.io(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount)
+        guard Self.lock.try() else { throw HelperDiskFailure.busy }
+        defer { Self.lock.unlock() }
+        let log = Logger(subsystem: "top.qisw.volisle.helper", category: "check")
+        var probe = io.makeIO(readOnly: true)
+        var found = nk_volume_copies()
+        // Not readable as NTFS, or a read failed: the check itself reports that.
+        guard withExtendedLifetime(io, { nk_volume_copies_examine(&probe, &found) }) == 0, found.differ != 0 else { return false }
+        guard found.repairable != 0 else {
+            // A fixed wording only: no names or contents of the disk.
+            log.error("卷记录的两份不一致，不是只差检查标记：\(Self.reason(found), privacy: .public)")
+            throw HelperDiskFailure.checkFoundProblems
+        }
+        // Only now is the undo folder needed: an ordinary check never creates it.
+        for path in [undoFile.deletingLastPathComponent().deletingLastPathComponent().path, undoFile.deletingLastPathComponent().path] {
+            if mkdir(path, 0o700) != 0 && errno != EEXIST { throw HelperDiskFailure.unavailable }
+        }
+        let undo = try PartitionUndoLog(url: undoFile)
+        io.undo = undo
+        var device = io.makeIO()
+        var before = nk_volume_copies()
+        var errbuf = [CChar](repeating: 0, count: 128)
+        let rc = withExtendedLifetime(io) { nk_volume_copies_repair(&device, &before, &errbuf, errbuf.count) }
+        let code = errno
+        if rc == 0 {
+            undo.discard()
+            log.notice("检查标记已写到另一处：带标记的在\(before.marked_copy == 0 ? "主记录" : "镜像", privacy: .public) 较新=\(before.marked_newer, privacy: .public) 半写=\(before.half_written, privacy: .public)")
+            return true
+        }
+        log.error("检查标记写回未完成：\(Self.reason(errbuf), privacy: .public) 已写=\(undo.records, privacy: .public)")
+        if undo.records == 0 {
+            undo.discard()
+            if code == EALREADY { return false }
+            throw code == ENOTSUP ? HelperDiskFailure.checkFoundProblems
+                : io.failed ? HelperDiskFailure.checkReadFailed : HelperDiskFailure.unavailable
+        }
+        // Written but not verified: put the record back. Either way the state
+        // is one this can be run on again.
+        guard undo.restore(to: descriptor) else {
+            log.fault("检查标记写回失败且未能还原，撤销记录保留：\(undo.url.lastPathComponent, privacy: .public)")
+            throw HelperDiskFailure.unavailable
+        }
+        undo.discard()
+        throw HelperDiskFailure.checkReadFailed
+    }
+
+    private static func reason(_ s: nk_volume_copies) -> String {
+        withUnsafeBytes(of: s.reason) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+    }
+
     func examineWindowsLog(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> WindowsLogExamination {
         let io = try Self.io(descriptor: descriptor, blockSize: blockSize, byteCount: byteCount)
         guard Self.lock.try() else { throw HelperDiskFailure.busy }

@@ -105,6 +105,10 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
     /// the removal or the check after it failed and the disk was put back
     /// exactly, or putting it back failed too.
     case staleEntriesNotRepairable, staleEntriesRepairRestored, staleEntriesRestoreFailed
+    /// The volume cannot be opened because the "needs check" mark reached only
+    /// one of its two places (unplugged right after its last use). "Check on
+    /// This Mac" writes the mark to the other place first, then checks.
+    case markHalfWritten
     public var errorDescription: String? {
         switch self {
         case .mountFailed: String(localized: "盘屿没能以读写方式挂载这块盘，磁盘仍可只读使用，数据不受影响。请重启 Mac 后重新插入；仍然出现时，请在设置 → 支持中导出诊断并反馈。")
@@ -134,6 +138,7 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
         case .checkFoundProblems: String(localized: "检查发现这块盘的文件记录有问题，没有做任何修改。盘里的文件仍可以只读打开和拷出；要恢复读写，请在 Windows 中检查磁盘（属性 → 工具 → 检查）。")
         case .checkReadFailed: String(localized: "检查时有一部分内容读不出来（可能是坏扇区，或数据线、USB 接口不稳），检查没有完成，没有做任何修改。可以换根数据线或换个接口再试，或在 Windows 中检查磁盘（属性 → 工具 → 检查）。")
         case .busy: String(localized: "磁盘正被其他程序使用，暂时无法完成。请关闭正在使用盘内文件的应用后重试；磁盘仍可正常使用，数据不受影响。")
+        case .markHalfWritten: String(localized: "这块盘上次用完后没有推出就被拔下，“需要检查”的标记只写了一半，所以现在无法读写，盘里的文件不受影响。可以点右边的“在 Mac 上检查…”：盘屿会先把标记写完整，再检查整块盘，没有发现问题就开启读写；也可以在 Windows 中检查磁盘（属性 → 工具 → 检查），安全弹出后再插回。")
         case .ntfsDirty: String(localized: "这块盘被标记为需要检查，为保护数据暂时只读。可以点右边的“在 Mac 上检查…”，没有发现问题就会清除标记并开启读写；也可以在 Windows 中检查磁盘（属性 → 工具 → 检查），安全弹出后再插回。")
         case .windowsHibernated: String(localized: "这块盘来自处于休眠或“快速启动”状态的 Windows，为保护数据暂时只读。请在 Windows 中完全关机后再插回。")
         case .windowsLogUnclean: String(localized: "这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点“在 Mac 上恢复…”。")
@@ -148,6 +153,7 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
         if line.contains("[journal:foreignChange]") || line.contains("[journal:corrupt]") { return .interruptedWriteUnverified }
         if line.contains("[journal:") { return .interruptedWriteRetry }
         if line.contains("[media:writeProtected]") { return .writeProtected }
+        if line.contains("[check:markCopies]") { return .markHalfWritten }
         if line.contains("脏标记") { return .ntfsDirty }
         if line.contains("休眠") { return .windowsHibernated }
         if line.contains("日志") { return .windowsLogUnclean }

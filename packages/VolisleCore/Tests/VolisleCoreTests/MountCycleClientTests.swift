@@ -82,6 +82,53 @@ import Testing
         #expect(client.needsAttention && client.blocksActions && store.value != nil)
         #expect(!backend.verified)
     }
+    @Test func endingAWriteSessionAsksToEjectBeforeUnplugging() async throws {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        #expect(client.notice?.contains("安全推出") == true)
+        await client.recover()
+        // The drive may still hold the last writes in its own cache.
+        #expect(client.notice?.contains("请先推出，再拔下数据线") == true, "\(client.notice ?? "nil")")
+    }
+    @Test func aWriteSessionThatBeganByUndoingAnEarlyUnplugSaysSo() async throws {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        backend.rolledBack = true
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        #expect(client.isWritable(target))
+        #expect(client.notice?.contains("没有推出就被拔下") == true, "\(client.notice ?? "nil")")
+        // Dismissed, it does not come back each time the same mount is looked at.
+        client.clearMessage()
+        await client.refresh()
+        #expect(client.isWritable(target) && client.notice?.contains("没有推出就被拔下") != true, "\(client.notice ?? "nil")")
+    }
+    @Test func restoringReadOnlyWhileFilesAreInUseKeepsTheDiskWritableAndSaysWhy() async throws {
+        let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
+        backend.physicalMediaPresent = true
+        let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
+        var ended: [Bool] = [], kept = 0
+        client.didEndWriteSession = { _, clean in ended.append(clean) }
+        client.didKeepWriteSession = { _ in kept += 1 }
+        await client.refresh()
+        let target = volume()
+        await client.startWrite(target, resolver: ClientResolver(value: target))
+        backend.recoverRefusedBusy = true
+        await client.recover()
+        #expect(client.isWritable(target) && client.canRecover && !client.needsAttention && client.lastError == nil)
+        #expect(client.notice?.contains("有文件正在使用") == true, "\(client.notice ?? "nil")")
+        #expect(store.value != nil && ended.isEmpty && kept == 1, "the session did not end, and is not reported as ended")
+        // Eject needs the session ended first: refused as busy, not reported as done.
+        await #expect(throws: (any Error).self) { try await client.prepareForEject(target) }
+        #expect(ended.isEmpty && kept == 2)
+        backend.recoverRefusedBusy = false
+        await client.recover()
+        #expect(!client.isWritable(target) && store.value == nil && ended == [true] && kept == 2)
+    }
     @Test func ejectRequiresVerifiedRecoveryAndRetainsBarrierOnFailure() async throws {
         let backend = ClientBackend(phase: .writeMounted), store = ClientStore()
         let client = MountCycleClient(backend: backend, store: store, gate: DeviceOperationGate())
@@ -462,6 +509,10 @@ private struct ClientResolver: VolumeResolver {
     var physicalMediaPresent = false
     func mediaPresent(_ record: HelperMountOperation) -> Bool { physicalMediaPresent }
     var health: WriteSessionHealth = .writing
+    var rolledBack = false
+    func rolledBackAfterCleanEnd(_ record: HelperMountOperation) async -> Bool { rolledBack }
+    /// The daemon answers a recover request as it does when the unmount is refused for files in use.
+    var recoverRefusedBusy = false
     var beforeWritableVerification: (() async -> Void)?
     var healthResponse: (() async -> WriteSessionHealth)?
     func writeSessionHealth(_ record: HelperMountOperation) async -> WriteSessionHealth {
@@ -510,11 +561,12 @@ private struct ClientResolver: VolumeResolver {
         }
         let disk = try HelperDiskRequest(bsdName: "disk7s1", registryID: 123, byteCount: 4096)
         var record = HelperMountOperation(id: wrongID ? UUID() : command.id!, disk: disk, ownerUID: 501, bootSession: "test-boot",
-            phase: command.action == .recover ? .finished : phase, restoreRequired: true,
+            phase: command.action == .recover && !recoverRefusedBusy ? .finished : phase, restoreRequired: true,
             report: .init(version: 1, bsdName: disk.bsdName, registryID: disk.registryID, byteCount: 4096,
                 bootSHA256: String(repeating: "a", count: 64), effectiveUID: 0,
                 writeAccessAvailable: false, fileSystemHealthChecked: false))
         if phase == .writeMounted { record.purpose = .readWrite }
+        if command.action == .recover && recoverRefusedBusy { record.recoveryFailure = .busy }
         if let failure { record.purpose = .readWrite; record.failure = failure; last = record }
         return record
     }

@@ -3,6 +3,10 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.3 · October 11, 2026</h2><ul>
+<li>Security fix: “Check on Mac” could hang, or read memory that doesn’t belong to the disk, when a disk’s file records were damaged (or deliberately tampered with). Such records are now recognized and the check is refused, with nothing changed on the disk. Everyone is encouraged to update.</li>
+<li>Improved: the built-in NTFS core is now NTFS-3G 2026.9.28, which checks damaged disk structures more thoroughly (permissions, attribute lists, the log, extended attributes, folder indexes) and copes better with bad disks.</li>
+</ul>
 <h2>0.9.2 · October 10, 2026</h2><ul>
 <li>New: when &quot;Check on This Mac&quot; finds folder entries pointing to files or folders that were deleted, Volisle can remove those entries on your Mac, with your consent, and turn on writing. Everything it changes is backed up first and restored if any step fails. Checking the disk in Windows is still the safer option.</li>
 <li>Improved: &quot;Check on This Mac&quot; is stricter and verifies that every folder entry still points to the original file; when it fails, it shows more specific technical details (without file names).</li>

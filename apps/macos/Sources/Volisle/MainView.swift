@@ -98,18 +98,21 @@ struct MainView: View {
         guard let name = cycleDiskName else { return message }
         return String(localized: "“\(name)”：\(message)")
     }
-    /// The disk refused for writing only because NTFS marks it "needs check".
+    /// The disk refused for writing only because NTFS marks it "needs check"
+    /// (or that mark is half written, which the same check settles first).
     /// Taken from the refused operation itself, so a disk list that has not
     /// caught up with the unmount/restore does not hide the button.
     private var checkMarkerTarget: CheckMarkerTarget? {
-        guard !markerClearer.isWorking, bottomMessage == HelperDiskFailure.ntfsDirty.errorDescription else { return nil }
+        guard !markerClearer.isWorking,
+              [HelperDiskFailure.ntfsDirty, .markHalfWritten].contains(where: { bottomMessage == $0.errorDescription }) else { return nil }
         let external = volumes.filter(CheckMarkerClearer.applies(to:))
         let bsd = barCycle?.operation?.disk.bsdName
             ?? selected.flatMap { CheckMarkerClearer.applies(to: $0) ? $0.bsdName : nil }
             ?? (external.count == 1 ? external.first?.bsdName : nil)
         guard let bsd, CheckMarkerClearer.applies(toPartition: bsd) else { return nil }
         let known = discovery.volumes.first { $0.bsdName == bsd }
-        return CheckMarkerTarget(bsdName: bsd, name: known?.name ?? bsd, volumeUUID: known?.identity.volumeUUID)
+        return CheckMarkerTarget(bsdName: bsd, name: known?.name ?? bsd, volumeUUID: known?.identity.volumeUUID,
+                                 markHalfWritten: bottomMessage == HelperDiskFailure.markHalfWritten.errorDescription)
     }
     /// The last refused operation on this disk: its own session's, or the
     /// daemon's newest (which survives a relaunch).
@@ -119,7 +122,7 @@ struct MainView: View {
         }
     }
     private func markedNeedsCheck(_ volume: VolumeSnapshot) -> Bool {
-        refusal(for: volume)?.failure == .ntfsDirty
+        [.ntfsDirty, .markHalfWritten].contains(refusal(for: volume)?.failure)
     }
     /// Refused because Windows let it go without Safe Removal (a plain NTFS
     /// partition: the replay does not reach inside BitLocker).
@@ -134,7 +137,8 @@ struct MainView: View {
         return checkTarget(for: volume)
     }
     private func checkTarget(for volume: VolumeSnapshot) -> CheckMarkerTarget {
-        CheckMarkerTarget(bsdName: volume.bsdName, name: volume.name, volumeUUID: volume.identity.volumeUUID)
+        CheckMarkerTarget(bsdName: volume.bsdName, name: volume.name, volumeUUID: volume.identity.volumeUUID,
+                          markHalfWritten: refusal(for: volume)?.failure == .markHalfWritten)
     }
     private var groups: [String] { Array(Set(volumes.map(\.deviceGroup))).sorted() }
     var body: some View {
@@ -382,7 +386,9 @@ struct MainView: View {
             }
             Button("取消", role: .cancel) { markerTarget = nil }
         } message: {
-            if let volume = markerTarget {
+            if let volume = markerTarget, volume.markHalfWritten {
+                Text("“\(volume.name)”的“需要检查”标记只写了一半。盘屿会先把这个标记写完整（只改这一处），再只读检查盘上全部文件和文件夹的记录，没有发现问题才清除标记，随后开启读写；发现问题则不再做其他修改，磁盘会保持“需要检查”，要到 Windows 中检查。这不等同于 Windows 的完整磁盘检查：如果盘里有重要且没有备份的数据，建议优先在 Windows 中检查。检查期间磁盘会暂时卸载，文件较多时需要几分钟。")
+            } else if let volume = markerTarget {
                 Text("盘屿会只读检查“\(volume.name)”上全部文件和文件夹的记录，没有发现问题才清除“需要检查”标记，随后开启读写；发现问题则不做任何修改。这不等同于 Windows 的完整磁盘检查：如果盘里有重要且没有备份的数据，建议优先在 Windows 中检查。检查期间磁盘会暂时卸载，文件较多时需要几分钟。")
             }
         }
@@ -826,4 +832,7 @@ struct CheckMarkerTarget: Equatable {
     let bsdName: String
     let name: String
     let volumeUUID: String?
+    /// The "needs check" mark reached only one of its two places: the check
+    /// first writes it to the other, which the confirmation has to say.
+    var markHalfWritten = false
 }

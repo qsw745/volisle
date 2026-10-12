@@ -117,6 +117,7 @@ import os
         let engine: any PartitionMaintenanceEngine = Engine(device: nil, facts: { .init(markedForCheck: true, logOffset: 4096, logLength: 4096) })
         #expect(try engine.examineStaleEntries(descriptor: 0, blockSize: 512, byteCount: 1).staleEntries == 2)
         #expect(try engine.volumeFacts(descriptor: 0, blockSize: 512, byteCount: 1).logOffset == 4096)
+        #expect(try engine.settleMarkCopies(descriptor: 0, blockSize: 512, byteCount: 1, undoFile: URL(filePath: "/dev/null")))
         let identity = PartitionUndoIdentity(serial: 1, byteCount: 1, logOffset: 0, logLength: 0, logDigest: Data(count: 32))
         #expect(try engine.repairStaleEntries(descriptor: 0, blockSize: 512, byteCount: 1, undoFile: URL(filePath: "/dev/null"),
                                               identity: identity).removed == 2)
@@ -283,6 +284,7 @@ private final class Engine: PartitionMaintenanceEngine, @unchecked Sendable {
                             identity: PartitionUndoIdentity) throws -> StaleEntryRepairResult {
         .init(removed: 2, checkedItems: 9)
     }
+    func settleMarkCopies(descriptor: Int32, blockSize: Int, byteCount: UInt64, undoFile: URL) throws -> Bool { true }
     /// The first read after a half-written record fails, as the bridge's mount would.
     func volumeFacts(descriptor: Int32, blockSize: Int, byteCount: UInt64) throws -> NTFSVolumeFacts {
         if failFactsOnce { failFactsOnce = false; throw HelperDiskFailure.unavailable }

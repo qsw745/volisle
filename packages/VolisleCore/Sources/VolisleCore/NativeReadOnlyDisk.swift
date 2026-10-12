@@ -56,10 +56,18 @@ private let nativeReadOnlyCallback: DADiskMountCallback = { _, dissenter, contex
     guard let context else { return }
     let pending = Unmanaged<NativeReadOnlyPending>.fromOpaque(context).takeRetainedValue()
     guard let dissenter else { pending.continuation.resume(); return }
-    switch DADissenterGetStatus(dissenter) {
-    case DAReturn(kDAReturnBusy): pending.continuation.resume(throwing: HelperDiskFailure.busy)
-    case DAReturn(kDAReturnNotPermitted), DAReturn(kDAReturnNotPrivileged):
-        pending.continuation.resume(throwing: HelperDiskFailure.permissionDenied)
-    default: pending.continuation.resume(throwing: HelperDiskFailure.unavailable)
+    pending.continuation.resume(throwing: NativeReadOnlyDisk.failure(status: DADissenterGetStatus(dissenter)))
+}
+extension NativeReadOnlyDisk {
+    /// A dissenting client answers with a DA status; when every client approved
+    /// and the unmount call itself failed, the status is its errno, wrapped as
+    /// unix_err() (0xC000 | errno). A file being written is the second kind.
+    nonisolated static func failure(status: DAReturn) -> HelperDiskFailure {
+        let unixError: DAReturn = 0xC000
+        switch status {
+        case DAReturn(kDAReturnBusy), unixError | EBUSY, EBUSY: return .busy
+        case DAReturn(kDAReturnNotPermitted), DAReturn(kDAReturnNotPrivileged): return .permissionDenied
+        default: return .unavailable
+        }
     }
 }

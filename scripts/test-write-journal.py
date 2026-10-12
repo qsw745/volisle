@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO
+from ntfs_mirror_records import compare, verdict
 from test_workdir import finish_workdir, make_workdir
 
 BIN = ROOT / '.workbench/ntfs-3g-2026.9.28/ntfsprogs'
@@ -57,9 +58,11 @@ def make_base(path, size=64 * 1024 * 1024):
     assert LIB.nk_umount(v) == 0; io.close()
 
 
-def driver(*args, env=None, expect=None):
-    p = subprocess.run([OUT / 'driver', *map(str, args)], capture_output=True, timeout=600,
-                       env={**os.environ, **(env or {})})
+def driver(*args, env=None, expect=None, binary='driver'):
+    # SINCE_END: by default each run sees the disk again long after the last
+    # session ended, past the retention window; '0' is "used again at once".
+    p = subprocess.run([OUT / binary, *map(str, args)], capture_output=True, timeout=600,
+                       env={**os.environ, 'SINCE_END': '3600', **(env or {})})
     if expect is not None:
         assert p.returncode == expect, (args, p.returncode, p.stderr.decode())
     return p
@@ -92,6 +95,13 @@ def records(journal):
     return sorted(p.name for p in journal.iterdir() if p.name not in ('key.bin', 'superseded') and not p.name.endswith('.lock'))
 
 
+def ended(journal):
+    """A cleanly ended session: its finished record and the epochs it keeps."""
+    names = records(journal)
+    return (sum(n.endswith('.finished') for n in names) == 1 and any(n.endswith('.epoch') for n in names)
+            and all(n.endswith(('.finished', '.epoch')) for n in names))
+
+
 class Matrix:
     def __init__(self, folder):
         self.folder, self.checks, self.counts, self.timings = folder, [], {}, {}
@@ -113,9 +123,10 @@ class Matrix:
         return out
 
     def next_session(self, image, journal, env):
-        # "Next insertion still works": a new journaled session on the same image.
-        out = json.loads(driver('op', image, journal, 'next', 'none', 0, env=env, expect=0).stdout)
-        assert not out['failed'] and records(journal) == []
+        # "Next insertion still works": a new journaled session on the same image,
+        # begun as a write activation does (recovery first).
+        out = json.loads(driver('op', image, journal, 'next', 'none', 0, env={**env, 'ACTIVATE': '1'}, expect=0).stdout)
+        assert not out['failed'] and ended(journal), records(journal)
         assert 'next-session' in listing(image)
 
     def case(self, base, kind, fault, n, env, crash):
@@ -136,7 +147,7 @@ class Matrix:
     def run_kind(self, base, kind, env):
         image, journal = self.fresh(base, f'{kind}-none-{env["BLOCK"]}' + ('-r0' if env.get('RETENTION') == '0' else ''))
         out = json.loads(driver('op', image, journal, kind, 'none', 0, env=env, expect=0).stdout)
-        assert not out['failed'] and records(journal) == []
+        assert not out['failed'] and ended(journal), records(journal)
         healthy(image, expect_new=True, kind=kind)
         self.recover_ok(image, journal, expect='none', env=env)
         dw, ew = out['deviceWrites'], out['engineWrites']
@@ -311,16 +322,6 @@ def refusals(m, base):
         (journal / f'{serial}-{int(number, 16) + 1:016x}.epoch').write_bytes(tail)
         m.recover_ok(image, journal); healthy(image, expect_new=False); m.next_session(image, journal, env)
         m.checks.append(f'headerless-epoch-{len(tail)}-ignored')
-    # Cleanup after a clean unmount interrupted once the session record is gone:
-    # nothing is replayed, and the next session removes the orphan epochs.
-    image, journal = m.fresh(base, 'finish-interrupted')
-    p = driver('op', image, journal, 'file', 'finish-crash', 0, env=env)
-    assert p.returncode == 86 and b'COMMITTED' in p.stderr, (p.returncode, p.stderr.decode())
-    assert records(journal) and not any(n.endswith('.session') for n in records(journal)), records(journal)
-    out = json.loads(driver('recover', image, journal, expect=0).stdout)
-    assert out['outcome'] == 'none' and out['writes'] == 0, out
-    healthy(image, expect_new=True); m.next_session(image, journal, env)
-    m.checks.append('cleanup-interrupted-after-session-removed')
     image, journal = crashed('corrupt-frame')
     epoch = sorted(journal.glob('*.epoch'))[-1]
     data = bytearray(epoch.read_bytes()); data[len(data) // 2] ^= 0xff; epoch.write_bytes(data)
@@ -364,12 +365,17 @@ def capacity(m, folder):
     start = time.monotonic()
     p = driver('op', image, journal, 'big', 'none', 0, env=env, expect=0)
     out = json.loads(p.stdout)
-    assert not out['failed'] and records(journal) == [], out
+    assert not out['failed'] and ended(journal), out
     assert out['skipped'] >= 299 * 1024 * 1024, out
     m.timings['write_300mib_free_space_s'] = round(time.monotonic() - start, 2)
     m.timings['free_space_skipped_mib'] = round(out['skipped'] / 1048576, 1)
     data = subprocess.run([BIN / 'ntfscat', '-f', image, '/big'], capture_output=True, check=True).stdout
     assert data == b'\xa5' * (300 * 1024 * 1024), len(data)
+    # Its records name 300 MiB of blocks written into free space: the next
+    # connection reads back the newest of them, in device order, within seconds.
+    start = time.monotonic()
+    m.recover_ok(image, journal, expect='none', env=env)
+    m.timings['landing_300mib_free_space_s'] = round(time.monotonic() - start, 2)
     m.checks.append('300mib-free-space-no-before-images')
     # Interrupted in the middle of such a write: rolled back, existing data intact.
     for fault, n in [('crash', 40), ('partial', 700), ('crash', 2000)]:
@@ -394,7 +400,7 @@ def capacity(m, folder):
     env = {'BLOCK': '4096', 'BIG_MIB': '440', 'OP_CHECKPOINTS': '1'}
     start = time.monotonic()
     out = json.loads(driver('op', image, journal, 'big', 'none', 0, env=env, expect=0).stdout)
-    assert not out['failed'] and records(journal) == []
+    assert not out['failed'] and ended(journal), records(journal)
     m.timings['write_440mib_checkpointed_s'] = round(time.monotonic() - start, 2)
     data = subprocess.run([BIN / 'ntfscat', '-f', image, '/big'], capture_output=True, check=True).stdout
     assert data == b'\xa5' * (440 * 1024 * 1024), len(data)
@@ -469,7 +475,7 @@ def unreadable_free_space(m, base):
     image, journal = m.fresh(base, 'unreadable-free-space')
     p = driver('op', image, journal, 'odd', 'none', 0, env=env, expect=0)
     out = json.loads(p.stdout)
-    assert not out['failed'] and out['unreadableReads'] == 0 and records(journal) == [], (out, p.stderr.decode()[-500:])
+    assert not out['failed'] and out['unreadableReads'] == 0 and ended(journal), (out, p.stderr.decode()[-500:])
     data = subprocess.run([BIN / 'ntfscat', '-f', image, '/big'], capture_output=True, check=True).stdout
     assert len(data) == 24 * 1048576, len(data)
     for i in range(0, len(data), 1048576):
@@ -485,6 +491,270 @@ def unreadable_free_space(m, base):
         healthy(image, expect_new=False, kind='big')
         m.next_session(image, journal, {'BLOCK': '65536'})
         m.checks.append(f'partial-writes-into-unreadable-free-space-crash-{n}-rolls-back')
+
+
+def mirror_report(image):
+    with image.open('rb') as f:
+        return compare(lambda count, offset: os.pread(f.fileno(), count, offset))
+
+
+def inspect(image):
+    io = ImageIO(image, readonly=True)
+    try:
+        return io.inspect()
+    finally:
+        io.close()
+
+
+def consistent(image):
+    """Every listed name of the tests can be read, and ntfsfix finds nothing."""
+    unreadable = [n for n in sorted(listing(image)) if n.startswith(('many-', 'new-node', 'next-session', 'sentinel')) and
+                  subprocess.run([BIN / 'ntfscat', '-f', image, '/' + n], capture_output=True).returncode != 0]
+    return not unreadable and subprocess.run([BIN / 'ntfsfix', '-n', image], capture_output=True).returncode == 0
+
+
+def finish_cache_loss(m, base):
+    # A clean session end, then the cable is pulled while the drive still holds
+    # the last writes in its own cache (a real USB disk, 2026-10-11: unplugged
+    # 1.1 s after "session ended", $Volume no longer matched its mirror copy and
+    # the volume could not be opened at all). The records kept past the end roll
+    # the session back to its oldest retained checkpoint, whichever writes were lost.
+    block = 4096
+    env = {'BLOCK': str(block)}
+    geometry = mirror_report(base)['geometry']
+    # The cache blocks holding $Volume and its mirror copy: the marker release.
+    marker = ','.join(str((geometry[copy] + 3 * geometry['record']) // block * block) for copy in ('mft', 'mirror'))
+    cases = [(kind, loss, {}) for kind in ['file', 'many'] for loss in ['last:1', 'first:1', 'window', 'recent']]
+    # Unmounted right after the operation, as the real session was. One lost
+    # directory block, or the marker release landing while half of the rest does
+    # not, left a volume that looked clean and was not.
+    cases += [('many', 'last:1', {'UNCHECKPOINTED_END': '1'}), ('many', f'others:{marker}', {'UNCHECKPOINTED_END': '1'})]
+    for kind, loss, extra in cases:
+        label = loss.split(':')[0] + ('-uncheckpointed' if extra else '') + (loss.split(':')[1][:1] if loss[-2:] == ':1' else '')
+        image, journal = m.fresh(base, f'finish-loss-{kind}-{label}')
+        p = driver('op', image, journal, kind, 'finish-loss', 0, env={**env, **extra, 'FINISH_LOSS': loss}, expect=86)
+        assert b'LOST ' in p.stderr and ended(journal), (p.stderr, records(journal))
+        out = m.recover_ok(image, journal, expect='recovered-after-end')
+        assert out['writes'] > 0, out
+        assert all(r['same'] for r in mirror_report(image)['records']) and inspect(image) == 0 and consistent(image), (kind, loss)
+        healthy(image, expect_new=False, kind=kind)   # everything was inside the retention window
+        m.next_session(image, journal, env)
+        m.checks.append(f'finish-loss-{kind}-{label}')
+        image.unlink(); shutil.rmtree(journal)
+    # The rollback itself interrupted at every device write, then run again.
+    image, journal = m.fresh(base, 'finish-loss-reinterrupt-probe')
+    lossy = {**env, 'UNCHECKPOINTED_END': '1', 'FINISH_LOSS': 'last:1'}
+    driver('op', image, journal, 'many', 'finish-loss', 0, env=lossy, expect=86)
+    total = json.loads(driver('recover', image, journal, expect=0).stdout)['writes']
+    for n in range(1, total + 1):
+        for fault in ['crash', 'partial']:
+            image, journal = m.fresh(base, f'finish-loss-reinterrupt-{fault}-{n}')
+            driver('op', image, journal, 'many', 'finish-loss', 0, env=lossy, expect=86)
+            driver('recover', image, journal, fault, n, expect=86)
+            assert any(x.endswith('.session') for x in records(journal)) and not any(x.endswith('.finished') for x in records(journal))
+            m.recover_ok(image, journal, expect='recovered')
+            assert inspect(image) == 0 and consistent(image)
+            healthy(image, expect_new=False, kind='many')
+            m.next_session(image, journal, env)
+            image.unlink(); shutil.rmtree(journal)
+    m.checks.append(f'finish-loss-rollback-reinterrupted-{total}-points')
+
+
+def clean_end_records(m, base):
+    # What a clean end leaves on record, and every way the next connection
+    # disposes of it without touching the device.
+    env = {'BLOCK': '4096'}
+    again = {**env, 'SINCE_END': '0', 'ACTIVATE': '1'}   # used again inside the retention window
+
+    def ended_session(name, kind='file'):
+        image, journal = m.fresh(base, name)
+        out = json.loads(driver('op', image, journal, kind, 'none', 0, env=env, expect=0).stdout)
+        assert not out['failed'] and ended(journal), records(journal)
+        return image, journal
+
+    def untouched(image, journal, expect_records_gone=True, **extra):
+        before = sha(image)
+        out = json.loads(driver('recover', image, journal, env=extra or None, expect=0).stdout)
+        assert out == {'outcome': 'none', 'writes': 0} and sha(image) == before, out
+        assert (records(journal) == []) if expect_records_gone else ended(journal), records(journal)
+
+    # Everything reached the device and the window is over: the records go.
+    image, journal = ended_session('end-settled')
+    untouched(image, journal); healthy(image, expect_new=True); m.next_session(image, journal, env)
+    m.checks.append('clean-end-settled-records-removed')
+    # Still inside the window: they stay, across any number of connections.
+    image, journal = ended_session('end-in-window')
+    untouched(image, journal, expect_records_gone=False, SINCE_END='0')
+    untouched(image, journal, expect_records_gone=False, SINCE_END='19')
+    # A write session that did not go through this activation's recovery never takes them over.
+    before = sha(image)
+    p = driver('op', image, journal, 'next', 'none', 0, env={**env, 'SINCE_END': '0'})
+    assert p.returncode != 0 and sha(image) == before and ended(journal), (p.returncode, p.stdout)
+    m.checks.append('clean-end-in-window-records-kept')
+    # Written again inside the window: the session is continued, not restarted.
+    out = json.loads(driver('op', image, journal, 'next', 'none', 0, env=again, expect=0).stdout)
+    assert not out['failed'] and out['firstEpoch'] > 1 and ended(journal), (out, records(journal))
+    assert {'new-node', 'next-session'} <= listing(image)
+    healthy(image, expect_new=True); m.recover_ok(image, journal, expect='none')
+    m.checks.append('clean-end-in-window-session-continued')
+    # A continuation that never gets to write leaves the records as they were:
+    # nothing is rolled back for it, in the window or after.
+    image, journal = ended_session('continued-never-wrote')
+    driver('op', image, journal, 'next', 'none', 0, env={**again, 'STOP_AFTER_BEGIN': '1'}, expect=86)
+    assert ended(journal), records(journal)
+    untouched(image, journal, expect_records_gone=False, SINCE_END='0')
+    untouched(image, journal); healthy(image, expect_new=True); m.next_session(image, journal, env)
+    m.checks.append('continued-session-never-wrote-not-rolled-back')
+    # After the window a new session starts from epoch 1.
+    image, journal = ended_session('end-then-fresh')
+    out = json.loads(driver('op', image, journal, 'next', 'none', 0, env={**env, 'ACTIVATE': '1'}, expect=0).stdout)
+    assert not out['failed'] and out['firstEpoch'] == 1 and ended(journal), out
+    m.checks.append('clean-end-after-window-fresh-session')
+    # The continued session interrupted at every device write: rolled back over
+    # the earlier mount's epochs too, since they are still inside the window.
+    image, journal = ended_session('continued-probe')
+    points = json.loads(driver('op', image, journal, 'next', 'none', 0, env=again, expect=0).stdout)['deviceWrites']
+    for n in range(1, points + 1):
+        for fault in ['crash', 'partial']:
+            image, journal = ended_session(f'continued-{fault}-{n}')
+            driver('op', image, journal, 'next', fault, n, env=again, expect=86)
+            m.recover_ok(image, journal, expect='recovered')
+            assert 'next-session' not in listing(image) and inspect(image) == 0 and consistent(image)
+            healthy(image, expect_new=False)
+            m.next_session(image, journal, env)
+            image.unlink(); shutil.rmtree(journal)
+    m.checks.append(f'continued-session-interrupted-{points}-points')
+    # The earlier mount's epochs aged out before the interruption: only the
+    # continued part is rolled back.
+    image, journal = ended_session('continued-aged')
+    driver('op', image, journal, 'next', 'crash', 2, env={**again, 'RETENTION': '0'}, expect=86)
+    m.recover_ok(image, journal, expect='recovered')
+    assert 'next-session' not in listing(image)
+    healthy(image, expect_new=True); m.next_session(image, journal, env)
+    m.checks.append('continued-session-aged-epochs-stay')
+    # The end interrupted between writing the finished record and removing the
+    # session's: it is the finished session.
+    image, journal = m.fresh(base, 'finish-interrupted')
+    p = driver('op', image, journal, 'file', 'finish-crash', 0, env=env)
+    assert p.returncode == 86 and b'COMMITTED' in p.stderr, (p.returncode, p.stderr.decode())
+    assert {n.rsplit('.', 1)[1] for n in records(journal)} == {'session', 'finished', 'epoch'}, records(journal)
+    untouched(image, journal); healthy(image, expect_new=True); m.next_session(image, journal, env)
+    m.checks.append('end-interrupted-between-records')
+    # Removal interrupted once the records' head is gone: nothing is replayed,
+    # and the next session removes the orphan epochs.
+    image, journal = ended_session('removal-interrupted')
+    driver('recover', image, journal, env={'REMOVE_CRASH': '1'}, expect=86)
+    assert records(journal) and all(n.endswith('.epoch') for n in records(journal)), records(journal)
+    out = json.loads(driver('recover', image, journal, expect=0).stdout)
+    assert out == {'outcome': 'none', 'writes': 0}, out
+    healthy(image, expect_new=True); m.next_session(image, journal, env)
+    m.checks.append('cleanup-interrupted-after-records-head-removed')
+
+    # Used elsewhere since the clean end: never rolled back, whatever is missing.
+    def finished_record(journal):
+        return json.loads(next(journal.glob('*.finished')).read_bytes()[:-32])
+    image, journal = ended_session('elsewhere-logfile')
+    with image.open('r+b') as f:
+        f.seek(finished_record(journal)['record']['logfileOffset'] + 100); f.write(b'\x01\x02\x03\x04')
+    untouched(image, journal); m.checks.append('clean-end-logfile-changed-records-dropped')
+    image, journal = ended_session('elsewhere-boot')
+    with image.open('r+b') as f:
+        f.seek(0x48); f.write(b'\xff' * 8)
+    untouched(image, journal); m.checks.append('clean-end-boot-changed-records-dropped')
+    # Another Mac's Volisle wrote to it (its own records folder), both inside and after the window.
+    for since in ['0', '3600']:
+        image, journal = ended_session(f'elsewhere-other-host-{since}')
+        other = journal.with_name(journal.name + '-other')
+        if other.exists():
+            shutil.rmtree(other)
+        out = json.loads(driver('op', image, other, 'next', 'none', 0, env=env, expect=0).stdout)
+        assert not out['failed']
+        untouched(image, journal, SINCE_END=since)
+        assert {'new-node', 'next-session'} <= listing(image) and inspect(image) == 0
+        m.checks.append(f'clean-end-other-host-wrote-records-dropped-{since}')
+    # Its own writes missing AND someone else's change: still not rolled back.
+    lossy = {**env, 'FINISH_LOSS': 'last:1'}
+    image, journal = m.fresh(base, 'lost-and-foreign')
+    driver('op', image, journal, 'many', 'finish-loss', 0, env=lossy, expect=86)
+    offset = next(o for epoch in sorted(journal.glob('*.epoch')) for g in epoch_groups(epoch.read_bytes()) for o in g[0])
+    with image.open('r+b') as f:
+        f.seek(offset + 2048); f.write(os.urandom(64))
+    untouched(image, journal); m.checks.append('clean-end-lost-and-foreign-not-rolled-back')
+    # Not every retained epoch is there, or one is cut short: no partial rollback.
+    for damage in ['missing', 'truncated']:
+        image, journal = m.fresh(base, f'incomplete-{damage}')
+        driver('op', image, journal, 'many', 'finish-loss', 0, env=lossy, expect=86)
+        epochs = sorted(journal.glob('*.epoch'))
+        assert len(epochs) >= 2, epochs
+        if damage == 'missing':
+            epochs[0].unlink()
+        else:
+            epochs[-1].write_bytes(epochs[-1].read_bytes()[:-45])   # its checkpoint frame
+        untouched(image, journal); m.checks.append(f'clean-end-epochs-{damage}-not-rolled-back')
+    # An unreadable finished record vouches for nothing.
+    image, journal = ended_session('finished-damaged')
+    record = next(journal.glob('*.finished'))
+    data = bytearray(record.read_bytes()); data[10] ^= 0xff; record.write_bytes(data)
+    untouched(image, journal); m.next_session(image, journal, env)
+    m.checks.append('clean-end-finished-record-damaged-dropped')
+    # Kept for 30 days.
+    image, journal = ended_session('expiry')
+    driver('expire', image, journal, 29, expect=0); assert ended(journal), records(journal)
+    driver('expire', image, journal, 31, expect=0); assert records(journal) == [], records(journal)
+    m.checks.append('clean-end-records-expire')
+
+
+# The last version that removed every record at a clean end.
+BEFORE_FINISHED_RECORDS = '4847f3d6e70098aa5cd893e0039323e0f6791775'
+
+
+def build_previous():
+    """The driver from the sources before finished records; False without that commit (a snapshot without history)."""
+    def show(path):
+        return subprocess.run(['git', 'show', f'{BEFORE_FINISHED_RECORDS}:{path}'], cwd=ROOT, capture_output=True)
+    if show('apps/extension/Sources/WriteJournal.swift').returncode != 0:
+        return False
+    folder = OUT / 'previous-sources'
+    folder.mkdir(exist_ok=True)
+    sources = [f'apps/extension/Sources/{n}.swift' for n in SOURCES] + ['scripts/fixtures/write_journal_driver.swift']
+    for path in sources:
+        (folder / Path(path).name).write_bytes(show(path).stdout)
+    subprocess.run(['swiftc', '-swift-version', '6', '-target', f'{ARCH}-apple-macos26.4', '-D', 'VOLISLE_WRITE_JOURNAL_TESTING',
+                    '-import-objc-header', 'packages/VolisleNTFS/bridge/ntfs_bridge.h', *[folder / Path(x).name for x in sources],
+                    OUT / 'ntfs_bridge.o', SRC / 'libntfs-3g/.libs/libntfs-3g.a', '-framework', 'CoreFoundation',
+                    '-o', OUT / 'driver-previous'], cwd=ROOT, check=True)
+    return True
+
+
+def downgrade(m, base):
+    # A version from before finished records never reads them: it behaves as it
+    # always did, and what it leaves is not mistaken for anything afterwards.
+    if not build_previous():
+        print('跳过降级用例：仓库里没有引入已结束记录之前的提交', file=sys.stderr)
+        return
+    env = {'BLOCK': '4096'}
+    previous = dict(binary='driver-previous')
+    # The old version starts its own session; the stale finished record then vouches for nothing.
+    image, journal = m.fresh(base, 'downgrade-clean')
+    assert not json.loads(driver('op', image, journal, 'file', 'none', 0, env=env, expect=0).stdout)['failed'] and ended(journal)
+    assert json.loads(driver('recover', image, journal, expect=0, **previous).stdout) == {'outcome': 'none', 'writes': 0}
+    out = json.loads(driver('op', image, journal, 'next', 'none', 0, env=env, expect=0, **previous).stdout)
+    assert not out['failed'] and records(journal) == ['0123456789abcdef.finished'], records(journal)
+    before = sha(image)
+    out = json.loads(driver('recover', image, journal, expect=0).stdout)
+    assert out == {'outcome': 'none', 'writes': 0} and sha(image) == before and records(journal) == [], (out, records(journal))
+    assert {'new-node', 'next-session'} <= listing(image)
+    healthy(image, expect_new=True)
+    m.checks.append('downgrade-old-version-unaffected-stale-record-dropped')
+    # The old version's own interrupted session is recovered; the earlier clean session stays.
+    image, journal = m.fresh(base, 'downgrade-interrupted')
+    assert not json.loads(driver('op', image, journal, 'file', 'none', 0, env=env, expect=0).stdout)['failed']
+    driver('op', image, journal, 'next', 'crash', 2, env=env, expect=86, **previous)
+    assert {n.rsplit('.', 1)[1] for n in records(journal)} == {'session', 'finished', 'epoch'}, records(journal)
+    m.recover_ok(image, journal, expect='recovered')
+    assert 'next-session' not in listing(image)
+    healthy(image, expect_new=True); m.next_session(image, journal, env)
+    m.checks.append('downgrade-old-version-interrupted-session-recovered')
 
 
 def large_volume(m, folder):
@@ -548,6 +818,9 @@ def full_matrix(m, base, folder):
             for kind in ['file', 'directory', 'write', 'many']:
                 m.run_kind(base, kind, {'BLOCK': block, **retention})
     recovery_interruption(m, base)
+    finish_cache_loss(m, base)
+    clean_end_records(m, base)
+    downgrade(m, base)
     refusals(m, base)
     capacity(m, folder)
     if '--large' in sys.argv:
@@ -565,9 +838,13 @@ def main():
         if '--quick' in sys.argv:
             archive_per_volume(m, base)
             durability_report(m, base)
+        elif '--finish-loss' in sys.argv:
+            finish_cache_loss(m, base)
+            clean_end_records(m, base)
+            downgrade(m, base)
         else:
             unreadable_free_space(m, base)
-        if '--unreadable-only' not in sys.argv and '--quick' not in sys.argv:
+        if not {'--unreadable-only', '--quick', '--finish-loss'} & set(sys.argv):
             full_matrix(m, base, folder)
         result.update(completed=True, success=True)
     finally:
