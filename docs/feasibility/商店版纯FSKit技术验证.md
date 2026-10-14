@@ -226,3 +226,10 @@ TestFlight：用接口建了内部测试组“内部测试”（自动获得所�
 - 上机：构建 4 上传处理完成后，在测试镜像上持续写入，所有者在 TestFlight 把 3 更新到 4。旧扩展被结束，卷由内核卸下；重挂后新扩展回滚（写完 157 个，留下 116 个），主应用显示中断提示。正常卸下等 25 秒再挂载后，提示消失。
 
 构建 5（2026-10-14）：只多了扩展的急救日志说明翻译（`assets/brand/Localization/store-extension/*/Localizable.strings`），校验并上传（Delivery UUID 8e86abf1-360b-4377-95ac-bfc7dc1c2b7e），处理完成 VALID，进入内部测试。审核备注草稿与审核用测试磁盘在 `docs/store/`。
+
+公开源码（2026-10-14，所有者确认）：用 `scripts/publish-public.py` 从 store-version 导出（排除 `docs/store/` 草稿，扫描无命中），同步到公开仓库 `qsw745/volisle` 的提交 c67d569“盘屿商店版 1.0（构建 5）”，作者 noreply，并推送标签 `store-1.0-build5`；本地仓库在导出的那次提交上打了同名标签（未推送私有仓库）。注意：以后官网版发版时 release.sh 从 main 的标签导出快照，main 里没有商店版代码，会把公开仓库 main 上的商店版代码去掉；`store-1.0-build5` 标签不受影响。商店版合进 main 之前，每次商店发版都要单独打标签同步。
+
+官网页面（2026-10-14，所有者确认上线）：在 main 上新增 App Store 版帮助页（`/volisle/store/`、`/volisle/en/store/`），隐私说明加“App Store 版”一节（提交 8d917b5，分支 web-store-pages 快进合并进 main，未推送）。用 0.9.4 的发布产物重新暂存整站，与 0.9.4 上线时只多这两页，更新目录不变；部署为 `20261014-0.9.4-build76-store-pages`，回滚 `scripts/deploy-website.sh rollback 20261012-0.9.4-build76`。App Store Connect：技术支持网址 `https://qisw.top/volisle/store/`，隐私政策网址 `https://qisw.top/volisle/privacy/`。商店版应用里的帮助链接改为按界面语言打开这两页（a6f5d72），从构建 6 起生效。
+
+构建 6（2026-10-14）：先合入 main（官网 App Store 版帮助页），主应用的帮助链接按界面语言指向 `/volisle/store/` 或 `/volisle/en/store/`；校验并上传（Delivery UUID 8df98a07-9ad9-45b5-b881-66421d3b127d）。审核备注改用构建 6 和源码标签 `store-1.0-build6`（公开仓库待同步）。
+

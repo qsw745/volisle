@@ -30,7 +30,11 @@ import SwiftUI
 }
 
 enum StoreLink {
-    static let help = URL(string: "https://qisw.top/volisle/help/")!
+    /// The App Store version's own help page, in Chinese or English like the interface.
+    static var help: URL {
+        let chinese = Bundle.main.preferredLocalizations.first?.hasPrefix("zh") ?? false
+        return URL(string: chinese ? "https://qisw.top/volisle/store/" : "https://qisw.top/volisle/en/store/")!
+    }
     static let feedback = URL(string: "https://github.com/qsw745/volisle-feedback/issues")!
     /// The complete corresponding source of this build (GPL).
     static let source = URL(string: "https://github.com/qsw745/volisle")!
