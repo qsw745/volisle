@@ -1475,7 +1475,25 @@ int nk_format(const nk_io *io, const char *label, int sector_size, char *errbuf,
 #include "stale_entry.inc"
 #endif /* NK_WITH_FORMAT */
 
+#ifdef NK_NO_BITLOCKER
+/* The store build leaves BitLocker volumes to the system and carries no cipher
+ * code at all: nothing to declare for export, nothing unused to review. */
+int nk_bde_probe(const nk_io *io) { (void)io; return 0; }
+nk_bde *nk_bde_open(const nk_io *io, int kind, const char *secret, char *errbuf, size_t errlen) {
+    (void)io; (void)kind; (void)secret;
+    if (errbuf && errlen) errbuf[0] = 0;
+    errno = ENOTSUP; return NULL;
+}
+int nk_bde_derive_key(const nk_io *io, int kind, const char *secret, char hex_out[65], char *errbuf, size_t errlen) {
+    (void)io; (void)kind; (void)secret; (void)hex_out;
+    if (errbuf && errlen) errbuf[0] = 0;
+    errno = ENOTSUP; return -1;
+}
+nk_io nk_bde_io(nk_bde *b) { (void)b; nk_io none = {0}; return none; }
+void nk_bde_close(nk_bde *b) { (void)b; }
+#else
 #include "bitlocker.inc"
+#endif
 #include "volume_copies.inc"
 
 int nk_inspect(const nk_io *io) {
@@ -1491,6 +1509,17 @@ int nk_inspect(const nk_io *io) {
     int status = inspect_volume(v);
     if (release_volume(v)) status = NK_CHECK_UNKNOWN;
     return status;
+}
+int nk_openable(const nk_io *io, char *label, size_t label_len) {
+    if (label && label_len) label[0] = 0;
+    if (!io || !io->pread || io->size < 512) return 0;
+    nk_io ro = *io; ro.readonly = 1;
+    nk_volume *v = mount_unchecked(&ro, NULL, 0);
+    if (!v) return 0;
+    if (label && label_len) nk_label(v, label, label_len);
+    if (release_volume(v) == 0) return 1;
+    if (label && label_len) label[0] = 0;
+    return 0;
 }
 
 /* Read-only facts for the host write journal. The $LogFile head is only a
@@ -1586,3 +1615,30 @@ nk_volume *nk_mount_io(const nk_io *io, char *errbuf, size_t errlen) {
     return v;
 }
 const char *nk_engine_version(void) { return "ntfs-3g 2026.9.28 / Volisle bridge 2"; }
+
+static nk_log_cb log_sink;
+static int log_forward(const char *function, const char *file, int line, u32 level,
+                       void *data, const char *format, va_list args) {
+    int saved = errno;
+    (void)file; (void)line; (void)data;
+    nk_log_cb sink = log_sink;
+    if (!sink || !(level & (NTFS_LOG_LEVEL_WARNING | NTFS_LOG_LEVEL_ERROR |
+                            NTFS_LOG_LEVEL_PERROR | NTFS_LOG_LEVEL_CRITICAL))) return 0;
+    /* A message built from a string can carry a name from the disk, and one
+     * with a pointer an address: neither belongs in a log. */
+    if (strstr(format, "%s") || strstr(format, "%p")) return 0;
+    char text[384], message[512];
+    vsnprintf(text, sizeof text, format, args);
+    size_t length = strlen(text);
+    while (length && text[length - 1] == '\n') text[--length] = 0;
+    /* A "perror" message leaves the errno text to the handler. */
+    if (level & NTFS_LOG_LEVEL_PERROR) snprintf(message, sizeof message, "%s: %s: %s", function, text, strerror(saved));
+    else snprintf(message, sizeof message, "%s: %s", function, text);
+    sink(message);
+    errno = saved;
+    return (int)length;
+}
+void nk_log_capture(nk_log_cb sink) {
+    log_sink = sink;
+    ntfs_log_set_handler(sink ? log_forward : ntfs_log_handler_null);
+}

@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.9.3</title><pubDate>Sun, 11 Oct 2026 13:18:38 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.9.3
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.9.4</title><pubDate>Mon, 12 Oct 2026 08:01:59 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.9.4
 
-· 安全修复：“在 Mac 上检查”遇到文件记录被破坏（或被人故意改坏）的磁盘时，可能卡住不动，或读到不属于这块盘的内存。现在会认出这种记录并拒绝检查，磁盘不做任何改动。建议所有用户更新。
-· 改进：内置的 NTFS 读写核心升级到 NTFS-3G 2026.9.28，它对损坏的磁盘结构多做了几项检查（权限信息、属性列表、日志、扩展属性、文件夹索引），遇到坏盘更稳。
+· 修复：恢复只读后没有推出就马上拔线，硬盘可能还没把最后的内容写完，重新插上后这块盘会打不开读写。现在盘屿会把恢复记录多留一会儿，下次开启读写时自动核对：没写完的改动退回到之前完好的状态，并在底栏提示你检查最近的文件。恢复只读后也会提醒先推出、再拔线。
+· 修复：已经因为上面的情况打不开读写的盘，现在会给出专门的说明，点“在 Mac 上检查…”即可修好，检查通过后恢复读写。
+· 修复：拷贝还在进行时点“恢复只读”，以前会显示“暂时无法写入”，要重新插拔才能恢复。现在磁盘保持读写、拷贝继续，并提示等传输结束后再点。
+· 改进：用“拷贝到这块盘…”拷完的文件，恢复只读后要等硬盘确实写完（磁盘继续连着约 25 秒，或经盘屿推出）才算完成；拔得太早的，下次接上会自动复查。
 
-对应源码：https://qisw.top/volisle/updates/Volisle-0.9.3-75-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.9.3
+对应源码：https://qisw.top/volisle/updates/Volisle-0.9.4-76-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.9.4
 
-· Security fix: “Check on Mac” could hang, or read memory that doesn’t belong to the disk, when a disk’s file records were damaged (or deliberately tampered with). Such records are now recognized and the check is refused, with nothing changed on the disk. Everyone is encouraged to update.
-· Improved: the built-in NTFS core is now NTFS-3G 2026.9.28, which checks damaged disk structures more thoroughly (permissions, attribute lists, the log, extended attributes, folder indexes) and copes better with bad disks.
+· Fixed: unplugging a disk right after making it read-only, without ejecting it, could leave its last changes unwritten, and the disk would then refuse to open for writing. Volisle now keeps its recovery records a little longer and verifies them the next time you enable writing: unfinished changes are rolled back to the last intact state, and a note at the bottom asks you to check your most recent files. After making a disk read-only you are also reminded to eject before unplugging.
+· Fixed: a disk already stuck that way now gets a specific explanation, and “Check on Mac…” repairs it; once the check passes, writing works again.
+· Fixed: clicking “Make Read-Only” while a copy was still running used to show “Writing is temporarily unavailable” until the disk was replugged. The disk now stays writable, the copy continues, and you are asked to try again once the transfer is done.
+· Improved: files copied with “Copy to This Disk…” count as finished only once the drive has really written them (the disk stays connected for about 25 seconds, or is ejected from Volisle); if it was unplugged too early, they are verified again on the next connection.
 
-Source code: https://qisw.top/volisle/updates/Volisle-0.9.3-75-source.tar.gz</description><sparkle:version>75</sparkle:version><sparkle:shortVersionString>0.9.3</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.9.3-75-universal.zip" length="10668783" type="application/octet-stream" sparkle:edSignature="JmL86hcbHdbZCVnjQoQOb0Qg8J0Rv1S//h04ltmSrNaOfh3FnXmxtAEGug1nDSi8prKuLU0llvH9TlEHzbySAg==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
-edSignature: aKYfFe/XAFIzdcSDi5/1yq0ECeUr48boLllcj4jnDdG7L+T9XzfOprLRa1QhTrPLV/vLAAhmxhcFCFuePwb7Dg==
-length: 2343
+Source code: https://qisw.top/volisle/updates/Volisle-0.9.4-76-source.tar.gz</description><sparkle:version>76</sparkle:version><sparkle:shortVersionString>0.9.4</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.9.4-76-universal.zip" length="10849483" type="application/octet-stream" sparkle:edSignature="mAgLN4g6kCMWgVu7q6Z9qSefeL0PM8muZARQeYQaivHvJWMjie7YwpbvV3ZTyEGGjMta4eKiGYxJa/u7ZqvpBg==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
+edSignature: J35K1Mu9cPU208qPS0vnS3Wfyxi2v7sqlmUBYe+j0uEgwfG+NNhHC04GA1xAW/OQs3IRJ5jQKJWNLZt0CDi2AQ==
+length: 3490
 -->

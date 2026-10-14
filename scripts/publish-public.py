@@ -28,6 +28,8 @@ EXCLUDE = [
     r'^docs/feasibility/商业SDK',
     r'^docs/release/(0\.3\.0-部署方案|签名账户核对|当前交付清单|正式发布状态|0\.2\.0-集中验收指南)\.md$',
     r'^scripts/mas-poc/',
+    # Store listing and review drafts: drafts for Apple, like the marketing ones.
+    r'^docs/store/(?!Volisle-NTFS-Test\.zip$)',
 ]
 
 # Replaced in every text file. Owner-specific values (server, key IDs, names)
