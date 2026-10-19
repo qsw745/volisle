@@ -110,16 +110,18 @@ public enum HelperRPC {
         return report
     }
     static func request(over connection: NSXPCConnection, timeout: TimeInterval = 5,
+        onSlowReply: (@Sendable () -> Void)? = nil,
         send: (any VolisleHelperProtocol, @escaping @Sendable (Data) -> Void) -> Void) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
-            let pending = PendingHelperReply(connection: connection, continuation: continuation)
+            let lifetime = HelperConnectionLifetime(connection)
+            let pending = HelperReplyWait(continuation: continuation, onFinish: { lifetime.finish() }, onSlowReply: onSlowReply)
             connection.remoteObjectInterface = NSXPCInterface(with: VolisleHelperProtocol.self)
             connection.setCodeSigningRequirement(HelperIdentity.requirement(for: .service))
             connection.invalidationHandler = { pending.finish(.failure(HelperServiceError.unavailable)) }
             connection.interruptionHandler = { pending.finish(.failure(HelperServiceError.unavailable)) }
             connection.activate()
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                pending.finish(.failure(HelperServiceError.timedOut))
+                pending.deadlineReached()
             }
             guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
                 pending.finish(.failure(HelperServiceError.unavailable))
@@ -139,20 +141,15 @@ public enum HelperRPC {
     }
 }
 
-private final class PendingHelperReply: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Data, any Error>?
+/// NSXPCConnection supports concurrent use but is not annotated Sendable.
+/// Cleanup is invoked exactly once by HelperReplyWait, before resuming its caller.
+private final class HelperConnectionLifetime: @unchecked Sendable {
     private let connection: NSXPCConnection
-    init(connection: NSXPCConnection, continuation: CheckedContinuation<Data, any Error>) {
-        self.connection = connection; self.continuation = continuation
-    }
-    func finish(_ result: Result<Data, any Error>) {
-        let pending = lock.withLock { let value = continuation; continuation = nil; return value }
-        guard let pending else { return }
+    init(_ connection: NSXPCConnection) { self.connection = connection }
+    func finish() {
         connection.invalidationHandler = nil
         connection.interruptionHandler = nil
         connection.invalidate()
-        pending.resume(with: result)
     }
 }
 

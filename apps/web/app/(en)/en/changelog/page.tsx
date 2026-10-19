@@ -3,12 +3,6 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
-<h2>0.9.4 · October 12, 2026</h2><ul>
-<li>Fixed: unplugging a disk right after making it read-only, without ejecting it, could leave its last changes unwritten, and the disk would then refuse to open for writing. Volisle now keeps its recovery records a little longer and verifies them the next time you enable writing: unfinished changes are rolled back to the last intact state, and a note at the bottom asks you to check your most recent files. After making a disk read-only you are also reminded to eject before unplugging.</li>
-<li>Fixed: a disk already stuck that way now gets a specific explanation, and “Check on Mac…” repairs it; once the check passes, writing works again.</li>
-<li>Fixed: clicking “Make Read-Only” while a copy was still running used to show “Writing is temporarily unavailable” until the disk was replugged. The disk now stays writable, the copy continues, and you are asked to try again once the transfer is done.</li>
-<li>Improved: files copied with “Copy to This Disk…” count as finished only once the drive has really written them (the disk stays connected for about 25 seconds, or is ejected from Volisle); if it was unplugged too early, they are verified again on the next connection.</li>
-</ul>
 <h2>0.9.3 · October 11, 2026</h2><ul>
 <li>Security fix: “Check on Mac” could hang, or read memory that doesn’t belong to the disk, when a disk’s file records were damaged (or deliberately tampered with). Such records are now recognized and the check is refused, with nothing changed on the disk. Everyone is encouraged to update.</li>
 <li>Improved: the built-in NTFS core is now NTFS-3G 2026.9.28, which checks damaged disk structures more thoroughly (permissions, attribute lists, the log, extended attributes, folder indexes) and copes better with bad disks.</li>

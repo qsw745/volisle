@@ -582,7 +582,6 @@
 "这块盘上次在 Windows 中没有安全弹出，所以以只读方式打开。请接回 Windows，用“安全删除硬件”弹出后再插回（加密盘暂不支持在 Mac 上恢复）。" = "This disk wasn’t ejected safely from Windows last time, so it opened read-only. Connect it to Windows and eject it with “Safely Remove Hardware”, then connect it again (recovering on the Mac isn’t available for encrypted disks yet).";
 "在 Mac 上恢复“%@”" = "Recover “%@” on This Mac";
 "正在只读检查这块盘…" = "Checking the disk read-only…";
-"不会修改盘上的任何内容。" = "Nothing on the disk is changed.";
 "正在补写并检查…" = "Replaying and checking…";
 "这块盘的日志已经是完成状态，不需要补写。点“好”为它开启读写。" = "This disk’s log is already complete; nothing needs replaying. Click OK to turn on write access.";
 "补写了 %lld 笔改动，检查了 %lld 个文件和文件夹，没有发现问题。点“好”为这块盘开启读写。" = "Replayed %lld changes and checked %lld files and folders; no problems found. Click OK to turn on write access for this disk.";
@@ -622,7 +621,6 @@
 "放弃 Windows 没写完的改动" = "Give Up Windows’ Unfinished Changes";
 "这块盘上次在 Windows 中没有安全弹出。盘屿先只读检查，再告诉你能怎样处理。" = "This disk wasn’t ejected safely from Windows last time. Volisle checks it read-only first, then tells you what can be done.";
 "正在清理日志…" = "Clearing the log…";
-"请不要拔下这块盘。要改动的部分会先原样备份，任何一步不通过都会还原。" = "Don’t unplug the disk. What will change is backed up first, and the disk is put back if any step fails.";
 "已恢复，可以开启读写" = "Recovered—Ready for Writing";
 "已放弃 Windows 没写完的改动，检查了 %lld 个文件和文件夹，文件占用的空间都标记正确。" = "Windows’ unfinished changes were given up. Checked %lld files and folders; the space files use is marked correctly. ";
 "另有约 %@ 空间被 Windows 预留但没有用上，不影响数据，在 Windows 中检查磁盘可以收回。" = "About %@ that Windows reserved but never used stays marked as used; it doesn’t affect your data and a disk check on Windows reclaims it. ";
@@ -723,3 +721,18 @@
 "读写已启用。上次用完后这块盘没有推出就被拔下，最后一小段时间里的改动没有写到盘上，盘屿已把它恢复到之前的一致状态；请检查最近拷入或修改的文件。用完后请先推出，再拔下数据线。" = "Write access is on. This disk was unplugged without being ejected after its last use, and the changes made in its last moments never reached the disk, so Volisle restored it to the consistent state before them. Please check the files you copied or changed most recently. When you’re done, eject the disk first, then unplug the cable.";
 "“%@”的“需要检查”标记只写了一半。盘屿会先把这个标记写完整（只改这一处），再只读检查盘上全部文件和文件夹的记录，没有发现问题才清除标记，随后开启读写；发现问题则不再做其他修改，磁盘会保持“需要检查”，要到 Windows 中检查。这不等同于 Windows 的完整磁盘检查：如果盘里有重要且没有备份的数据，建议优先在 Windows 中检查。检查期间磁盘会暂时卸载，文件较多时需要几分钟。" = "The “needs a check” mark on “%@” was only half written. Volisle first writes that mark out in full (the only change it makes), then checks the records of every file and folder on the disk read-only, clears the mark only if no problems are found, and turns on write access. If it finds a problem it changes nothing else, and the disk stays marked as needing a check, to be checked in Windows. This is not the same as a full disk check in Windows: if the disk holds important data without a backup, check it in Windows first. The disk is unmounted during the check, which can take a few minutes with many files.";
 "这块盘上有文件正在使用（例如还在拷贝），暂时不能恢复只读，磁盘仍保持读写。等传输结束、关闭盘里正在使用的文件后，再点“恢复只读”。" = "Files on this disk are in use (a copy may still be running), so it can’t go back to read-only yet and stays writable. When the transfer has finished and the files on it are closed, click “Make Read-Only” again.";
+"磁盘处理已完成，但系统未能重新挂载这块盘。请先导出诊断，不要重复修复。" = "Disk processing finished, but macOS could not mount the disk again. Export diagnostics before trying another repair.";
+"无法确认后台是否已完成。这块盘保持未挂载，请保持连接，不要重复修复、强制结束后台或直接拔盘。请在“设置与诊断 → 支持”中导出诊断并联系支持。" = "The background result could not be confirmed. The disk remains unmounted. Keep it connected; do not repeat the repair, force-stop the helper, or unplug the disk. Export diagnostics from Settings & Diagnostics → Support and contact support.";
+"尚未确认磁盘恢复结果，请保持连接并导出诊断联系支持。" = "The disk recovery result is not confirmed. Keep the disk connected and export diagnostics for support.";
+"恢复完成，但未能挂载" = "Recovery finished, but the disk could not be mounted";
+"尚未确认恢复结果" = "Recovery result not confirmed";
+"正在暂时卸载这块盘…" = "Temporarily unmounting the disk…";
+"仍在等待后台完成…" = "Still waiting for the background operation…";
+"正在重新挂载这块盘…" = "Mounting the disk again…";
+"先暂时卸载磁盘，避免其他应用同时使用。请关闭正在打开盘内文件的应用。" = "The disk is temporarily unmounted to prevent other apps from using it at the same time. Close apps with files open on the disk.";
+"后台还没有返回完成结果。盘屿会继续等待同一次操作，不会重复修复。请保持连接，不要强制退出或拔盘。" = "The background operation has not returned its result yet. Volisle is still waiting for the same operation; it will not run the repair again. Keep the disk connected and do not force quit or unplug it.";
+"后台处理已经完成，正在等待系统重新挂载。请保持连接。" = "Background processing finished. Waiting for macOS to mount the disk again. Keep it connected.";
+"要改动的部分会先原样备份，核验不通过会还原。正在修改或核验磁盘时不能取消；请保持连接，不要强制退出或拔盘。文件较多或硬盘较慢时可能需要较长时间。" = "The parts being changed are backed up first and restored if verification fails. Disk changes and verification cannot be cancelled; keep the disk connected and do not force quit or unplug it. Many files or a slower disk can make this take a long time.";
+"不会修改盘上的任何内容。文件较多或硬盘较慢时可能需要较长时间。" = "Nothing on the disk will be changed. Many files or a slower disk can make this take a long time.";
+"已用时" = "Elapsed";
+"恢复会重新核对磁盘，并检查全部文件记录。文件较多或硬盘较慢时可能需要较长时间；开始恢复后暂时不能取消，请预留时间并保持连接。" = "Recovery rechecks the disk and verifies every file record. Many files or a slower disk can make this take a long time. Recovery cannot be cancelled once started, so allow enough time and keep the disk connected.";

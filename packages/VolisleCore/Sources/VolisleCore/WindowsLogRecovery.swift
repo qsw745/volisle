@@ -190,22 +190,23 @@ public enum HelperWindowsLogClient {
     /// The examination replays in simulation; the recovery also reads every record.
     static let timeout: TimeInterval = 1800
 
-    public static func examine(partition bsdName: String) async throws -> WindowsLogExamination {
-        try HelperWindowsLogReply.decodeExamination(await call(bsdName) { proxy, data, reply in proxy.examineWindowsLog(data, reply: reply) })
+    public static func examine(partition bsdName: String, onSlowReply: @escaping @Sendable () -> Void = {}) async throws -> WindowsLogExamination {
+        try HelperWindowsLogReply.decodeExamination(await call(bsdName, onSlowReply: onSlowReply) { proxy, data, reply in proxy.examineWindowsLog(data, reply: reply) })
     }
-    public static func recover(partition bsdName: String) async throws -> WindowsLogRecoveryResult {
-        try HelperWindowsLogReply.decodeResult(await call(bsdName) { proxy, data, reply in proxy.recoverWindowsLog(data, reply: reply) })
+    public static func recover(partition bsdName: String, onSlowReply: @escaping @Sendable () -> Void = {}) async throws -> WindowsLogRecoveryResult {
+        try HelperWindowsLogReply.decodeResult(await call(bsdName, onSlowReply: onSlowReply) { proxy, data, reply in proxy.recoverWindowsLog(data, reply: reply) })
     }
-    public static func discard(partition bsdName: String) async throws -> WindowsLogRecoveryResult {
-        try HelperWindowsLogReply.decodeResult(await call(bsdName) { proxy, data, reply in proxy.discardWindowsLog(data, reply: reply) })
+    public static func discard(partition bsdName: String, onSlowReply: @escaping @Sendable () -> Void = {}) async throws -> WindowsLogRecoveryResult {
+        try HelperWindowsLogReply.decodeResult(await call(bsdName, onSlowReply: onSlowReply) { proxy, data, reply in proxy.discardWindowsLog(data, reply: reply) })
     }
-    private static func call(_ bsdName: String,
+    private static func call(_ bsdName: String, onSlowReply: @escaping @Sendable () -> Void,
                              _ body: @escaping @Sendable (any VolisleHelperProtocol, Data, @escaping @Sendable (Data) -> Void) -> Void) async throws -> Data {
         let metadata = try DeviceMetadata.read(bsdName)
         let request = try HelperDiskRequest(bsdName: bsdName, registryID: metadata.registryID, byteCount: metadata.byteCount)
         let data = try JSONEncoder().encode(request)
         let connection = NSXPCConnection(machServiceName: HelperIdentity.service, options: .privileged)
-        return try await HelperRPC.request(over: connection, timeout: timeout) { proxy, reply in body(proxy, data, reply) }
+        // A deadline is a wait hint, never proof that the root worker stopped.
+        return try await HelperRPC.request(over: connection, timeout: timeout, onSlowReply: onSlowReply) { proxy, reply in body(proxy, data, reply) }
     }
 }
 
@@ -222,29 +223,36 @@ public enum WindowsUnplugAnswer: String, CaseIterable, Sendable {
 /// The App's side of the flow: unmount, examine, (user answers), recover,
 /// mount again whatever happened. Like "Check on This Mac".
 @MainActor @Observable public final class WindowsLogRecoverer {
-    public enum Phase: Equatable { case idle, examining, recovering }
+    public enum Phase: Equatable { case idle, examining, recovering, needsVerification }
+    public enum Step: Equatable { case idle, unmounting, examining, recovering, waitingForBackground, remounting, needsVerification }
     public private(set) var phase: Phase = .idle
+    public private(set) var step: Step = .idle
+    public private(set) var startedAt: Date?
     public var isWorking: Bool { phase != .idle }
+    private var operationID: UUID?
     private let runner: any EraseCommandRunner
     private let isMounted: @Sendable (String) -> Bool
-    private let examineCall: @Sendable (String) async throws -> WindowsLogExamination
-    private let recoverCall: @Sendable (String) async throws -> WindowsLogRecoveryResult
-    private let discardCall: @Sendable (String) async throws -> WindowsLogRecoveryResult
+    private let examineCall: (@Sendable (String) async throws -> WindowsLogExamination)?
+    private let recoverCall: (@Sendable (String) async throws -> WindowsLogRecoveryResult)?
+    private let discardCall: (@Sendable (String) async throws -> WindowsLogRecoveryResult)?
     private let retryDelay: Duration
     private static let diskutil = "/usr/sbin/diskutil"
 
     public init(runner: any EraseCommandRunner = ProcessEraseRunner(), retryDelay: Duration = .seconds(2),
                 isMounted: @escaping @Sendable (String) -> Bool = CheckMarkerClearer.systemMounted,
-                examine: @escaping @Sendable (String) async throws -> WindowsLogExamination = { try await HelperWindowsLogClient.examine(partition: $0) },
-                recover: @escaping @Sendable (String) async throws -> WindowsLogRecoveryResult = { try await HelperWindowsLogClient.recover(partition: $0) },
-                discard: @escaping @Sendable (String) async throws -> WindowsLogRecoveryResult = { try await HelperWindowsLogClient.discard(partition: $0) }) {
+                examine: (@Sendable (String) async throws -> WindowsLogExamination)? = nil,
+                recover: (@Sendable (String) async throws -> WindowsLogRecoveryResult)? = nil,
+                discard: (@Sendable (String) async throws -> WindowsLogRecoveryResult)? = nil) {
         self.runner = runner; self.retryDelay = retryDelay; self.isMounted = isMounted
         self.examineCall = examine; self.recoverCall = recover; self.discardCall = discard
     }
 
     /// Read-only. The disk is mounted again afterwards.
     public func examine(partition bsd: String) async throws(CheckMarkerError) -> WindowsLogExamination {
-        try await unmounted(bsd, phase: .examining) { try await self.examineCall(bsd) }
+        try await unmounted(bsd, phase: .examining) {
+            if let call = self.examineCall { return try await call(bsd) }
+            return try await HelperWindowsLogClient.examine(partition: bsd, onSlowReply: await self.slowReplyHandler())
+        }
     }
 
     /// Only with the answer "while running": anything else is refused here
@@ -253,7 +261,10 @@ public enum WindowsUnplugAnswer: String, CaseIterable, Sendable {
         guard answer == .whileRunning else {
             throw .failed(String(localized: "只有在 Windows 开着机时直接拔下的盘，才能在 Mac 上补写。请把盘接回那台 Windows 开机，用“安全删除硬件”弹出后再插回。"))
         }
-        return try await unmounted(bsd, phase: .recovering) { try await self.recoverCall(bsd) }
+        return try await unmounted(bsd, phase: .recovering) {
+            if let call = self.recoverCall { return try await call(bsd) }
+            return try await HelperWindowsLogClient.recover(partition: bsd, onSlowReply: await self.slowReplyHandler())
+        }
     }
 
     /// When the log does not replay: gives it up, only after the same answer
@@ -263,25 +274,49 @@ public enum WindowsUnplugAnswer: String, CaseIterable, Sendable {
             throw .failed(String(localized: "只有在 Windows 开着机时直接拔下的盘，才能在 Mac 上补写。请把盘接回那台 Windows 开机，用“安全删除硬件”弹出后再插回。"))
         }
         guard accepted else { throw .failed(String(localized: "需要先确认放弃 Windows 没写完的改动。")) }
-        return try await unmounted(bsd, phase: .recovering) { try await self.discardCall(bsd) }
+        return try await unmounted(bsd, phase: .recovering) {
+            if let call = self.discardCall { return try await call(bsd) }
+            return try await HelperWindowsLogClient.discard(partition: bsd, onSlowReply: await self.slowReplyHandler())
+        }
+    }
+
+    private func slowReplyHandler() -> @Sendable () -> Void {
+        let id = operationID
+        return { [weak self] in
+            Task { @MainActor in
+                guard let self, self.operationID == id, self.phase == .examining || self.phase == .recovering,
+                      self.step == .examining || self.step == .recovering else { return }
+                self.step = .waitingForBackground
+            }
+        }
     }
 
     private func unmounted<T: Sendable>(_ bsd: String, phase: Phase, _ body: @escaping @Sendable () async throws -> T) async throws(CheckMarkerError) -> T {
         guard CheckMarkerClearer.applies(toPartition: bsd) else { throw .unsupported }
         guard !isWorking else { throw .failed(String(localized: "已有操作正在进行。")) }
         self.phase = phase
-        defer { self.phase = .idle }
+        startedAt = Date(); operationID = UUID(); step = .unmounting
+        defer {
+            operationID = nil
+            if self.phase != .needsVerification { self.phase = .idle; step = .idle }
+        }
         if isMounted(bsd), let reason = await unmount(bsd) { throw .unmountFailed(reason) }
+        step = phase == .examining ? .examining : .recovering
         let result: Result<T, any Error>
         do { result = .success(try await body()) } catch { result = .failure(error) }
         // No answer in time: the helper may still be writing. Mounting now would
         // put the file system on top of it; leave the disk unmounted.
-        if case .failure(let error) = result, error as? HelperServiceError == .timedOut {
-            throw .failed(String(localized: "后台组件还在处理这块盘，请不要拔下它。等几分钟后在盘屿里点“刷新”；仍然没有挂上时，拔下后重新插入。"))
+        if case .failure(let error) = result,
+           let failure = error as? HelperServiceError, [.timedOut, .unavailable, .invalidReply].contains(failure) {
+            self.phase = .needsVerification; step = .needsVerification
+            throw .failed(String(localized: "无法确认后台是否已完成。这块盘保持未挂载，请保持连接，不要重复修复、强制结束后台或直接拔盘。请在“设置与诊断 → 支持”中导出诊断并联系支持。"))
         }
-        _ = await runner.run(Self.diskutil, ["mount", bsd])
+        step = .remounting
+        let mounted = await runner.run(Self.diskutil, ["mount", bsd])
         switch result {
-        case .success(let value): return value
+        case .success(let value):
+            guard mounted.status == 0 else { throw .remountFailed(mounted.output) }
+            return value
         case .failure(let error): throw .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
     }

@@ -17,7 +17,6 @@ then checks:
 
   python3 scripts/check-localization.py          # check
   python3 scripts/check-localization.py --write  # regenerate the Chinese table
-  python3 scripts/check-localization.py --store  # the Mac App Store app (apps/store) and its tables
 """
 import argparse
 import glob
@@ -84,18 +83,6 @@ def build(package, scratch, extra):
         sys.exit('编译失败：\n' + result.stdout[-2000:] + result.stderr[-2000:])
 
 
-def build_store(scratch):
-    """The store app is compiled with swiftc directly, as scripts/store/build-local-candidate.sh does."""
-    (scratch / 'strings').mkdir(parents=True, exist_ok=True)
-    sources = sorted(map(str, (ROOT / 'apps/store/Sources').glob('*.swift'))) + [str(ROOT / 'apps/extension/Sources/StoreMount.swift')]
-    result = subprocess.run(['swiftc', '-swift-version', '6', '-parse-as-library', '-D', 'VOLISLE_STORE', *sources,
-                             '-emit-localized-strings', '-emit-localized-strings-path', 'strings',
-                             '-framework', 'FSKit', '-framework', 'DiskArbitration', '-o', 'store'],
-                            cwd=scratch, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.exit('编译失败：\n' + result.stdout[-2000:] + result.stderr[-2000:])
-
-
 def collect(scratch_dirs):
     keys, lines = {}, {}
     for scratch in scratch_dirs:
@@ -138,19 +125,12 @@ def uncaptured(lines):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--write', action='store_true', help='regenerate the zh-Hans table from the keys')
-    parser.add_argument('--store', action='store_true', help='check the Mac App Store app instead of the website app')
     args = parser.parse_args()
-    global TABLES, APP_SOURCES
     with tempfile.TemporaryDirectory(prefix='volisle-l10n-') as temp:
-        if args.store:
-            TABLES, APP_SOURCES = ROOT / 'assets/brand/Localization/store', ROOT / 'apps/store/Sources'
-            build_store(Path(temp))
-            keys, lines = collect([Path(temp)])
-        else:
-            app, core = Path(temp) / 'app', Path(temp) / 'core'
-            build(ROOT / 'apps/macos', app, ['--product', 'Volisle'])
-            build(ROOT / 'packages/VolisleCore', core, [])
-            keys, lines = collect([app, core])
+        app, core = Path(temp) / 'app', Path(temp) / 'core'
+        build(ROOT / 'apps/macos', app, ['--product', 'Volisle'])
+        build(ROOT / 'packages/VolisleCore', core, [])
+        keys, lines = collect([app, core])
     if not keys:
         sys.exit('没有收集到任何本地化键，请检查编译器输出')
     if args.write:

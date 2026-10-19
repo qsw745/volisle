@@ -1,11 +1,9 @@
 import type { Metadata } from 'next';
 import { alternates } from '@/lib/i18n';
-import Link from 'next/link';
 import { ArticlePage } from '@/components/ArticlePage';
 import { Faq } from '@/components/Faq';
 export const metadata: Metadata = { title: 'Help', alternates: alternates('en', '/help/') };
 export default function Page() { return <ArticlePage locale="en" title="Connect, then get going." lead="After the first setup, all that’s left is plugging in and ejecting.">
-<p>Installed Volisle from the Mac App Store? See <Link className="text-link" href="/en/store/">App Store version help</Link>.</p>
 <h2>Getting started</h2><ol className="timeline">
 <li><strong>Follow the setup guide</strong><span>The first time you open Volisle, a setup guide walks you through three steps: allow Volisle in the background, turn on its file system extension (“Volisle NTFS” in the File System Extensions list), and allow it to read disks (Full Disk Access). Each step’s button opens the right page in System Settings; turn on the switch as described and the guide ticks it off automatically. If you close the guide, you can finish under Setup in Settings.</span></li>
 <li><strong>Connect a disk</strong><span>Connect an NTFS external drive or USB flash drive. Volisle checks it in the background and turns on write access when it passes; the sidebar shows “Read-write”.</span></li>

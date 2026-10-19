@@ -171,6 +171,18 @@ static int bit_set(const unsigned char *map, u64 bit) { return (map[bit / 8] >> 
  * cluster any of its attributes maps must be allocated in $Bitmap: otherwise
  * a new file could take that record or overwrite those clusters. Allocated but
  * unused is only a leak and is left alone. Returns 0, or -1 with the record. */
+/* Raw devices have a bounded transfer size. A multi-terabyte volume's
+ * allocation bitmap can exceed it even when the bitmap is one physical run. */
+static int check_read_attribute(ntfs_attr *na, s64 count, unsigned char *buffer) {
+    for (s64 at = 0; at < count; ) {
+        s64 chunk = count - at;
+        if (chunk > 1024 * 1024) chunk = 1024 * 1024;
+        if (ntfs_attr_pread(na, at, chunk, buffer + at) != chunk) return -1;
+        at += chunk;
+    }
+    return 0;
+}
+
 static int check_allocation(ntfs_volume *vol, u64 records, u64 *failed_at, const char **why, s64 *leaked,
                             const struct stale_ref *stale, int stale_count) {
     s64 lcn_bytes = vol->lcnbmp_na->initialized_size, mft_bytes = vol->mftbmp_na->initialized_size;
@@ -180,20 +192,40 @@ static int check_allocation(ntfs_volume *vol, u64 records, u64 *failed_at, const
     unsigned char *mapped = lcn_bytes > 0 ? calloc(1, (size_t)lcn_bytes) : NULL;
     if (leaked) *leaked = 0;
     unsigned char *mftmap = mft_bytes > 0 ? malloc((size_t)mft_bytes) : NULL;
-    MFT_RECORD *m = malloc(vol->mft_record_size);
+    u64 batch_limit = 65536 / vol->mft_record_size;
+    if (!batch_limit) batch_limit = 1;
+    unsigned char *batch = malloc((size_t)batch_limit * vol->mft_record_size);
+    u64 batch_first = 0, batch_count = 0;
+    int batch_failed = 0;
     int r = -1;
     *failed_at = 0; *why = "allocation unreadable";
-    if (!lcn || !mapped || !mftmap || !m || ntfs_attr_pread(vol->lcnbmp_na, 0, lcn_bytes, lcn) != lcn_bytes ||
-        ntfs_attr_pread(vol->mftbmp_na, 0, mft_bytes, mftmap) != mft_bytes ||
+    if (!lcn || !mapped || !mftmap || !batch || check_read_attribute(vol->lcnbmp_na, lcn_bytes, lcn) ||
+        check_read_attribute(vol->mftbmp_na, mft_bytes, mftmap) ||
         (u64)lcn_bytes * 8 < (u64)vol->nr_clusters) goto out;
     for (u64 i = 0; i < records; i++) {
         *failed_at = i;
-        if (ntfs_mft_records_read(vol, MK_MREF(i, 0), 1, m)) {
+        if (i == batch_first + batch_count) {
+            batch_first = i;
+            batch_count = records - i < batch_limit ? records - i : batch_limit;
+            /* The library applies MST fixups to each record, just as on a
+             * single-record read. Keep the same per-record checks below. */
+            batch_failed = ntfs_mft_records_read(vol, MK_MREF(i, 0), (s64)batch_count, (MFT_RECORD *)batch);
+        }
+        MFT_RECORD *m = (MFT_RECORD *)(batch + (size_t)(i - batch_first) * vol->mft_record_size);
+        /* A short/unreadable batch falls back to the original record-level
+         * decision: an unreadable record in use must never be skipped. */
+        if (batch_failed && ntfs_mft_records_read(vol, MK_MREF(i, 0), 1, m)) {
             /* A free record may be blank or torn; only one in use matters. */
             if (i / 8 < (u64)mft_bytes && bit_set(mftmap, i)) { *why = "record unreadable"; goto out; }
             continue;
         }
-        if (m->magic != magic_FILE || !(m->flags & MFT_RECORD_IN_USE)) continue;
+        if (m->magic != magic_FILE) {
+            /* MST fixups mark torn records BAAD without failing the batch.
+             * A record allocated in the bitmap may never disappear this way. */
+            if (i / 8 < (u64)mft_bytes && bit_set(mftmap, i)) { *why = "record unreadable"; goto out; }
+            continue;
+        }
+        if (!(m->flags & MFT_RECORD_IN_USE)) continue;
         if (i / 8 >= (u64)mft_bytes || !bit_set(mftmap, i)) { *why = "in use but not allocated"; goto out; }
         u32 used = le32_to_cpu(m->bytes_in_use), at = le16_to_cpu(m->attrs_offset);
         if (used > vol->mft_record_size || at >= used) { *why = "record layout broken"; goto out; }
@@ -245,7 +277,7 @@ static int check_allocation(ntfs_volume *vol, u64 records, u64 *failed_at, const
     }
     r = 0;
 out:
-    free(lcn); free(mapped); free(mftmap); free(m);
+    free(lcn); free(mapped); free(mftmap); free(batch);
     return r;
 }
 
