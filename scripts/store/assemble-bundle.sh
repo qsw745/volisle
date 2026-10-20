@@ -41,7 +41,7 @@ import plistlib, sys
 host, ext, bundle, minimum, short, build = sys.argv[1:]
 version = {'CFBundleShortVersionString': short, 'CFBundleVersion': build, 'LSMinimumSystemVersion': minimum}
 # Development region en with a zh-Hans table of its own, as in the website app: a system in any other language gets English.
-plistlib.dump({'CFBundleIdentifier': bundle, 'CFBundleName': 'Volisle', 'CFBundleDisplayName': 'Volisle', 'CFBundleExecutable': 'VolisleStore',
+plistlib.dump({'CFBundleIdentifier': bundle, 'CFBundleName': '盘屿 Volisle', 'CFBundleDisplayName': '盘屿 Volisle', 'CFBundleExecutable': 'VolisleStore',
                'CFBundlePackageType': 'APPL', 'CFBundleIconFile': 'Volisle.icns', 'CFBundleDevelopmentRegion': 'en',
                'CFBundleLocalizations': ['zh-Hans', 'zh-Hant', 'en'], 'LSHasLocalizedDisplayName': True,
                'NSHighResolutionCapable': True, 'LSApplicationCategoryType': 'public.app-category.utilities',

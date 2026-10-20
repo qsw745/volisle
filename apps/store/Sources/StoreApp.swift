@@ -9,7 +9,7 @@ import SwiftUI
     @State private var disks = StoreDisks()
 
     var body: some Scene {
-        Window("盘屿", id: "main") {
+        Window(StoreLink.displayName, id: "main") {
             StoreRootView(disks: disks)
                 .frame(minWidth: 680, minHeight: 420)
                 .task { disks.start() }
@@ -30,6 +30,11 @@ import SwiftUI
 }
 
 enum StoreLink {
+    /// Use the bundle's localized brand for the window and sidebar, just as macOS does for its menus.
+    static var displayName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Volisle"
+    }
+
     /// The App Store version's own help page, in Chinese or English like the interface.
     static var help: URL {
         let chinese = Bundle.main.preferredLocalizations.first?.hasPrefix("zh") ?? false

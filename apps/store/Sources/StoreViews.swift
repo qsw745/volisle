@@ -33,7 +33,7 @@ struct StoreMainView: View {
             .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 8) {
                     StoreBrandMark()
-                    Text("盘屿").font(.callout.weight(.semibold))
+                    Text(StoreLink.displayName).font(.callout.weight(.semibold))
                     Spacer()
                     SettingsLink { Image(systemName: "gearshape") }.buttonStyle(.borderless).help("设置").accessibilityLabel("设置")
                 }

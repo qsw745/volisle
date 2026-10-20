@@ -26,8 +26,8 @@ TEAM=6N5T3G6H33; BUNDLE=top.qisw.volisle.mas; GROUP=$TEAM.$BUNDLE
 VERSION=$(python3 -c "import json;print(json.load(open('config/store.json'))['version'])")
 # Not Volisle.app: that is the website build's name in /Applications, and a store
 # install must neither replace it nor be refused because of it. Finder and the Dock
-# still say 盘屿 (the localized display name).
-W=.workbench/store-package; APP="$W/Volisle Store.app"; EX="$APP/Contents/Extensions/VolisleFS.appex"
+# use the same 盘屿 Volisle brand in every localization.
+W=.workbench/store-package; APP="$W/盘屿 Volisle.app"; EX="$APP/Contents/Extensions/VolisleFS.appex"
 OUT="dist/store/Volisle-$VERSION-store$BUILD"
 [[ ! -e $OUT ]] || { print -u2 "已经存在：$OUT（换一个构建号，提交过的构建号不能重用）"; exit 1; }
 for identity in $APP_ID $PKG_ID; do
