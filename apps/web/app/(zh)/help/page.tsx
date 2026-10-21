@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
 import { alternates } from '@/lib/i18n';
+import Link from 'next/link';
 import { ArticlePage } from '@/components/ArticlePage';
 import { Faq } from '@/components/Faq';
 export const metadata: Metadata = { title: '帮助', alternates: alternates('zh', '/help/') };
 export default function Page() { return <ArticlePage title="连接，然后开始。" lead="第一次设置之后，就只剩插上和推出。">
+<p>从 Mac App Store 安装的盘屿，请看 <Link className="text-link" href="/store/">App Store 版帮助</Link>。</p>
 <h2>第一次使用</h2><ol className="timeline">
 <li><strong>跟着向导完成设置</strong><span>第一次打开盘屿会弹出设置向导，共三步：允许盘屿在后台运行、启用盘屿的文件系统扩展（“文件系统扩展”列表里的“盘屿 NTFS”）、允许盘屿读取磁盘（完全磁盘访问）。每一步点按钮会直接打开对应的系统设置页面，按提示打开开关即可，打开后向导会自动打勾。中途关掉也没关系，可以在设置的“首次使用”中继续。</span></li>
 <li><strong>插入磁盘</strong><span>插入 NTFS 移动硬盘或 U 盘。盘屿在后台检查，通过后自动开启读写，侧栏会显示“可读写”。</span></li>

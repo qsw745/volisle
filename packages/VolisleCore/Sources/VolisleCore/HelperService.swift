@@ -29,6 +29,19 @@ public enum HelperPackage {
     }
 }
 
+/// System boundaries are injected together so connection recovery can be exercised
+/// without registering a daemon or touching a disk.
+@MainActor struct HelperServiceEnvironment {
+    var validate: () throws -> Void
+    var status: () -> SMAppService.Status
+    var register: () throws -> Void
+    var systemStatus: () async throws -> HelperStatus
+    static func live(_ service: SMAppService) -> Self {
+        .init(validate: { try HelperPackage.validate() }, status: { service.status },
+              register: { try service.register() }, systemStatus: { try await HelperRPC.systemStatus() })
+    }
+}
+
 @MainActor @Observable public final class HelperServiceController {
     public enum State: Equatable, Sendable { case unavailable, notRegistered, requiresApproval, connected, failed }
     public private(set) var state: State = .unavailable
@@ -42,7 +55,9 @@ public enum HelperPackage {
     private let service = SMAppService.daemon(plistName: HelperIdentity.plistName)
     static let connectAttempts = 3
     static let connectRetryDelay: Duration = .seconds(2)
-    public init() {}
+    private let environment: HelperServiceEnvironment
+    public init() { environment = .live(service) }
+    init(environment: HelperServiceEnvironment) { self.environment = environment }
     public var summary: String {
         if isBusy { return String(localized: "正在检查…") }
         switch state {
@@ -53,19 +68,29 @@ public enum HelperPackage {
         case .failed: return String(localized: "暂时无法连接")
         }
     }
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    private func finishOperation() {
+        isBusy = false
+        let waiters = idleWaiters
+        idleWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
     public func refresh() async {
         guard !isBusy else { return }
         isBusy = true
-        defer { isBusy = false }
+        defer { finishOperation() }
         await updateState()
     }
     public func register() async {
-        guard !isBusy else { return }
+        // A guide/activation poll may already be checking the old helper. An
+        // explicit registration or post-update restore must not be dropped.
+        while isBusy { await withCheckedContinuation { idleWaiters.append($0) } }
+        guard !Task.isCancelled else { return }
         isBusy = true
-        defer { isBusy = false }
+        defer { finishOperation() }
         do {
-            try HelperPackage.validate()
-            if HelperRegistrationPolicy.needsRegistration(service.status) { try service.register() }
+            try environment.validate()
+            if HelperRegistrationPolicy.needsRegistration(environment.status()) { try environment.register() }
             await updateState()
         } catch {
             // Register may persist the request and then report that admin
@@ -78,9 +103,9 @@ public enum HelperPackage {
     public func unregister() async {
         guard !isBusy else { return }
         isBusy = true
-        defer { isBusy = false }
+        defer { finishOperation() }
         do {
-            try HelperPackage.validate()
+            try environment.validate()
             // Atomically stop accepting new cycles before unregistering. A
             // status-only check would race another client's start request.
             if service.status == .enabled {
@@ -106,9 +131,9 @@ public enum HelperPackage {
     private func updateState() async {
         defer { hasChecked = true }
         var next: (state: State, access: Bool?, error: String?)
-        do { try HelperPackage.validate(); packageVerified = true }
+        do { try environment.validate(); packageVerified = true }
         catch { packageVerified = false; apply((.unavailable, nil, nil)); return }
-        switch service.status {
+        switch environment.status() {
         case .notRegistered, .notFound: next = (.notRegistered, nil, nil)
         case .requiresApproval: next = (.requiresApproval, nil, nil)
         case .enabled:
@@ -117,7 +142,7 @@ public enum HelperPackage {
             next = (.failed, nil, nil)
             for attempt in 0..<Self.connectAttempts {
                 if attempt > 0 { try? await Task.sleep(for: Self.connectRetryDelay) }
-                do { next = (.connected, try await HelperRPC.systemStatus().fullDiskAccess, nil); break }
+                do { next = (.connected, try await environment.systemStatus().fullDiskAccess, nil); break }
                 catch { next = (.failed, nil, error.localizedDescription) }
             }
         @unknown default: next = (.unavailable, nil, nil)

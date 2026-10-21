@@ -39,7 +39,11 @@ import VolisleCore
             message = String(localized: "此版本由 App Store 提供更新"); return
         }
         do { try await restoreHelperIfNeeded() }
-        catch { message = String(localized: "更新后的后台组件需要恢复，请在设置中检查。"); return }
+        catch {
+            // Keep the restore receipt for the next launch, but do not cut off
+            // the update channel that can deliver a recovery fix.
+            message = String(localized: "更新后的后台组件需要恢复，请在设置中检查。")
+        }
         guard let feed = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
               let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
               (try? UpdateChannel(feed: feed, publicKey: key)) != nil else { return }

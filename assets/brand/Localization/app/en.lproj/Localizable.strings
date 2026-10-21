@@ -424,7 +424,6 @@
 "点下面的按钮，系统设置会打开“登录项与扩展”。在“允许在后台”里找到“盘屿”，打开右边的开关。系统可能要求输入这台 Mac 的登录密码。" = "Click the button below to open Login Items & Extensions in System Settings. Under Allow in the Background, find Volisle and turn on its switch. You may be asked for your Mac login password.";
 "点下面的按钮，系统设置会打开“文件系统扩展”列表。打开“盘屿 NTFS”（有的系统显示为“Volisle NTFS”）右边的开关，再点“完成”。在“按 App”页面里盘屿下面的“FSKit Modules”开关不用管。" = "Click the button below to open the File System Extensions list in System Settings, turn on the switch next to “Volisle NTFS”, then click Done. You can ignore the “FSKit Modules” switch on the By App page.";
 "点下面的按钮，系统设置会打开“完全磁盘访问”。找到“盘屿”，打开右边的开关。列表里没有盘屿时，点列表下方的“+”，在“应用程序”里选择“盘屿”。如果系统提示退出并重新打开，选“稍后”即可。" = "Click the button below to open Full Disk Access in System Settings. Find Volisle and turn on its switch. If Volisle isn’t in the list, click + below the list and choose Volisle in Applications. If you’re asked to quit and reopen, choose Later.";
-"打开后这里会自动打勾" = "This ticks itself once it’s on";
 "允许后台运行" = "Allow in Background";
 "后台组件、文件系统扩展和磁盘读取权限都已就绪。" = "The background component, file system extension, and disk access are all ready.";
 "插入 NTFS 移动硬盘或 U 盘，盘屿会自动开启读写，在 Finder 里直接使用就行。" = "Connect an NTFS drive and Volisle turns on write access automatically—just use it in Finder.";
@@ -736,3 +735,6 @@
 "不会修改盘上的任何内容。文件较多或硬盘较慢时可能需要较长时间。" = "Nothing on the disk will be changed. Many files or a slower disk can make this take a long time.";
 "已用时" = "Elapsed";
 "恢复会重新核对磁盘，并检查全部文件记录。文件较多或硬盘较慢时可能需要较长时间；开始恢复后暂时不能取消，请预留时间并保持连接。" = "Recovery rechecks the disk and verifies every file record. Many files or a slower disk can make this take a long time. Recovery cannot be cancelled once started, so allow enough time and keep the disk connected.";
+"正在检查设置…" = "Checking settings…";
+"尚未完成，请检查系统设置或重试。" = "Not finished. Check System Settings or try again.";
+"后台组件未连接。请确认从“应用程序”打开盘屿，并检查“允许在后台”开关；仍无法连接时，可在设置 → 支持中导出诊断。" = "The background component is not connected. Open Volisle from Applications and check Allow in the Background. If it still cannot connect, export diagnostics in Settings → Support.";

@@ -31,3 +31,13 @@ public struct SetupProgress: Equatable, Sendable {
     public var isComplete: Bool { current == nil }
     public var doneCount: Int { SetupStep.allCases.filter(isDone).count }
 }
+
+/// Bounded visual waiting; polling can continue after the guidance is shown.
+public enum SetupWait: Equatable, Sendable {
+    case idle, waiting, timedOut, failed
+    public static func status(elapsed: TimeInterval?, failed: Bool) -> Self {
+        guard let elapsed else { return .idle }
+        if failed { return .failed }
+        return elapsed < 25 ? .waiting : .timedOut
+    }
+}
