@@ -573,12 +573,12 @@
 "这块盘的 NTFS 日志读不出来或无法按顺序补写，盘屿不能代替 Windows 恢复，没有做任何修改。请接回 Windows 打开一次，用“安全删除硬件”弹出后再插回。" = "This disk’s NTFS log can’t be read or replayed in order, so Volisle can’t recover it in place of Windows. Nothing was changed. Connect it to Windows, open it once, eject it with “Safely Remove Hardware”, then connect it again.";
 "补写或之后的检查没有通过，盘屿已经把这块盘原样还原，没有留下任何改动。盘里的文件仍可只读打开和拷出；请接回 Windows 打开一次，安全弹出后再插回。" = "The replay or the check after it didn’t pass, so Volisle put the disk back exactly as it was; no changes were left. Files can still be opened and copied read-only. Connect it to Windows, open it once, eject it safely, then connect it again.";
 "补写中途失败，而且没能完全还原。请不要在 Mac 上继续写入这块盘，尽快接回 Windows，在“属性 → 工具 → 检查”中检查磁盘。" = "The replay failed midway and the disk couldn’t be fully put back. Don’t write to this disk on the Mac; connect it to Windows as soon as you can and check it in Properties → Tools → Check.";
-"这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点“在 Mac 上恢复…”。" = "This disk wasn’t ejected safely from Windows last time, so it’s read-only to protect your data. The safest fix is to connect it to Windows and eject it with “Safely Remove Hardware”; if no Windows PC is at hand, click “Recover on Mac…”.";
+"这块盘的 NTFS 日志未通过安全检查，为保护数据暂时只读。可以点“在 Mac 上恢复…”先做只读检查；若已在 Windows 安全弹出后仍出现，请在设置 → 支持中导出诊断。" = "This disk’s NTFS log did not pass the safety check, so it stays read-only to protect your data. Click “Recover on Mac…” to run a read-only check first. If this persists after safely ejecting it in Windows, export diagnostics in Settings → Support.";
 "已有操作正在进行。" = "Another operation is in progress.";
 "只有在 Windows 开着机时直接拔下的盘，才能在 Mac 上补写。请把盘接回那台 Windows 开机，用“安全删除硬件”弹出后再插回。" = "Only a disk unplugged while Windows was running can be replayed on the Mac. Connect it to that Windows PC, start it, eject the disk with “Safely Remove Hardware”, then connect it again.";
 "在 Mac 上恢复…" = "Recover on Mac…";
-"这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点上面的“在 Mac 上恢复…”。" = "This disk wasn’t ejected safely from Windows last time, so it’s read-only to protect your data. The safest fix is to connect it to Windows and eject it with “Safely Remove Hardware”; if no Windows PC is at hand, click “Recover on Mac…” above.";
-"这块盘上次在 Windows 中没有安全弹出，所以以只读方式打开。请接回 Windows，用“安全删除硬件”弹出后再插回（加密盘暂不支持在 Mac 上恢复）。" = "This disk wasn’t ejected safely from Windows last time, so it opened read-only. Connect it to Windows and eject it with “Safely Remove Hardware”, then connect it again (recovering on the Mac isn’t available for encrypted disks yet).";
+"这块盘的 NTFS 日志未通过安全检查，为保护数据暂时只读。可以点上面的“在 Mac 上恢复…”先做只读检查；若已在 Windows 安全弹出后仍出现，请在设置 → 支持中导出诊断。" = "This disk’s NTFS log did not pass the safety check, so it stays read-only to protect your data. Click “Recover on Mac…” above to run a read-only check first. If this persists after safely ejecting it in Windows, export diagnostics in Settings → Support.";
+"这块盘的 NTFS 日志未通过安全检查，暂时以只读方式打开。加密盘暂不支持在 Mac 上恢复；若已在 Windows 安全弹出后仍出现，请在设置 → 支持中导出诊断。" = "This disk’s NTFS log did not pass the safety check, so it opened read-only. Recovery on the Mac is not available for encrypted disks yet. If this persists after safely ejecting it in Windows, export diagnostics in Settings → Support.";
 "在 Mac 上恢复“%@”" = "Recover “%@” on This Mac";
 "正在只读检查这块盘…" = "Checking the disk read-only…";
 "正在补写并检查…" = "Replaying and checking…";
@@ -618,7 +618,7 @@
 "清掉日志前，盘屿会把要改动的部分原样备份，任何一步不通过都会原样还原。" = "Before clearing the log, Volisle backs up exactly what it will change; if any step fails, the disk is put back as it was.";
 "我知道 Windows 最后没写完的改动会被放弃" = "I understand that Windows’ last unfinished changes will be given up";
 "放弃 Windows 没写完的改动" = "Give Up Windows’ Unfinished Changes";
-"这块盘上次在 Windows 中没有安全弹出。盘屿先只读检查，再告诉你能怎样处理。" = "This disk wasn’t ejected safely from Windows last time. Volisle checks it read-only first, then tells you what can be done.";
+"这块盘的 NTFS 日志未通过安全检查。盘屿先只读检查，再告诉你能怎样处理。" = "This disk’s NTFS log did not pass the safety check. Volisle checks it read-only first, then tells you what can be done.";
 "正在清理日志…" = "Clearing the log…";
 "已恢复，可以开启读写" = "Recovered—Ready for Writing";
 "已放弃 Windows 没写完的改动，检查了 %lld 个文件和文件夹，文件占用的空间都标记正确。" = "Windows’ unfinished changes were given up. Checked %lld files and folders; the space files use is marked correctly. ";

@@ -3,6 +3,11 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.6 · 2026 年 10 月 21 日</h2><ul>
+<li>修复升级后后台组件恢复请求可能被状态检查忽略的问题。</li>
+<li>首次使用引导不再一直转圈，等待超时或连接失败时会显示检查和重试提示。</li>
+<li>后台组件暂时无法连接时，仍可检查和获取软件更新。</li>
+</ul>
 <h2>0.9.5 · 2026 年 10 月 19 日</h2><ul>
 <li>修复：部分大容量 NTFS 磁盘在补写并检查时，可能因单次读取过大而失败。</li>
 <li>改进：减少恢复检查中的零散读取，保留完整的文件记录和空间分配核验。</li>

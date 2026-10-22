@@ -749,7 +749,7 @@ struct VolumeDetail: View {
                     Label("这块盘被标记为需要检查，为保护数据暂时只读。可以点上面的“在 Mac 上检查…”，也可以在 Windows 中检查后安全弹出再插回。", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
                 } else if volume.isNTFS, unpluggedFromWindows, !controlledWrite, waitingFor == nil {
-                    Label("这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点上面的“在 Mac 上恢复…”。", systemImage: "info.circle")
+                    Label("这块盘的 NTFS 日志未通过安全检查，为保护数据暂时只读。可以点上面的“在 Mac 上恢复…”先做只读检查；若已在 Windows 安全弹出后仍出现，请在设置 → 支持中导出诊断。", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
                 } else if volume.isNTFS, let waitingFor {
                     Label(waitingFor.detail, systemImage: "info.circle")

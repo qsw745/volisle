@@ -34,7 +34,7 @@ struct WindowsLogRecoveryView: View {
 
     var body: some View {
         SheetScaffold(Text("在 Mac 上恢复“\(target.name)”"),
-                      subtitle: Text("这块盘上次在 Windows 中没有安全弹出。盘屿先只读检查，再告诉你能怎样处理。"),
+                      subtitle: Text("这块盘的 NTFS 日志未通过安全检查。盘屿先只读检查，再告诉你能怎样处理。"),
                       systemImage: "arrow.trianglehead.counterclockwise", tint: .blue) {
             content
         } buttons: {

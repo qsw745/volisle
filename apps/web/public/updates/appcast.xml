@@ -1,20 +1,18 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.9.5</title><pubDate>Mon, 19 Oct 2026 09:12:27 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.9.5
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.9.6</title><pubDate>Wed, 21 Oct 2026 07:55:01 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.9.6
 
-· 修复：部分大容量 NTFS 磁盘在补写并检查时，可能因单次读取过大而失败。
-· 改进：减少恢复检查中的零散读取，保留完整的文件记录和空间分配核验。
-· 改进：恢复窗口显示当前阶段和已用时间，并提前说明耗时与取消限制。后台仍在处理时会继续等待，不再仅因等待超时就显示处理结束。
-· 修复：恢复完成后重新挂载失败时单独提示；无法确认后台结果时保持待核验状态，避免误报成功或重复操作。
+· 修复升级后后台组件恢复请求可能被状态检查忽略的问题。
+· 首次使用引导不再一直转圈，等待超时或连接失败时会显示检查和重试提示。
+· 后台组件暂时无法连接时，仍可检查和获取软件更新。
 
-对应源码：https://qisw.top/volisle/updates/Volisle-0.9.5-77-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.9.5
+对应源码：https://qisw.top/volisle/updates/Volisle-0.9.6-78-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.9.6
 
-· Fixed: recovery checks could fail on some large NTFS disks when a single read exceeded the supported transfer size.
-· Improved: recovery checks perform fewer small reads while preserving full file-record and allocation verification.
-· Improved: the recovery window shows its current stage and elapsed time, explains potentially long waits and cancellation limits, and keeps waiting while the background operation is still running.
-· Fixed: a failed remount is reported separately after recovery; an unconfirmed background result stays pending verification instead of reporting success or allowing repeated operations.
+· Fix background component restoration being skipped during a concurrent status check after an update.
+· Replace indefinite setup spinners with guidance when waiting times out or the connection fails.
+· Keep software updates available when the background component is temporarily disconnected.
 
-Source code: https://qisw.top/volisle/updates/Volisle-0.9.5-77-source.tar.gz</description><sparkle:version>77</sparkle:version><sparkle:shortVersionString>0.9.5</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.9.5-77-universal.zip" length="10811715" type="application/octet-stream" sparkle:edSignature="Gg0pV5a2T5TFN4zJJcEi6x/iTcRU52W2UZreGbPE7qBf0EpOpN+jxLJcXKSd/yS/jdwqH/1ux84igGJbXttABg==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
-edSignature: Png2KN+yVniVlWzGpEam0T6bHLNYIpT42Pybe3ci0D62dex5+4Gb+CvbodDgTmteyHFcVwThVd8wRb70Gg7KAA==
-length: 2500
+Source code: https://qisw.top/volisle/updates/Volisle-0.9.6-78-source.tar.gz</description><sparkle:version>78</sparkle:version><sparkle:shortVersionString>0.9.6</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.9.6-78-universal.zip" length="10839704" type="application/octet-stream" sparkle:edSignature="77aZ27GZ/w4anlFTDPlZVT93BHM8lRU80VVshrSFCNBSLPV4VYjVsFDN6X9GQM1LaKdz9w5tGKooPzM5GaI2Cw==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
+edSignature: /8ZkCX4uKZevATPyC58jVmRXFCjxoD3e063LEML4Gk+yltV9zVoPdctPbRRZR4zRxoKJaUoxLYKCitrcMoaVCw==
+length: 1893
 -->

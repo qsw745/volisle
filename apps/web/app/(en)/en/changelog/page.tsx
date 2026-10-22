@@ -3,6 +3,11 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.6 · October 21, 2026</h2><ul>
+<li>Fix background component restoration being skipped during a concurrent status check after an update.</li>
+<li>Replace indefinite setup spinners with guidance when waiting times out or the connection fails.</li>
+<li>Keep software updates available when the background component is temporarily disconnected.</li>
+</ul>
 <h2>0.9.5 · October 19, 2026</h2><ul>
 <li>Fixed: recovery checks could fail on some large NTFS disks when a single read exceeded the supported transfer size.</li>
 <li>Improved: recovery checks perform fewer small reads while preserving full file-record and allocation verification.</li>
