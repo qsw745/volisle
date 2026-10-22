@@ -174,10 +174,6 @@ int nk_is_dirty(nk_volume *v);
 enum { NK_CHECK_CLEAN = 0, NK_CHECK_DIRTY = 1, NK_CHECK_HIBERNATED = 2,
        NK_CHECK_LOG_UNSAFE = 3, NK_CHECK_UNKNOWN = 4, NK_CHECK_MARK_COPIES = 5 };
 int nk_inspect(const nk_io *io);
-/* 1 when the engine can open the volume read-only, else 0. Reads only, and
- * says nothing about whether the volume is safe to write (nk_inspect does).
- * `label` (optional) receives the volume label, empty unless the result is 1. */
-int nk_openable(const nk_io *io, char *label, size_t label_len);
 
 /* $Volume (file record 3) is kept twice, in $MFT and in $MFTMirr, and both
  * are written whenever the "needs check" mark is set or released. A USB drive
@@ -346,10 +342,6 @@ int nk_stale_entries_examine(const nk_io *io, nk_stale_entries *out, char *errbu
  * EBUSY as above, EIO after writing: the host restores its before-images. */
 int nk_stale_entries_repair(const nk_io *io, nk_stale_entries *before, long long *items, char *errbuf, size_t errlen);
 const char *nk_engine_version(void);
-/* libntfs says why a mount failed only through its own log. Forwards its
- * warnings and errors to `sink` (NULL: back to discarding them). Process-wide. */
-typedef void (*nk_log_cb)(const char *message);
-void nk_log_capture(nk_log_cb sink);
 #ifdef __cplusplus
 }
 #endif

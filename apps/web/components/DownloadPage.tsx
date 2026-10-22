@@ -18,6 +18,7 @@ const copy = {
     steps: [['打开安装包', '双击下载的 .dmg，把“盘屿”拖到“应用程序”文件夹。'], ['完成首次设置', '从“应用程序”打开盘屿，按窗口顶部的提示启用文件系统扩展、允许后台组件，并开启完全磁盘访问。'], ['插入磁盘', '插入 NTFS 硬盘或 U 盘，检查通过后自动开启读写。']],
     notarized: '安装包已通过 Apple 公证。之后盘屿会自动检查更新，安装前先安全结束磁盘读写。', notice: '完成最后的验证之前，这里不提供安装包。',
     reqTitle: '系统要求', req1: 'Apple 芯片 Mac；Intel Mac 为测试版，还没有在 Intel 真机上验证。', req2a: `${release.minimumSystem} 或更高版本。完整验证在 macOS 27.2 上完成，详见`, req2link: '兼容性', req2b: '。', req3: '外接 USB NTFS 硬盘或 U 盘。',
+    reqNotice: 'macOS 15.7.7、15.8 和 15.8.1 暂不支持读写挂载，仍可只读使用。目前暂无有效解决方案。详见', reqNoticeLink: '兼容性', reqNoticeEnd: '。',
     sumsTitle: '校验与源码', sumsA: '以上为 SHA-256。在“终端”中运行 ', sumsCode: 'shasum -a 256 文件名', sumsB: ' 即可核对。源码包含构建脚本和第三方许可声明，可离线重新构建。',
     changelog: '更新日志 ›', help: '使用帮助 ›',
     historyTitle: '历史版本', historyLead: '旧版本里的已知问题都在后续版本中修复了（见更新日志），只建议在需要退回旧版时使用；打开后盘屿会提示更新到最新版本。标有“有数据风险”的版本存在已知的数据问题（见更新日志 0.5.5 与 0.5.8），请不要用它们读写重要数据。', historyRisk: '有数据风险',
@@ -30,6 +31,7 @@ const copy = {
     steps: [['Open the installer', 'Double-click the downloaded .dmg and drag Volisle to the Applications folder.'], ['Finish setup', 'Open Volisle from Applications and follow the prompt at the top of the window to turn on the file system extension, allow the background component, and turn on Full Disk Access.'], ['Connect a disk', 'Connect an NTFS drive or USB flash drive. Write access turns on automatically once the check passes.']],
     notarized: 'The installer is notarized by Apple. Volisle checks for updates automatically and safely ends disk writes before installing one.', notice: 'The installer will be available here once final testing is complete.',
     reqTitle: 'System requirements', req1: 'A Mac with Apple silicon; Intel-based Macs are supported as a beta that hasn’t been verified on an Intel Mac yet.', req2a: `${release.minimumSystem} or later. Full verification was done on macOS 27.2; see `, req2link: 'Compatibility', req2b: ' for details.', req3: 'An external USB NTFS drive or flash drive.',
+    reqNotice: 'Read-write mounting is currently unsupported on macOS 15.7.7, 15.8 and 15.8.1; read-only access remains available. No effective workaround is currently available. See ', reqNoticeLink: 'Compatibility', reqNoticeEnd: '.',
     sumsTitle: 'Checksums and source code', sumsA: 'These are SHA-256 checksums. To verify, run ', sumsCode: 'shasum -a 256 filename', sumsB: ' in Terminal. The source includes build scripts and third-party license notices, and can be rebuilt offline.',
     changelog: 'Release Notes ›', help: 'Help ›',
     historyTitle: 'Earlier versions', historyLead: 'Known issues in earlier versions are fixed in later ones (see the Release Notes). Use one only if you need to go back; Volisle will offer to update to the latest version. Versions marked “Known data risk” have known data problems (see 0.5.5 and 0.5.8 in the Release Notes); don’t use them with important data.', historyRisk: 'Known data risk',
@@ -50,6 +52,7 @@ export function DownloadPage({ locale }: { locale: Locale }) {
     <p>{c.notarized}</p>
   </> : <p className="notice">{c.notice}</p>}
   <h2>{c.reqTitle}</h2><ul><li>{c.req1}</li><li>{c.req2a}<Link className="inline-link" href={to('/compatibility/')}>{c.req2link}</Link>{c.req2b}</li><li>{c.req3}</li></ul>
+  <p className="notice">{c.reqNotice}<Link className="inline-link" href={to('/compatibility/')}>{c.reqNoticeLink}</Link>{c.reqNoticeEnd}</p>
   {release.published && <>
     <h2>{c.sumsTitle}</h2>
     <dl className="checksums">

@@ -47,6 +47,7 @@ struct MainView: View {
     }
     private var selected: VolumeSnapshot? { volumes.first { $0.id == selection } }
     private var bottomMessage: String? {
+        if windowsLog.phase == .needsVerification { return String(localized: "尚未确认磁盘恢复结果，请保持连接并导出诊断联系支持。") }
         if markerClearer.isWorking { return String(localized: "正在 Mac 上检查磁盘，请勿拔出…") }
         if windowsLog.phase == .recovering { return String(localized: "正在 Mac 上恢复磁盘，请勿拔出…") }
         if staleEntries.phase == .repairing { return String(localized: "正在 Mac 上修复磁盘，请勿拔出…") }
@@ -199,7 +200,7 @@ struct MainView: View {
                     let ownCycleNeedsAttention = ownCycle?.needsAttention == true
                     // While every place is taken, this disk only waits: its own work counts then.
                     let ownWork = actions.activeDevices.contains(selected.deviceGroup) || autoMount.isBusy(selected) || manualMount.isWorking(on: selected)
-                    VolumeDetail(volume: selected, busy: recovering || ownWork || (holder == nil && (mountCycle.blocksActions(on: selected) || actions.isBusy(selected))),
+                    VolumeDetail(volume: selected, busy: recovering || windowsLog.isWorking || ownWork || (holder == nil && (mountCycle.blocksActions(on: selected) || actions.isBusy(selected))),
                                  waitingFor: holder.map { WriteSlotWait(holder: $0, automatic: autoMount.preferences.isEnabled(selected.identity)) },
                                  backgroundNeedsAttention: ownCycleNeedsAttention,
                                  controlledWrite: mountCycle.isWritable(selected),
@@ -285,7 +286,7 @@ struct MainView: View {
         .toolbar {
             ToolbarItem {
                 Button("刷新", systemImage: "arrow.clockwise") { discovery.refresh(); Task { await engineStatus.refresh() } }
-                    .disabled(!mountCycle.holdsNothing || !actions.activeDevices.isEmpty || !autoMount.activeConnections.isEmpty || !manualMount.activeDevices.isEmpty).help("刷新磁盘")
+                    .disabled(windowsLog.isWorking || !mountCycle.holdsNothing || !actions.activeDevices.isEmpty || !autoMount.activeConnections.isEmpty || !manualMount.activeDevices.isEmpty).help("刷新磁盘")
             }
             ToolbarItem {
                 Menu {
@@ -294,21 +295,21 @@ struct MainView: View {
                     Divider()
                     Button("在 Mac 上检查…", systemImage: "checkmark.shield") { if let selected { markerTarget = checkTarget(for: selected) } }
                         .disabled(selected.map { !CheckMarkerClearer.applies(to: $0) || mountCycle.isWritable($0) || actions.isBusy($0) } ?? true
-                                  || markerClearer.isWorking || staleEntries.isWorking || mountCycle.isBusy)
+                                  || windowsLog.isWorking || markerClearer.isWorking || staleEntries.isWorking || mountCycle.isBusy)
                     Button("抹掉磁盘…", systemImage: "eraser") { showErase = true }
-                        .disabled(!mountCycle.isReady || mountCycle.slots.contains { $0.blocksActions && !$0.onlyHoldsWriteSession } || mountCycle.isBusy || !actions.activeDevices.isEmpty || !manualMount.activeDevices.isEmpty)
+                        .disabled(windowsLog.isWorking || !mountCycle.isReady || mountCycle.slots.contains { $0.blocksActions && !$0.onlyHoldsWriteSession } || mountCycle.isBusy || !actions.activeDevices.isEmpty || !manualMount.activeDevices.isEmpty)
                     Divider()
                     Menu("高级") {
                         if let selected {
                             Button("检查只读挂载…", systemImage: "externaldrive.badge.checkmark") {
                                 checkingVolume = selected
-                            }.disabled(!selected.isNTFS || mountCycle.blocksActions(on: selected) || actions.isBusy(selected) || autoMount.isBusy(selected) || manualMount.isBusy(selected))
+                            }.disabled(windowsLog.isWorking || !selected.isNTFS || mountCycle.blocksActions(on: selected) || actions.isBusy(selected) || autoMount.isBusy(selected) || manualMount.isBusy(selected))
                             Button("仅卸载此卷", systemImage: "externaldrive.badge.minus") {
                                 Task { await actions.perform(.unmountVolume, on: selected.identity) }
-                            }.disabled(!selected.isNTFS || mountCycle.blocksActions(on: selected) || actions.isBusy(selected) || autoMount.isBusy(selected) || manualMount.isBusy(selected) || selected.mountURL == nil)
+                            }.disabled(windowsLog.isWorking || !selected.isNTFS || mountCycle.blocksActions(on: selected) || actions.isBusy(selected) || autoMount.isBusy(selected) || manualMount.isBusy(selected) || selected.mountURL == nil)
                         }
                         Button("恢复文件…", systemImage: "doc.badge.arrow.up") { showRecovery = true }
-                            .disabled(!mountCycle.holdsNothing || !actions.activeDevices.isEmpty || !manualMount.activeDevices.isEmpty)
+                            .disabled(windowsLog.isWorking || !mountCycle.holdsNothing || !actions.activeDevices.isEmpty || !manualMount.activeDevices.isEmpty)
                     }
                 } label: { Label("更多", systemImage: "ellipsis.circle") }
                 .help("磁盘详情与更多操作")
@@ -748,7 +749,7 @@ struct VolumeDetail: View {
                     Label("这块盘被标记为需要检查，为保护数据暂时只读。可以点上面的“在 Mac 上检查…”，也可以在 Windows 中检查后安全弹出再插回。", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
                 } else if volume.isNTFS, unpluggedFromWindows, !controlledWrite, waitingFor == nil {
-                    Label("这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点上面的“在 Mac 上恢复…”。", systemImage: "info.circle")
+                    Label("这块盘的 NTFS 日志未通过安全检查，为保护数据暂时只读。可以点上面的“在 Mac 上恢复…”先做只读检查；若已在 Windows 安全弹出后仍出现，请在设置 → 支持中导出诊断。", systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
                 } else if volume.isNTFS, let waitingFor {
                     Label(waitingFor.detail, systemImage: "info.circle")

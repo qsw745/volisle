@@ -11,20 +11,6 @@ enum NTFSReadOnlyInspection {
             run(deviceSize: deviceSize, readBudget: readBudget, read: reader) { nk_inspect(&$0) }
         }
     }
-    #if VOLISLE_STORE
-    /// The volume's label when the engine can open it at all, else nil.
-    /// Says nothing about write safety.
-    static func openableLabel(deviceSize: Int64, read: Read) -> String? {
-        var label = [CChar](repeating: 0, count: 256)
-        let opened = withoutActuallyEscaping(read) { reader in
-            // Opening reads far less than the inspection; a probe must stay short.
-            run(deviceSize: deviceSize, readBudget: 32 * 1024 * 1024, read: reader) {
-                nk_openable(&$0, &label, label.count) == 1 ? Int32(NK_CHECK_CLEAN) : Int32(NK_CHECK_UNKNOWN)
-            } == Int32(NK_CHECK_CLEAN)
-        }
-        return opened ? String(decoding: label.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) : nil
-    }
-    #endif
     #if VOLISLE_BLOCK_JOURNAL_TESTING
     static func fixture(deviceSize: Int64, readBudget: Int = 128 * 1024 * 1024,
                         read: @escaping Read, engine: (inout nk_io) -> Int32) -> Int32 {

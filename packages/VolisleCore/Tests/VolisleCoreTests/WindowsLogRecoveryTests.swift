@@ -133,6 +133,39 @@ import Foundation
         #expect(runner.calls == ["unmount disk8s3", "mount disk8s3"])
     }
 
+    @Test func failedRemountDoesNotReportSuccessfulCompletion() async {
+        let runner = RecordingRunner(mountStatus: 1)
+        let recoverer = WindowsLogRecoverer(runner: runner, isMounted: { _ in true },
+            recover: { _ in .init(replayed: 2, checkedItems: 10) })
+        await #expect(throws: CheckMarkerError.self) {
+            try await recoverer.recover(partition: "disk8s3", answer: .whileRunning)
+        }
+        #expect(!recoverer.isWorking)
+    }
+
+    @Test func failedRemountDoesNotHideRecoveryFailure() async {
+        let recoverer = WindowsLogRecoverer(runner: RecordingRunner(mountStatus: 1), isMounted: { _ in true },
+            recover: { _ in throw HelperDiskFailure.windowsLogReplayRestored })
+        await #expect(throws: CheckMarkerError.failed(HelperDiskFailure.windowsLogReplayRestored.errorDescription!)) {
+            try await recoverer.recover(partition: "disk8s3", answer: .whileRunning)
+        }
+    }
+
+    @Test func anInterruptedReplyLeavesTheDeviceHeldForVerification() async {
+        let runner = RecordingRunner()
+        let recoverer = WindowsLogRecoverer(runner: runner, isMounted: { _ in true },
+            recover: { _ in throw HelperServiceError.unavailable })
+        await #expect(throws: CheckMarkerError.self) {
+            try await recoverer.recover(partition: "disk8s3", answer: .whileRunning)
+        }
+        #expect(runner.calls == ["unmount disk8s3"])
+        #expect(recoverer.isWorking)
+        await #expect(throws: CheckMarkerError.self) {
+            try await recoverer.recover(partition: "disk8s3", answer: .whileRunning)
+        }
+        #expect(runner.calls == ["unmount disk8s3"])
+    }
+
     @Test func noAnswerInTimeLeavesTheDiskUnmounted() async {
         // The helper may still be writing: mounting now would race it.
         let runner = RecordingRunner()
@@ -141,7 +174,7 @@ import Foundation
                                             recover: { _ in throw HelperServiceError.timedOut })
         await #expect(throws: CheckMarkerError.self) { try await recoverer.recover(partition: "disk8s3", answer: .whileRunning) }
         #expect(runner.calls == ["unmount disk8s3"])
-        #expect(!recoverer.isWorking)
+        #expect(recoverer.isWorking, "等不到回复不代表后台已经停止")
     }
 
     @Test func aDiskThatWillNotUnmountIsLeftAlone() async {
@@ -209,11 +242,12 @@ private final class RecordingRunner: EraseCommandRunner, @unchecked Sendable {
     private let lock = NSLock()
     private var log: [String] = []
     let unmountStatus: Int32
-    init(unmountStatus: Int32 = 0) { self.unmountStatus = unmountStatus }
+    let mountStatus: Int32
+    init(unmountStatus: Int32 = 0, mountStatus: Int32 = 0) { self.unmountStatus = unmountStatus; self.mountStatus = mountStatus }
     var calls: [String] { lock.withLock { log } }
     func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
         lock.withLock { log.append(arguments.joined(separator: " ")) }
-        return (arguments.first == "unmount" ? unmountStatus : 0, "")
+        return (arguments.first == "unmount" ? unmountStatus : mountStatus, "injected command result")
     }
 }
 

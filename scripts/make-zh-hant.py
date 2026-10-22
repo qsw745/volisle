@@ -9,10 +9,9 @@ or ending (結束), every 推出 means ejecting (退出 on Taiwan's macOS).
 Needs the opencc package, e.g. in a throwaway environment:
   python3 -m venv /tmp/opencc && /tmp/opencc/bin/pip install opencc
   /tmp/opencc/bin/python scripts/make-zh-hant.py
-then run scripts/check-localization.py. With --store: the Mac App Store app's tables.
+then run scripts/check-localization.py.
 """
 import re
-import sys
 from pathlib import Path
 
 import opencc
@@ -22,8 +21,7 @@ APP = ROOT / 'assets/brand/Localization/app'
 
 TERMS = [
     ('退出', '結束'), ('推出', '退出'),
-    # OpenCC reads the 只 of 只读的 as the measure word 隻.
-    ('只讀', '唯讀'), ('隻讀', '唯讀'),
+    ('只讀', '唯讀'),
     ('→ 通用 →', '→ 一般 →'),
     ('登錄項與擴充套件', '登入項目與延伸功能'), ('登錄項與擴充功能', '登入項目與延伸功能'), ('登錄項與擴展', '登入項目與延伸功能'),
     ('檔案系統擴充套件', '檔案系統延伸功能'), ('檔案系統擴充功能', '檔案系統延伸功能'), ('檔案系統擴展', '檔案系統延伸功能'),
@@ -34,16 +32,14 @@ TERMS = [
     ('抹掉', '清除'),
     # 卸载 a disk is 卸載; only uninstalling Volisle itself is 解除安裝.
     ('解除安裝(?!盤嶼)', '卸載'),
-    ('在訪達中', '在 Finder 中'), ('在訪達裡', '在 Finder 裡'), ('訪達', 'Finder'),
+    ('在訪達中', '在 Finder 中'), ('訪達', 'Finder'),
     ('磁碟工具(?!程式)', '磁碟工具程式'),
     ('盤嶼幫助', '盤嶼輔助說明'), ('獲得幫助', '取得協助'), ('需要幫助', '需要協助'),
     ('卷名', '卷宗名稱'), ('卷(?!宗)', '卷宗'),
     ('登錄時', '登入時'), ('登錄啟動', '登入時啟動'), ('登入項與', '登入項目與'),
     (' ?U ?盤', '隨身碟'),
-    ('許可證', '授權條款'), ('開源許可', '開源授權'), ('儲存卡', '記憶卡'),
     ('許可權', '權限'), ('後臺', '背景'), ('訪問', '取用'), ('雷靂', 'Thunderbolt'), ('專案', '項目'),
     ('啟動臺', '啟動台'), ('選單欄', '選單列'),
-    ('廢紙簍', '垃圾桶'),
     ('合上筆記本', '闔上筆電'), ('筆記本', '筆電'),
     # 块 is only ever the measure word for a disk: Taiwan says 個磁碟.
     ('塊盤', '個磁碟'), ('塊磁碟', '個磁碟'), ('塊', '個'),
@@ -69,9 +65,6 @@ def convert(converter, text):
 
 
 def main():
-    global APP
-    if sys.argv[1:] == ['--store']:
-        APP = ROOT / 'assets/brand/Localization/store'
     converter = opencc.OpenCC('s2twp')
     keys = [m.group(1) for m in STRING.finditer((APP / 'zh-Hans.lproj/Localizable.strings').read_text(encoding='utf-8'))]
     body = ['/* 繁體中文：由 scripts/make-zh-hant.py 依簡體原文轉換（OpenCC s2twp 加台灣 macOS 用語），鍵為簡體原文。 */', '']

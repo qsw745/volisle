@@ -12,6 +12,8 @@ struct SettingsView: View {
     @Bindable var updates: AppUpdates
     var refreshRuntime: () async -> Void
     @AppStorage("appearance") private var appearance = "system"
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    @AppStorage("showDockIcon") private var showDockIcon = true
     @AppStorage(CopySleepGuard.key) private var keepAwakeWhileCopying = true
     @State private var language = AppLanguage.current
     @State private var askingToReopen = false
@@ -34,6 +36,13 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("拷贝期间不让 Mac 自动睡眠", isOn: $keepAwakeWhileCopying)
                 Text("用“拷贝到这块盘…”拷贝时，Mac 不会因为闲置而睡眠，屏幕仍会按系统设置关闭。合上笔记本或手动选择睡眠时仍会睡眠，拷贝随之暂停，醒来后磁盘重新开启读写就会接着拷。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("在菜单栏显示图标", isOn: $showMenuBarIcon)
+                Text("隐藏图标后，盘屿仍在后台运行。可从“应用程序”或 Spotlight 再次打开，查看磁盘状态和处理提示。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("在 Dock 栏显示图标", isOn: $showDockIcon)
+                    .onChange(of: showDockIcon) { _, visible in UpdateAppDelegate.applyDockVisibility(visible) }
+                Text("隐藏 Dock 图标后，盘屿仍在后台运行，也不会出现在 ⌘Tab 切换列表中。可从“应用程序”或 Spotlight 再次打开。")
                     .font(.caption).foregroundStyle(.secondary)
                 Picker("外观", selection: $appearance) {
                     Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark")

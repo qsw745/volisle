@@ -39,7 +39,11 @@ import VolisleCore
             message = String(localized: "此版本由 App Store 提供更新"); return
         }
         do { try await restoreHelperIfNeeded() }
-        catch { message = String(localized: "更新后的后台组件需要恢复，请在设置中检查。"); return }
+        catch {
+            // Keep the restore receipt for the next launch, but do not cut off
+            // the update channel that can deliver a recovery fix.
+            message = String(localized: "更新后的后台组件需要恢复，请在设置中检查。")
+        }
         guard let feed = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
               let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
               (try? UpdateChannel(feed: feed, publicKey: key)) != nil else { return }
@@ -160,6 +164,7 @@ import VolisleCore
     /// quit through the normal path, so applicationShouldTerminate still decides.
     /// After launch: AppKit installs its default quit handler while launching.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.applyDockVisibility(UserDefaults.standard.object(forKey: "showDockIcon") as? Bool ?? true)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleQuit(_:reply:)),
                                                      forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEQuitApplication))
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willPowerOffNotification, object: nil, queue: .main) { _ in
@@ -176,8 +181,25 @@ import VolisleCore
               event.eventID == AEEventID(kAEOpenApplication) else { return false }
         return event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
     }
+    /// Change presentation only; background disk sessions remain owned by the app.
+    static func applyDockVisibility(_ visible: Bool) {
+        let keyWindow = NSApp.keyWindow
+        NSApp.setActivationPolicy(visible ? .regular : .accessory)
+        // Changing activation policy can relinquish focus while Settings is open.
+        if let keyWindow, keyWindow.isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            keyWindow.makeKeyAndOrderFront(nil)
+        }
+    }
     /// The Dock icon or opening the app again while no window is shown.
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { true }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let main = sender.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+            main.makeKeyAndOrderFront(nil)
+            sender.activate(ignoringOtherApps: true)
+            return false
+        }
+        return true
+    }
     /// Closing the main window keeps the menu bar item and automatic writing running.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     @objc private func handleQuit(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {

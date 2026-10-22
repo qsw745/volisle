@@ -56,7 +56,7 @@ export const homeCopy: Record<Locale, HomeCopy> = {
     faqTitle: '你可能还想了解。',
     download: {
       eyebrow: '免费，开源', title: ['让硬盘，', '自在读写。'],
-      text: published ? `盘屿 ${release.version} · 需要 ${release.minimumSystem} 或更高版本；Apple 芯片 Mac 正式支持，Intel Mac 为测试版。` : `盘屿 ${release.version} 正在做最后的验证，完成后在这里提供下载。`,
+      text: published ? `盘屿 ${release.version} · 需要 ${release.minimumSystem} 或更高版本；Apple 芯片 Mac 正式支持，Intel Mac 为测试版。macOS 15.7.7、15.8 和 15.8.1 暂不支持读写挂载，仍可只读使用。` : `盘屿 ${release.version} 正在做最后的验证，完成后在这里提供下载。`,
       caption: '没有账号，没有订阅，源码开放。',
     },
   },
@@ -91,7 +91,7 @@ export const homeCopy: Record<Locale, HomeCopy> = {
     faqTitle: 'You might also want to know.',
     download: {
       eyebrow: 'Free and open source', title: ['Your drives,', 'read-write.'],
-      text: published ? `Volisle ${release.version} · Requires ${release.minimumSystem} or later; Macs with Apple silicon are supported, Intel-based Macs as a beta.` : `Volisle ${release.version} is in final testing and will be available here soon.`,
+      text: published ? `Volisle ${release.version} · Requires ${release.minimumSystem} or later; Macs with Apple silicon are supported, Intel-based Macs as a beta. Read-write mounting is currently unsupported on macOS 15.7.7, 15.8 and 15.8.1; read-only access remains available.` : `Volisle ${release.version} is in final testing and will be available here soon.`,
       caption: 'No account. No subscription. Open source.',
     },
   },

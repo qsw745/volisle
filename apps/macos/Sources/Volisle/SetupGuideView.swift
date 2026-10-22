@@ -38,6 +38,7 @@ struct SetupStepsView: View {
     var refreshRuntime: () async -> Void
     /// The step whose System Settings pane was opened: only then wait visibly.
     @State private var opened: SetupStep?
+    @State private var openedAt: Date?
     private var progress: SetupProgress { .init(helper: helperService, engine: engineStatus) }
 
     var body: some View {
@@ -78,8 +79,18 @@ struct SetupStepsView: View {
                     HStack(spacing: 10) {
                         action(step)
                         if opened == step {
-                            ProgressView().controlSize(.small)
-                            Text("打开后这里会自动打勾").font(.caption).foregroundStyle(.secondary)
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let status = SetupWait.status(
+                                    elapsed: openedAt.map { context.date.timeIntervalSince($0) },
+                                    failed: step == .backgroundComponent && helperService.state == .failed && !helperService.isBusy)
+                                if status == .waiting {
+                                    ProgressView().controlSize(.small)
+                                    Text("正在检查设置…").font(.caption).foregroundStyle(.secondary)
+                                } else {
+                                    Text("尚未完成，请检查系统设置或重试。")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
                     if let note = note(step) {
@@ -117,10 +128,11 @@ struct SetupStepsView: View {
         switch step {
         case .backgroundComponent:
             if helperService.state == .requiresApproval {
-                Button("打开系统设置") { opened = step; helperService.openApprovalSettings() }.buttonStyle(.borderedProminent)
+                Button("打开系统设置") { opened = step; openedAt = .now; helperService.openApprovalSettings() }.buttonStyle(.borderedProminent)
             } else {
                 Button("允许后台运行") {
                     opened = step
+                    openedAt = .now
                     Task {
                         await helperService.register()
                         if helperService.state == .requiresApproval { helperService.openApprovalSettings() }
@@ -131,9 +143,9 @@ struct SetupStepsView: View {
                 .disabled(helperService.isBusy || helperService.state == .unavailable)
             }
         case .fileSystemExtension:
-            Button("打开系统设置") { opened = step; SetupLinks.fileSystemExtensions() }.buttonStyle(.borderedProminent)
+            Button("打开系统设置") { opened = step; openedAt = .now; SetupLinks.fileSystemExtensions() }.buttonStyle(.borderedProminent)
         case .fullDiskAccess:
-            Button("打开系统设置") { opened = step; SetupLinks.fullDiskAccess() }.buttonStyle(.borderedProminent)
+            Button("打开系统设置") { opened = step; openedAt = .now; SetupLinks.fullDiskAccess() }.buttonStyle(.borderedProminent)
         }
     }
 
@@ -143,7 +155,11 @@ struct SetupStepsView: View {
             if helperService.state == .unavailable {
                 return String(localized: "请先把盘屿拖到“应用程序”文件夹，再从那里打开。")
             }
-            return helperService.state == .failed ? helperService.lastError : nil
+            if helperService.state == .failed {
+                return String(localized: "后台组件未连接。请确认从“应用程序”打开盘屿，并检查“允许在后台”开关；仍无法连接时，可在设置 → 支持中导出诊断。")
+                    + (helperService.lastError.map { "\n" + $0 } ?? "")
+            }
+            return nil
         case .fileSystemExtension:
             // Only when it is not merely switched off (e.g. not found): say what the check found.
             let capability = engineStatus.capability

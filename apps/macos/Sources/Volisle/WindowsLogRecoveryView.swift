@@ -22,6 +22,8 @@ struct WindowsLogRecoveryView: View {
         case recovering(WindowsLogExamination)
         case done(WindowsLogRecoveryResult)
         case failed(String)
+        case remountFailed(String)
+        case unconfirmed(String)
         /// The read-only look itself did not complete: nothing was attempted.
         case examineFailed(String)
     }
@@ -32,7 +34,7 @@ struct WindowsLogRecoveryView: View {
 
     var body: some View {
         SheetScaffold(Text("在 Mac 上恢复“\(target.name)”"),
-                      subtitle: Text("这块盘上次在 Windows 中没有安全弹出。盘屿先只读检查，再告诉你能怎样处理。"),
+                      subtitle: Text("这块盘的 NTFS 日志未通过安全检查。盘屿先只读检查，再告诉你能怎样处理。"),
                       systemImage: "arrow.trianglehead.counterclockwise", tint: .blue) {
             content
         } buttons: {
@@ -53,7 +55,7 @@ struct WindowsLogRecoveryView: View {
                 }
             case .done:
                 Button("好") { dismiss(); finished() }.keyboardShortcut(.defaultAction)
-            case .failed, .examineFailed:
+            case .failed, .examineFailed, .remountFailed, .unconfirmed:
                 Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
             }
         }
@@ -69,20 +71,64 @@ struct WindowsLogRecoveryView: View {
     @ViewBuilder private var content: some View {
         switch stage {
         case .examining:
-            SheetPlaceholder(title: Text("正在只读检查这块盘…"), message: Text("不会修改盘上的任何内容。"))
+            progress(replaying: false)
         case .recovering(let found):
-            SheetPlaceholder(title: found.replayable ? Text("正在补写并检查…") : Text("正在清理日志…"),
-                             message: Text("请不要拔下这块盘。要改动的部分会先原样备份，任何一步不通过都会还原。"))
+            progress(replaying: found.replayable)
         case .done(let result):
             SheetPlaceholder(systemImage: "checkmark.circle.fill", tint: .green, title: Text("已恢复，可以开启读写"),
                              message: Text(doneMessage(result)))
         case .failed(let message):
             SheetPlaceholder(systemImage: "exclamationmark.triangle.fill", tint: .orange, title: Text("没有恢复"), message: Text(message))
+        case .remountFailed(let message):
+            SheetPlaceholder(systemImage: "exclamationmark.triangle.fill", tint: .orange,
+                             title: Text("恢复完成，但未能挂载"), message: Text(message))
+        case .unconfirmed(let message):
+            SheetPlaceholder(systemImage: "exclamationmark.triangle.fill", tint: .orange,
+                             title: Text("尚未确认恢复结果"), message: Text(message))
         case .examineFailed(let message):
             SheetPlaceholder(systemImage: "exclamationmark.triangle.fill", tint: .orange, title: Text("没能检查这块盘"),
                              message: Text(String(localized: "没有做任何修改。") + message))
         case .examined(let found):
             examined(found)
+        }
+    }
+
+    private func progress(replaying: Bool) -> some View {
+        VStack(spacing: 0) {
+            SheetPlaceholder(title: progressTitle(replaying: replaying), message: Text(progressMessage))
+            if let started = recoverer.startedAt {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let elapsed = max(0, Int(context.date.timeIntervalSince(started)))
+                    LabeledContent("已用时", value: String(format: "%02d:%02d", elapsed / 60, elapsed % 60))
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        .fixedSize().padding(.bottom, 16)
+                }
+            }
+        }
+    }
+
+    private func progressTitle(replaying: Bool) -> Text {
+        switch recoverer.step {
+        case .unmounting: Text("正在暂时卸载这块盘…")
+        case .waitingForBackground: Text("仍在等待后台完成…")
+        case .remounting: Text("正在重新挂载这块盘…")
+        default:
+            isRecovering ? (replaying ? Text("正在补写并检查…") : Text("正在清理日志…")) : Text("正在只读检查这块盘…")
+        }
+    }
+
+    private var progressMessage: String {
+        switch recoverer.step {
+        case .unmounting:
+            String(localized: "先暂时卸载磁盘，避免其他应用同时使用。请关闭正在打开盘内文件的应用。")
+        case .waitingForBackground:
+            String(localized: "后台还没有返回完成结果。盘屿会继续等待同一次操作，不会重复修复。请保持连接，不要强制退出或拔盘。")
+        case .remounting:
+            String(localized: "后台处理已经完成，正在等待系统重新挂载。请保持连接。")
+        default:
+            isRecovering
+                ? String(localized: "要改动的部分会先原样备份，核验不通过会还原。正在修改或核验磁盘时不能取消；请保持连接，不要强制退出或拔盘。文件较多或硬盘较慢时可能需要较长时间。")
+                : String(localized: "不会修改盘上的任何内容。文件较多或硬盘较慢时可能需要较长时间。")
         }
     }
 
@@ -129,6 +175,10 @@ struct WindowsLogRecoveryView: View {
                 Text("检查结果")
             }
             if found.fitsUnplug {
+                Section {
+                    Text("恢复会重新核对磁盘，并检查全部文件记录。文件较多或硬盘较慢时可能需要较长时间；开始恢复后暂时不能取消，请预留时间并保持连接。")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 Section {
                     Picker("这块盘是怎么从 Windows 上拿下来的？", selection: $answer) {
                         Text("Windows 开着机，没有点“安全删除硬件”就直接拔了").tag(WindowsUnplugAnswer?.some(.whileRunning))
@@ -260,7 +310,12 @@ struct WindowsLogRecoveryView: View {
                     ? try await recoverer.recover(partition: target.bsdName, answer: .whileRunning)
                     : try await recoverer.discard(partition: target.bsdName, answer: .whileRunning, accepted: accepted))
             } catch {
-                stage = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                if case .remountFailed = error as? CheckMarkerError {
+                    stage = .remountFailed(message)
+                } else if recoverer.phase == .needsVerification {
+                    stage = .unconfirmed(message)
+                } else { stage = .failed(message) }
             }
         }
     }

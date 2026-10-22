@@ -104,6 +104,7 @@ struct VolisleApp: App {
         Task { @MainActor in await updates.start(); runtime.start() }
     }
     @AppStorage("appearance") private var appearance = "system"
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     var body: some Scene {
         // One main window: the menu bar's "Open Volisle" brings it back instead of adding another.
         Window("盘屿", id: "main") {
@@ -135,7 +136,7 @@ struct VolisleApp: App {
                          helperService: helperService, mountCycle: mountCycle, updates: updates, refreshRuntime: { await runtime.refresh() }).frame(width: 470, height: 500)
                 .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         }
-        MenuBarExtra {
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
             DiskMenu(mountCycle: mountCycle, discovery: discovery, actions: actions)
         } label: {
             Image(nsImage: Brand.menuBarImage).accessibilityLabel("盘屿")

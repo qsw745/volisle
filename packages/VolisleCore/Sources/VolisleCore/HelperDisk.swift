@@ -141,7 +141,7 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
         case .markHalfWritten: String(localized: "这块盘上次用完后没有推出就被拔下，“需要检查”的标记只写了一半，所以现在无法读写，盘里的文件不受影响。可以点右边的“在 Mac 上检查…”：盘屿会先把标记写完整，再检查整块盘，没有发现问题就开启读写；也可以在 Windows 中检查磁盘（属性 → 工具 → 检查），安全弹出后再插回。")
         case .ntfsDirty: String(localized: "这块盘被标记为需要检查，为保护数据暂时只读。可以点右边的“在 Mac 上检查…”，没有发现问题就会清除标记并开启读写；也可以在 Windows 中检查磁盘（属性 → 工具 → 检查），安全弹出后再插回。")
         case .windowsHibernated: String(localized: "这块盘来自处于休眠或“快速启动”状态的 Windows，为保护数据暂时只读。请在 Windows 中完全关机后再插回。")
-        case .windowsLogUnclean: String(localized: "这块盘上次在 Windows 中没有安全弹出，为保护数据暂时只读。最稳妥的是接回 Windows，用“安全删除硬件”弹出后再插回；手边没有 Windows 时，可以点“在 Mac 上恢复…”。")
+        case .windowsLogUnclean: String(localized: "这块盘的 NTFS 日志未通过安全检查，为保护数据暂时只读。可以点“在 Mac 上恢复…”先做只读检查；若已在 Windows 安全弹出后仍出现，请在设置 → 支持中导出诊断。")
         }
     }
     /// `mount` reports the file system component's refusal on stderr. Only

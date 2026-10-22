@@ -37,10 +37,6 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     /// This activation rolled back a cleanly ended session (unplugged before the
     /// drive wrote its cache out). Guarded by operationLock.
     private var rolledBackAfterEnd = false
-    #if VOLISLE_STORE
-    /// What this activation's recovery undid, for the app.
-    private var storeRecovery: StoreMountStatus.Recovery?
-    #endif
     private let identityCache = ItemIdentityCache()
     /// Enumeration verifiers: bumped for each directory a namespace mutation
     /// touches, so a change elsewhere does not restart (or keep restarting) the
@@ -146,25 +142,10 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
                                       length: length)
             ioMode = .metadata
             log.info("device I/O upgraded to kernel buffer cache")
-        } catch let cached {
-            #if VOLISLE_STORE
-            // The engine's read callback reports only -1; a system mount needs the cause in the log.
-            do {
-                let n = try resource.read(into: scratch, startingAt: off_t(start), length: length)
-                guard n == length else {
-                    log.error("设备读取不完整：位置=\(start) 长度=\(length) 实得=\(n)")
-                    throw posix(EIO)
-                }
-            } catch {
-                log.error("设备读取失败：位置=\(start) 长度=\(length) 缓存读=\(String(describing: cached), privacy: .public) 直接读=\(String(describing: error), privacy: .public)")
-                throw error
-            }
-            #else
-            _ = cached
+        } catch {
             let n = try resource.read(into: scratch, startingAt: off_t(start),
                                       length: length)
             guard n == length else { throw posix(EIO) }
-            #endif
         }
     }
 
@@ -229,13 +210,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             }
             if let b = bde { nk_bde_close(b); bde = nil }
             let reason = String(decoding: errbuf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            #if VOLISLE_STORE
-            // A system mount has no helper to report through. The engine's
-            // reason is an errno text, never a name from the disk.
-            log.error("nk_mount_io failed: \(reason, privacy: .public) 容量=\(self.deviceSize) 块=\(self.resource.blockSize)/\(self.resource.physicalBlockSize) 可写=\(self.resource.isWritable)")
-            #else
             log.error("nk_mount_io failed: \(reason, privacy: .private)")
-            #endif
             throw self.posix(EIO)
         }
     }
@@ -437,16 +412,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         log.notice("恢复记录只读复核：卷=\(serial, privacy: .public) 已完成=\(audit.completed) 未完成=\(audit.unresolved)；未执行磁盘修复或删除")
         // A Windows check may have cleared the NTFS dirty flag. The host
         // recovery record still prohibits new writes until it is resolved.
-        if !readOnly && audit.blocksWriting {
-            #if VOLISLE_STORE
-            // The engine is still open read-only here; keep it that way.
-            readOnly = true
-            wantReadOnlyMount = true
-            storeReason = .journal("replacement")
-            #else
-            throw posix(EBUSY)
-            #endif
-        }
+        if !readOnly && audit.blocksWriting { throw posix(EBUSY) }
     }
 
     #if VOLISLE_EXPERIMENTAL_REPLACEMENT
@@ -552,10 +518,6 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     /// FSMountOptions exists. On 15.4–26.3 the kernel mount mode just follows
     /// the block device's own writability; the volume still works read-only.
     fileprivate var wantReadOnlyMount = false
-    #if VOLISLE_STORE
-    /// Why this store mount is read-only; nil while it may write. Set during activation only.
-    private var storeReason: StoreMountPolicy.ReadOnlyReason?
-    #endif
 
     /// FSKit reads this after mount() replies; the kernel mount matches the
     /// explicit read-only intent. There is no silent write-mount fallback.
@@ -594,12 +556,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     }
 
     var volumeStatistics: FSStatFSResult {
-        // Must equal the bundle's FSShortName: the store build is a separate module.
-        #if VOLISLE_STORE
-        let stats = FSStatFSResult(fileSystemTypeName: "volislemas")
-        #else
         let stats = FSStatFSResult(fileSystemTypeName: "volisle")
-        #endif
         var total: Int64 = 0, free: Int64 = 0
         var cluster: Int32 = 0
         engineQueue.sync { _ = nk_statvfs(vol, &total, &free, &cluster) }
@@ -642,9 +599,6 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             // single-resource process (revoke does not close it), which blocks
             // eject. Nothing is mounted here; exit after the error is delivered.
             log.notice("激活被拒绝；稍后结束本实例以释放设备")
-            #if VOLISLE_STORE
-            StoreMountStatus.record(serial: volumeSerial, bsdName: resource.bsdName, readOnly: .failed)
-            #endif
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { exit(0) }
             throw error
         }
@@ -673,31 +627,6 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             try openEngine()
             return try activatedRoot()
         }
-        #if VOLISLE_STORE
-        return try StoreEngineLog.whileOpening { try self.activateEngine(options: options) }
-        #else
-        return try activateEngine(options: options)
-        #endif
-        }
-    }
-
-    /// Runs under operationLock.
-    private func activateEngine(options: FSTaskOptions) throws -> FSItem {
-        #if VOLISLE_STORE
-        // The system mounts whatever activation returns, and nobody is there to
-        // act on a refusal: a volume that cannot be written safely is mounted
-        // read-only, with the reason left for the app.
-        // This is not the silent downgrade the website build rules out: there
-        // a write was asked for and refused; here nothing asked.
-        storeReason = try StoreMountPolicy.resolve(
-            StoreMountPolicy.readOnlyReason(options: options.taskOptions, writable: resource.isWritable,
-                serial: volumeSerial, byteCount: UInt64(max(0, deviceSize)), preferReadOnly: StoreMountStatus.preferReadOnly),
-            recover: { self.recoverInterruptedWrites().map { String(describing: $0) } },
-            inspect: { try self.inspectBeforeWritableActivation() })
-        readOnly = storeReason != nil
-        wantReadOnlyMount = readOnly
-        log.notice("商店版激活参数=\(options.taskOptions.description, privacy: .public) 只读原因=\(self.storeReason?.token ?? "无", privacy: .public)")
-        #endif
         #if VOLISLE_DAILY_WRITES
         readOnly = !WriteMountPolicy.allowsDaily(options: options.taskOptions, writable: resource.isWritable,
             serial: volumeSerial, byteCount: UInt64(max(0, deviceSize)))
@@ -732,13 +661,9 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         // An update from an experimental build must not bypass unresolved
         // evidence. All builds audit before the first writable engine opens.
         try auditReplacementJournals()
-        let root = try activatedRoot()
-        #if VOLISLE_STORE
-        // Only now is it known what was mounted; the app shows this.
-        StoreMountStatus.record(serial: volumeSerial, bsdName: resource.bsdName, readOnly: storeReason,
-                                recovery: storeRecovery)
-        #endif
-        return root
+        return try activatedRoot()
+    
+        }
     }
 
     private func activatedRoot() throws -> FSItem {
@@ -1514,9 +1439,6 @@ extension NTFSVolume: JournalBlockDevice {
     func recoverInterruptedWrites() -> WriteJournalError? {
         engineQueue.sync {
             rolledBackAfterEnd = false
-            #if VOLISLE_STORE
-            storeRecovery = nil
-            #endif
             let outcome: WriteJournalCoordinator.Outcome
             do { outcome = WriteJournalCoordinator.recover(store: try writeJournalStore(), serial: journalSerial, io: journal) }
             catch { outcome = .refused(.unavailable) }
@@ -1527,16 +1449,10 @@ extension NTFSVolume: JournalBlockDevice {
                 return nil
             case .recovered:
                 log.notice("上次写入中断已回滚到最后一致点并释放本机脏标记")
-                #if VOLISLE_STORE
-                storeRecovery = .interrupted
-                #endif
                 return nil
             case .recoveredAfterEnd:
                 log.notice("上次正常结束后过早断开，最近的改动没有写到盘上：已回到之前的一致状态并释放本机脏标记")
                 rolledBackAfterEnd = true
-                #if VOLISLE_STORE
-                storeRecovery = .afterEnd
-                #endif
                 return nil
             case .refused(let reason):
                 log.error("上次写入中断无法安全恢复（\(String(describing: reason), privacy: .public)）；保持只读，记录保留")

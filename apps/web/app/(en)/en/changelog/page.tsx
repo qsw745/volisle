@@ -3,6 +3,20 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.7 · October 22, 2026</h2><ul>
+<li>Fix misleading NTFS log safety messages and clarify read-only checks and diagnostics.</li>
+</ul>
+<h2>0.9.6 · October 21, 2026</h2><ul>
+<li>Fix background component restoration being skipped during a concurrent status check after an update.</li>
+<li>Replace indefinite setup spinners with guidance when waiting times out or the connection fails.</li>
+<li>Keep software updates available when the background component is temporarily disconnected.</li>
+</ul>
+<h2>0.9.5 · October 19, 2026</h2><ul>
+<li>Fixed: recovery checks could fail on some large NTFS disks when a single read exceeded the supported transfer size.</li>
+<li>Improved: recovery checks perform fewer small reads while preserving full file-record and allocation verification.</li>
+<li>Improved: the recovery window shows its current stage and elapsed time, explains potentially long waits and cancellation limits, and keeps waiting while the background operation is still running.</li>
+<li>Fixed: a failed remount is reported separately after recovery; an unconfirmed background result stays pending verification instead of reporting success or allowing repeated operations.</li>
+</ul>
 <h2>0.9.4 · October 12, 2026</h2><ul>
 <li>Fixed: unplugging a disk right after making it read-only, without ejecting it, could leave its last changes unwritten, and the disk would then refuse to open for writing. Volisle now keeps its recovery records a little longer and verifies them the next time you enable writing: unfinished changes are rolled back to the last intact state, and a note at the bottom asks you to check your most recent files. After making a disk read-only you are also reminded to eject before unplugging.</li>
 <li>Fixed: a disk already stuck that way now gets a specific explanation, and “Check on Mac…” repairs it; once the check passes, writing works again.</li>
