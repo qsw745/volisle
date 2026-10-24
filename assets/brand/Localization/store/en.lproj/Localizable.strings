@@ -76,3 +76,9 @@
 "盘屿更新时，系统会先结束它的文件系统扩展：正在读写的磁盘会像被拔下一样中断，最后约 20 秒写入的内容会退回。更新前请先推出磁盘。" = "When Volisle is updated, macOS first ends its file system extension. A disk it’s reading or writing is interrupted as if it were unplugged, and what was written in the last 20 seconds or so is undone. Eject your disks before you update.";
 "如果你经常长时间读写磁盘，可以在 App Store 的设置里关闭自动更新，改成用完磁盘后手动更新。" = "If you often use disks for long stretches, you can turn off automatic updates in the App Store settings and update by hand once you’re done with your disks.";
 
+
+"写入已停止" = "Writing stopped";
+
+"这块盘的写入已停止，最近的改动可能还没保存。" = "Writing to this disk has stopped; recent changes may not have been saved.";
+
+"请停止拷贝，正常推出后重新接上，让盘屿尝试恢复，并核对最近修改的文件。无法推出时不要直接拔线。" = "Stop copying, eject the disk normally, then reconnect it so Volisle can try to recover. Check recently changed files. If the disk cannot be ejected, do not unplug it.";

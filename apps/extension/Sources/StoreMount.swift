@@ -92,10 +92,12 @@ enum StoreMountStatus {
 
     /// `bsdName` ties the record to one connection: records outlive their mount.
     static func entry(readOnly reason: StoreMountPolicy.ReadOnlyReason?, bsdName: String, at: Date,
-                      recovery: Recovery? = nil) -> [String: Any] {
-        var entry: [String: Any] = ["readOnly": reason != nil, "bsd": bsdName, "at": at.timeIntervalSince1970]
+                      recovery: Recovery? = nil, mountID: String? = nil, stopped: Bool = false) -> [String: Any] {
+        var entry: [String: Any] = ["readOnly": reason != nil, "bsd": bsdName, "at": at.timeIntervalSince1970,
+                                  "stopped": stopped]
         if let reason { entry["reason"] = reason.token }
         if let recovery { entry["recovery"] = recovery.rawValue }
+        if let mountID { entry["mount"] = mountID }
         return entry
     }
 
@@ -107,8 +109,9 @@ enum StoreMountStatus {
     }
 
     static func record(serial: [UInt8], bsdName: String, readOnly reason: StoreMountPolicy.ReadOnlyReason?,
-                       recovery: Recovery? = nil) {
-        UserDefaults(suiteName: group)?.set(entry(readOnly: reason, bsdName: bsdName, at: Date(), recovery: recovery),
+                       recovery: Recovery? = nil, mountID: String? = nil, at: Date = Date(), stopped: Bool = false) {
+        UserDefaults(suiteName: group)?.set(entry(readOnly: reason, bsdName: bsdName, at: at, recovery: recovery,
+                                                mountID: mountID, stopped: stopped),
                                             forKey: key(serial: serial))
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
                                              CFNotificationName(changed as CFString), nil, nil, true)

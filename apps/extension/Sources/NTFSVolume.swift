@@ -40,6 +40,10 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     #if VOLISLE_STORE
     /// What this activation's recovery undid, for the app.
     private var storeRecovery: StoreMountStatus.Recovery?
+    private var storeMountID = UUID().uuidString
+    private var storeMountedAt = Date()
+    private var storeStoppedPublished = false
+    private let storeStatusQueue = DispatchQueue(label: "top.qisw.volisle.mas.mount-health", qos: .utility)
     #endif
     private let identityCache = ItemIdentityCache()
     /// Enumeration verifiers: bumped for each directory a namespace mutation
@@ -107,6 +111,13 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     private lazy var journal = JournaledIO(device: self)
     private var journalLock: Int32 = -1          // guarded by engineQueue
     private var checkpointTimer: DispatchSourceTimer?
+    #if VOLISLE_TEST_CHECKPOINT_FAIL
+    /// Local test candidates only (VOLISLE_TEST_CHECKPOINT_FAIL=1): creating a
+    /// file with this name makes the next checkpoint fail, as a drive that stops
+    /// answering would. Guarded by engineQueue.
+    private static let testFailCheckpointName = "volisle-test-fail-next-checkpoint"
+    private var testFailNextCheckpoint = false
+    #endif
 
     fileprivate var deviceBlockSize: Int {
         // Stable cache granularity, independent of each libntfs request size.
@@ -244,6 +255,9 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     /// engine forensic/read-only until the first post-mount mutation. Never
     /// mark a volume dirty without a working metadata flush path.
     private func requireWritableEngine() throws {
+        #if VOLISLE_STORE
+        defer { publishStoppedWrite() }
+        #endif
         guard !readOnly else { throw posix(EROFS) }
         guard !writeActivationFailed else { throw posix(EIO) }
         if engineQueue.sync(execute: { engineWritable }) {
@@ -282,6 +296,9 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     @discardableResult
     private func closeEngine() -> Int32 {
         checkpointTimer?.cancel(); checkpointTimer = nil
+        #if VOLISLE_STORE
+        defer { publishStoppedWrite() }
+        #endif
         return engineQueue.sync {
             #if VOLISLE_EXPERIMENTAL_REPLACEMENT
             if !replacements.isEmpty { nk_abort_write_session(vol) }
@@ -652,6 +669,11 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
 
     private func activateVolume(options: FSTaskOptions) throws -> FSItem {
         return try operationLock.withLock {
+        #if VOLISLE_STORE
+        storeMountID = UUID().uuidString
+        storeMountedAt = Date()
+        storeStoppedPublished = false
+        #endif
         if bitLocker {
             // Never log these options: they carry the key.
             guard let key = BitLockerMount.key(in: options.taskOptions) else {
@@ -735,8 +757,11 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         let root = try activatedRoot()
         #if VOLISLE_STORE
         // Only now is it known what was mounted; the app shows this.
-        StoreMountStatus.record(serial: volumeSerial, bsdName: resource.bsdName, readOnly: storeReason,
-                                recovery: storeRecovery)
+        // Flush older queued reports before publishing this activation.
+        storeStatusQueue.sync {
+            StoreMountStatus.record(serial: volumeSerial, bsdName: resource.bsdName, readOnly: storeReason,
+                                    recovery: storeRecovery, mountID: storeMountID, at: storeMountedAt)
+        }
         #endif
         return root
     }
@@ -1023,6 +1048,12 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         try requirePathIdentity(dir)
         try requireMutableNamespace(dir.childPath(childName))
         guard type == .file || type == .directory else { throw posix(ENOTSUP) }
+        #if VOLISLE_TEST_CHECKPOINT_FAIL
+        if childName == Self.testFailCheckpointName {
+            engineQueue.sync { testFailNextCheckpoint = true }
+            log.notice("测试开关：下一次检查点将失败")
+        }
+        #endif
         let update = try AttributeUpdate(newAttributes, kind: type, privateModes: privateModesEnabled, creating: true)
         try requireWritableEngine()
         let error: Int32 = engineQueue.sync {
@@ -1612,6 +1643,14 @@ extension NTFSVolume: JournalBlockDevice {
         session.pruneRetained()
         guard force || session.checkpointDue ||
               (session.hasUncheckpointedWrites && (session.idleSeconds >= 1 || session.epochSeconds >= 5)) else { return 0 }
+        #if VOLISLE_TEST_CHECKPOINT_FAIL
+        if testFailNextCheckpoint {
+            testFailNextCheckpoint = false
+            session.stop()
+            log.error("检查点失败（测试开关）；停止写入，下次连接时恢复")
+            return -1
+        }
+        #endif
         guard nk_sync(vol) == 0 else { session.stop(); return -1 }
         do {
             let epoch = session.epoch
@@ -1622,12 +1661,32 @@ extension NTFSVolume: JournalBlockDevice {
         catch { log.error("检查点失败；停止写入，下次连接时恢复"); return -1 }
     }
 
+    #if VOLISLE_STORE
+    /// Under operationLock, outside engineQueue. Reports health without changing
+    /// journal writes, flushing or recovery. One report per failed activation.
+    private func publishStoppedWrite() {
+        guard !storeStoppedPublished, writeStopped else { return }
+        storeStoppedPublished = true
+        let serial = volumeSerial, bsdName = resource.bsdName, mountID = storeMountID, at = storeMountedAt
+        let reason = storeReason, recovery = storeRecovery
+        storeStatusQueue.async {
+            StoreMountStatus.record(serial: serial, bsdName: bsdName, readOnly: reason,
+                                    recovery: recovery, mountID: mountID, at: at, stopped: true)
+        }
+    }
+    #endif
+
     private func startCheckpointTimer() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(250), leeway: .milliseconds(100))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            self.operationLock.withLock { _ = self.engineQueue.sync { self.checkpointJournal(force: false) } }
+            self.operationLock.withLock {
+                _ = self.engineQueue.sync { self.checkpointJournal(force: false) }
+                #if VOLISLE_STORE
+                self.publishStoppedWrite()
+                #endif
+            }
         }
         checkpointTimer = timer
         timer.resume()

@@ -55,6 +55,16 @@ elif (( $# > 0 )); then
     fi
   done
 fi
+# VOLISLE_TEST_CHECKPOINT_FAIL=1: local test candidates only. Creating a file named
+# volisle-test-fail-next-checkpoint makes the next checkpoint fail (NTFSVolume.swift).
+# Store packages and website releases refuse it.
+test_checkpoint_fail=false
+if [[ ${VOLISLE_TEST_CHECKPOINT_FAIL:-} == 1 ]]; then
+  [[ "$store" == true ]] || { print -u2 '检查点故障开关仅限商店本地测试候选，官网构建拒绝启用'; exit 1; }
+  extra_flags+=(-D VOLISLE_TEST_CHECKPOINT_FAIL)
+  test_checkpoint_fail=true
+  print '测试构建：创建 volisle-test-fail-next-checkpoint 会让下一次检查点失败'
+fi
 clang "${c_flags[@]}" -arch arm64 -arch x86_64 -mmacosx-version-min="$min_macos" -c -fPIC -DHAVE_CONFIG_H -I "$source_dir" -I "$source_dir/include" \
   packages/VolisleNTFS/bridge/ntfs_bridge.c -o .workbench/fskit-build/ntfs_bridge.o
 # One slice per architecture (swiftc builds one at a time), then one universal binary.
@@ -72,7 +82,7 @@ lipo -create .workbench/fskit-build/VolisleFS-arm64 .workbench/fskit-build/Volis
 rm .workbench/fskit-build/VolisleFS-arm64 .workbench/fskit-build/VolisleFS-x86_64
 python3 scripts/verify-extension-entry.py
 # Default builds remain read-only; experimental builds bind one tiny fixture.
-python3 - "$#" "$replacement" "$physical" "$daily" "$private_permissions" "$min_macos" "$store" <<'PY'
+python3 - "$#" "$replacement" "$physical" "$daily" "$private_permissions" "$min_macos" "$store" "$test_checkpoint_fail" <<'PY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -84,6 +94,7 @@ receipt = {
     'experimental_writes': sys.argv[1] != '0' and sys.argv[4] != 'true' and sys.argv[7] != 'true',
     'daily_writes': sys.argv[4] == 'true',
     'store': sys.argv[7] == 'true',
+    'test_checkpoint_fail': sys.argv[8] == 'true',
     'experimental_private_permissions': sys.argv[5] == 'true',
     'experimental_replacement': sys.argv[2] == 'true',
     'entry_point': '_NSExtensionMain',

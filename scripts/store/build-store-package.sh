@@ -14,8 +14,12 @@
 set -euo pipefail
 cd "${0:A:h:h:h}"
 BUILD=${1:?构建号（整数，每次提交递增）}
+# Never a store submission with Pro unlocked for free (assemble-bundle.sh, StorePurchase.swift).
+[[ -z ${VOLISLE_STORE_TEST_PRO:-} ]] || { print -u2 'VOLISLE_STORE_TEST_PRO 只用于本地测试包，构建商店包前请去掉'; exit 1; }
 [[ $BUILD == <-> ]] || { print -u2 "构建号必须是整数：$BUILD"; exit 1; }
+[[ -z ${VOLISLE_TEST_CHECKPOINT_FAIL:-} ]] || { print -u2 'VOLISLE_TEST_CHECKPOINT_FAIL 只用于本地测试包，构建商店包前请去掉'; exit 1; }
 [[ -f config/release.local.env ]] && source config/release.local.env
+[[ -z ${VOLISLE_STORE_TEST_PRO:-} && -z ${VOLISLE_TEST_CHECKPOINT_FAIL:-} ]] || { print -u2 '正式商店包拒绝配置文件中的测试开关'; exit 1; }
 for name in VOLISLE_STORE_APP_PROFILE VOLISLE_STORE_EXT_PROFILE; do
   [[ -n ${(P)name:-} && -f ${(P)name} ]] || { print -u2 "缺少商店描述文件：请把 $name 设为文件路径（见本脚本开头的说明）"; exit 1; }
 done
@@ -60,6 +64,9 @@ PY
 
 rm -rf $W
 scripts/store/assemble-bundle.sh "$APP" "$VERSION" "$BUILD"
+! LC_ALL=C grep -qaF '测试构建：盘屿 Pro 视为已购买' "$APP/Contents/MacOS/VolisleStore" || { print -u2 '应用里带着测试用的“视为已购买”，拒绝打商店包'; exit 1; }
+python3 -c "import json,sys;sys.exit(1 if json.load(open('.workbench/fskit-build/VolisleFS.build.json')).get('test_checkpoint_fail') else 0)" \
+  || { print -u2 '扩展带着测试开关，不能做商店包'; exit 1; }
 cp "$VOLISLE_STORE_APP_PROFILE" "$APP/Contents/embedded.provisionprofile"
 cp "$VOLISLE_STORE_EXT_PROFILE" "$EX/Contents/embedded.provisionprofile"
 ent() { python3 -c "import plistlib,sys;sys.stdout.buffer.write(plistlib.dumps(eval(sys.argv[1])))" "$1"; }

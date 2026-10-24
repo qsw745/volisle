@@ -131,6 +131,16 @@ struct StoreVolumeDetail: View {
                     Button("推出", action: eject).disabled(volume.mountPoint == nil || ejecting || volume.driver == .website)
                     if ejecting { ProgressView().controlSize(.small).accessibilityLabel("正在推出") }
                 }
+                if volume.writeStopped {
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(StoreWriteStoppedText.explanation.title)
+                            Text(StoreWriteStoppedText.explanation.advice).foregroundStyle(.secondary)
+                        }.fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    }.font(.callout)
+                }
                 if let recovery = volume.recovery {
                     Label {
                         VStack(alignment: .leading, spacing: 4) {
@@ -156,6 +166,7 @@ struct StoreVolumeDetail: View {
         if volume.mountPoint == nil {
             return [String(localized: "这块盘还没有挂载。拔下后重新接上，或在“磁盘工具”里选择“装载”。")]
         }
+        if volume.writeStopped { return [] }
         switch volume.driver {
         case .volisle:
             guard let explanation = volume.explanation else {
@@ -180,6 +191,7 @@ extension StoreVolume {
         if mountPoint == nil { return String(localized: "未挂载") }
         if driver == .website { return String(localized: "官网版盘屿") }
         if driver == .system { return readOnly ? String(localized: "只读（系统挂载）") : String(localized: "系统挂载") }
+        if writeStopped { return String(localized: "写入已停止") }
         return readOnly ? String(localized: "只读") : String(localized: "可读写")
     }
 }

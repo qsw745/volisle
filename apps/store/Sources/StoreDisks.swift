@@ -22,6 +22,9 @@ struct StoreVolume: Identifiable, Equatable {
     let explanation: StoreExplanation?
     /// Writes the extension had to undo before mounting it.
     let recovery: StoreExplanation?
+    var serial: [UInt8]? = nil
+    var status: StoreVolumeStatus? = nil
+    var writeStopped: Bool { status?.stopped == true }
 }
 
 enum StoreExtensionState: Equatable { case checking, enabled, disabled, missing, unavailable }
@@ -52,6 +55,7 @@ enum StoreExtensionState: Equatable { case checking, enabled, disabled, missing,
     private let shared = UserDefaults(suiteName: StoreMountStatus.group)
     @ObservationIgnored private var session: DASession?
     @ObservationIgnored private var disks: [String: DADisk] = [:]
+    @ObservationIgnored private var recheck: DispatchWorkItem?
 
     init() {
         // The extension mounts read-only until this exists (it cannot tell "never
@@ -126,6 +130,15 @@ enum StoreExtensionState: Equatable { case checking, enabled, disabled, missing,
     func refresh() {
         volumes = disks.compactMap { name, disk in volume(name: name, disk: disk) }
             .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+        // A notification can precede its preferences update. Idle mounts must
+        // also be rechecked, otherwise a stopped writer can look writable.
+        if volumes.contains(where: { $0.driver == .volisle && $0.mountPoint != nil }), recheck == nil {
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated { self?.recheck = nil; self?.refresh() }
+            }
+            recheck = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+        }
     }
 
     private func volume(name bsdName: String, disk: DADisk) -> StoreVolume? {
@@ -141,7 +154,11 @@ enum StoreExtensionState: Equatable { case checking, enabled, disabled, missing,
         // The website build mounts through its own helper under its own type,
         // while Disk Arbitration keeps the kind from the system's probe.
         let driver = mounted?.type == Self.websiteType ? .website : probed
-        let status = driver == .volisle && mountPoint != nil ? recordedStatus(description, bsdName: bsdName, readOnly: readOnly) : nil
+        let serial = driver == .volisle && mountPoint != nil ? Self.serial(description) : nil
+        let current = serial.flatMap { recordedStatus(serial: $0, bsdName: bsdName, readOnly: readOnly) }
+        let previous = volumes.first { $0.id == bsdName && $0.serial == serial && $0.driver == .volisle }
+        let status = driver == .volisle && mountPoint != nil
+            ? StoreVolumeStatus.resolved(current: current, previous: previous?.status) : nil
         let label = description[kDADiskDescriptionVolumeNameKey as String] as? String
         let maker = [kDADiskDescriptionDeviceVendorKey, kDADiskDescriptionDeviceModelKey]
             .compactMap { (description[$0 as String] as? String)?.trimmingCharacters(in: .whitespaces) }
@@ -155,7 +172,7 @@ enum StoreExtensionState: Equatable { case checking, enabled, disabled, missing,
             explanation: driver == .volisle && mountPoint != nil && readOnly
                 ? status?.reason.map(StoreReadOnlyText.explanation(token:)) ?? StoreReadOnlyText.unexplained
                 : nil,
-            recovery: status?.recovery.flatMap(StoreRecoveryText.explanation(recovery:)))
+            recovery: status?.recovery.flatMap(StoreRecoveryText.explanation(recovery:)), serial: serial, status: status)
     }
 
     /// The mount type of the website build's extension.
@@ -169,13 +186,16 @@ enum StoreExtensionState: Equatable { case checking, enabled, disabled, missing,
     }
 
     /// The extension's record, when it is about this mount.
-    private func recordedStatus(_ description: [String: Any], bsdName: String, readOnly: Bool) -> StoreVolumeStatus? {
+    private static func serial(_ description: [String: Any]) -> [UInt8]? {
         guard let value = description[kDADiskDescriptionVolumeUUIDKey as String] else { return nil }
         // Core Foundation type, not bridged: check before casting.
         guard CFGetTypeID(value as CFTypeRef) == CFUUIDGetTypeID(),
-              let uuid = UUID(uuidString: CFUUIDCreateString(kCFAllocatorDefault, (value as! CFUUID)) as String),
-              let serial = StoreVolumeIdentity.serial(volumeUUID: uuid),
-              let status = StoreVolumeStatus(entry: shared?.object(forKey: StoreMountStatus.key(serial: serial))),
+              let uuid = UUID(uuidString: CFUUIDCreateString(kCFAllocatorDefault, (value as! CFUUID)) as String) else { return nil }
+        return StoreVolumeIdentity.serial(volumeUUID: uuid)
+    }
+
+    private func recordedStatus(serial: [UInt8], bsdName: String, readOnly: Bool) -> StoreVolumeStatus? {
+        guard let status = StoreVolumeStatus(entry: shared?.object(forKey: StoreMountStatus.key(serial: serial))),
               status.describes(mountedReadOnly: readOnly, bsdName: bsdName) else { return nil }
         return status
     }

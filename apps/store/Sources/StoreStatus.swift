@@ -20,16 +20,22 @@ struct StoreVolumeStatus: Equatable {
     let recovery: String?
     let bsdName: String
     let at: Date
+    let mountID: String?
+    private(set) var stopped: Bool
 
     init?(entry: Any?) {
         guard let entry = entry as? [String: Any], let readOnly = entry["readOnly"] as? Bool,
               let bsdName = entry["bsd"] as? String,
-              let at = entry["at"] as? Double, at.isFinite else { return nil }
+              let at = entry["at"] as? Double, at.isFinite,
+              entry["mount"] == nil || entry["mount"] is String,
+              entry["stopped"] == nil || entry["stopped"] is Bool else { return nil }
         self.readOnly = readOnly
         self.reason = entry["reason"] as? String
         self.recovery = entry["recovery"] as? String
         self.bsdName = bsdName
         self.at = Date(timeIntervalSince1970: at)
+        self.mountID = entry["mount"] as? String
+        self.stopped = entry["stopped"] as? Bool ?? false
     }
 
     /// Records outlive the mount they describe. This one counts only for the
@@ -38,11 +44,31 @@ struct StoreVolumeStatus: Equatable {
     func describes(mountedReadOnly: Bool, bsdName: String) -> Bool {
         readOnly == mountedReadOnly && self.bsdName == bsdName
     }
+
+    /// A failure stays latched for one activation, even if preferences arrive
+    /// late or briefly disappear. Only a confirmed new activation clears it.
+    static func resolved(current: Self?, previous: Self?) -> Self? {
+        guard var current else { return previous }
+        if let previous, previous.bsdName == current.bsdName, current.at < previous.at {
+            return previous
+        }
+        if let previous, previous.bsdName == current.bsdName,
+           previous.at == current.at, previous.mountID == current.mountID {
+            current.stopped = current.stopped || previous.stopped
+        }
+        return current
+    }
 }
 
 struct StoreExplanation: Equatable {
     let title: String
     let advice: String
+}
+
+enum StoreWriteStoppedText {
+    static let explanation = StoreExplanation(
+        title: String(localized: "这块盘的写入已停止，最近的改动可能还没保存。"),
+        advice: String(localized: "请停止拷贝，正常推出后重新接上，让盘屿尝试恢复，并核对最近修改的文件。无法推出时不要直接拔线。"))
 }
 
 /// Writes the recovery before this mount had to undo: the owner may be missing recent files.
