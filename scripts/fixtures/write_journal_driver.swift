@@ -212,6 +212,8 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
         let a = CommandLine.arguments
         guard a.count >= 4 else { fail("usage") }
         let device = ImageDevice(path: a[2], blockSize: Int(ProcessInfo.processInfo.environment["BLOCK"] ?? "4096")!)
+        // NOT_DURABLE: recovery before the kernel mount, without a device barrier.
+        if ProcessInfo.processInfo.environment["NOT_DURABLE"] != nil { device.flushIsDurable = false }
         let store = try WriteJournalStore(directory: URL(fileURLWithPath: a[3]))
         let io = JournaledIO(device: device)
         io.bitLockerKey = bitLockerKey
@@ -245,6 +247,11 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
             if ProcessInfo.processInfo.environment["ACTIVATE"] != nil {
                 activation = describe(WriteJournalCoordinator.recover(store: store, serial: serial, io: io, now: now))
                 guard !activation.hasPrefix("refused") else { print("{\"failed\":true,\"activation\":\"\(activation)\"}"); return }
+            }
+            // RETIRE=<dir>: a place records are no longer kept in, settled first
+            // as the store build's write activation does for the extension container.
+            if let older = ProcessInfo.processInfo.environment["RETIRE"] {
+                try WriteJournalCoordinator.retire(store: WriteJournalStore(directory: URL(fileURLWithPath: older)), serial: serial, io: io)
             }
             let (session, lock) = try WriteJournalCoordinator.begin(store: store, serial: serial, io: io, now: now)
             let firstEpoch = session.epoch
@@ -356,7 +363,7 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
             if fault == "finish-crash" { WriteJournalStore.afterFinishedSaved = { _exit(86) } }
             // A failed clean unmount keeps every record for the next connection.
             guard nk_umount(volume) == 0,
-                  (try? WriteJournalCoordinator.finish(store: store, io: io, lock: lock)) != nil else {
+                  (try? WriteJournalCoordinator.finish(io: io, lock: lock)) != nil else {
                 print("{\"failed\":true,\"deviceWrites\":\(device.writes - before),\"engineWrites\":\(counting.pwrites - pwritesBefore)}")
                 return
             }
@@ -422,6 +429,67 @@ func checkpoint(_ volume: OpaquePointer, _ io: JournaledIO) throws {
             var nkio = engineIO(&raw)
             guard let volume = nk_mount_io(&nkio, nil, 0) else { fail("mount") }
             try checkpoint(volume, io)
+            _exit(86)
+        case "recover-both":
+            // recover-both <image> <newer dir> <older dir>: as a store build's
+            // activation does, the extension container's records (older) first,
+            // then the app group's; a missing older folder is never made.
+            var stores: [() throws -> WriteJournalStore] = []
+            if FileManager.default.fileExists(atPath: a[4]) { stores.append { try WriteJournalStore(directory: URL(fileURLWithPath: a[4])) } }
+            stores.append { store }
+            let outcomes = WriteJournalCoordinator.recover(stores: stores, serial: serial, io: io, now: now).map { "\"\(describe($0))\"" }
+            print("{\"outcomes\":[\(outcomes.joined(separator: ","))],\"writes\":\(device.writes)}")
+        case "records-gone":
+            // records-gone <image> <dir> <deleted|moved|blocked> <idle|change|open>:
+            // the records directory goes away while a session runs, long after its
+            // last write (2026-10-15: emptying a Trash that held an app copy with
+            // the same identifier deleted the extension's container). The next
+            // checkpoint, which NTFSVolume makes due at once, must make it again;
+            // then a change is cut off by an unplug and must still be recovered.
+            let (session, _) = try WriteJournalCoordinator.begin(store: store, serial: serial, io: io)
+            var now: TimeInterval = 1000
+            session.clock = { now }
+            var raw = io.makeIO(writable: true)
+            guard let volume = nk_mount_io(&raw, nil, 0) else { fail("mount") }
+            attachFreeSpace(volume, session, device)
+            try checkpoint(volume, io)
+            func fill(_ path: String, _ mebibytes: Int, _ byte: UInt8) -> Bool {
+                let data = Data(repeating: byte, count: mebibytes * 1048576)
+                return nk_create(volume, "/", String(path.dropFirst())) == 0 &&
+                    data.withUnsafeBytes({ nk_write(volume, path, 0, Int64($0.count), $0.baseAddress) }) == Int64(data.count)
+            }
+            guard fill("/copied", 2, 0x3c) else { fail("copy") }
+            try checkpoint(volume, io)
+            now += 3600
+            session.pruneRetained()
+            // open: an epoch file is open (a group recorded) when the directory goes.
+            if a[5] == "open" { guard fill("/late", 9, 0x4d) else { fail("late") } }
+            switch a[4] {
+            case "deleted": try FileManager.default.removeItem(atPath: a[3])
+            case "moved": guard rename(a[3], a[3] + ".moved") == 0 else { fail("move") }
+            case "blocked":
+                try FileManager.default.removeItem(atPath: a[3])
+                guard FileManager.default.createFile(atPath: a[3], contents: Data("x".utf8)) else { fail("block") }
+            default: fail("how")
+            }
+            guard session.recordsMissing else { fail("not noticed") }
+            if a[5] == "change" { guard nk_create(volume, "/", "late") == 0 else { fail("late") } }
+            var failed = false
+            do { try checkpoint(volume, io) } catch { failed = true }
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: a[3]).sorted()) ?? []
+            // After a failure every change is refused.
+            let refused = failed && nk_create(volume, "/", "after") != 0
+            // What the app is told: an epoch that went with the old directory is
+            // not reported safe before its window would have ended.
+            func durable() -> Bool { session.durability.map { $0.durableBelow >= $0.writtenBelow } ?? false }
+            let durableNow = durable()
+            now += session.retention + 1
+            session.pruneRetained()                       // as the 250 ms timer does
+            let durableLater = durable()
+            print("{\"failed\":\(failed),\"refused\":\(refused),\"missing\":\(session.recordsMissing),\"durableNow\":\(durableNow),\"durableLater\":\(durableLater),\"records\":\"\(names.joined(separator: " "))\"}")
+            fflush(stdout)
+            // The unplug, after a change recorded in the remade directory.
+            if !failed { guard fill("/after", 9, 0x5e) else { fail("after") } }
             _exit(86)
         default: fail("mode")
         }

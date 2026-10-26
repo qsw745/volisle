@@ -4,7 +4,7 @@
     "zh-CN",
     "en"
   ],
-  "links_checked": 390,
+  "links_checked": 394,
   "metadata": "通过",
   "published": true,
   "download_links": [
@@ -55,7 +55,9 @@
     "/downloads/Volisle-0.9.6-source.tar.gz",
     "/downloads/Volisle-0.9.6-universal.dmg",
     "/downloads/Volisle-0.9.7-source.tar.gz",
-    "/downloads/Volisle-0.9.7-universal.dmg"
+    "/downloads/Volisle-0.9.7-universal.dmg",
+    "/downloads/Volisle-0.9.8-source.tar.gz",
+    "/downloads/Volisle-0.9.8-universal.dmg"
   ],
   "404_artifact": "存在",
   "scope": "静态产物校验；不是浏览器或性能测试"

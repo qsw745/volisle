@@ -1,0 +1,3 @@
+/* Store extension: the message in Disk Utility's First Aid log. Keys are the Chinese source strings. */
+
+"盘屿不在 Mac 上检查或修复 NTFS 磁盘，这里没有检查文件系统。需要检查时请在 Windows 上运行磁盘检查。" = "Volisle doesn’t check or repair NTFS disks on the Mac, so no file system check was done here. To check this disk, run a disk check on a Windows PC.";

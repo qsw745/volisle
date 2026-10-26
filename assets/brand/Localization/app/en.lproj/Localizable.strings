@@ -469,6 +469,7 @@
 "继续拷贝" = "Keep Copying";
 "已经拷好的文件保留在盘上；没拷完的那个文件不会留下，盘上原来的同名文件也不会被改动。" = "Files already copied stay on the disk. The unfinished file isn’t left behind, and a file with the same name that was already on the disk isn’t changed.";
 "拷贝进度" = "Copy progress";
+"速度：%@" = "Speed: %@";
 "拷贝 %lld 个项目到“%@”" = "Copying %lld items to “%@”";
 "已拷完 %@。" = "Copied %@.";
 "已拷完 %@，正在确认写入（通常半分钟内）。这段时间里拔线，插回后会自动复查补齐；拔线前请先推出。" = "Copied %@. Confirming the writes (usually within half a minute); if the disk is unplugged meanwhile, the copy is checked and completed when you connect it again. Eject the disk before unplugging it.";

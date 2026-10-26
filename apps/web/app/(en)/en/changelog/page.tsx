@@ -3,6 +3,10 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.8 · October 22, 2026</h2><ul>
+<li>Add independent menu bar and Dock icon visibility settings that remember your choice.</li>
+<li>Keep running in the background with icons hidden, and reopen Volisle from Applications or Spotlight.</li>
+</ul>
 <h2>0.9.7 · October 22, 2026</h2><ul>
 <li>Fix misleading NTFS log safety messages and clarify read-only checks and diagnostics.</li>
 </ul>

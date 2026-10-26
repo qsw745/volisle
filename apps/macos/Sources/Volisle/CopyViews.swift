@@ -57,6 +57,14 @@ struct CopyJobsSection: View {
             }
             Text(detail(job)).font(.caption).foregroundStyle(job.progress.pause == .problem ? .red : .secondary).lineLimit(4)
                 .textSelection(.enabled)
+            if job.running && !job.status.checking {
+                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                    if let rate = job.transferBytesPerSecond() {
+                        Text("速度：\(Self.speed(rate))")
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }
+            }
         }
     }
 
@@ -115,6 +123,13 @@ struct CopyJobsSection: View {
         case nil:
             return String(localized: "等待中…")
         }
+    }
+
+    private static func speed(_ bytesPerSecond: Double) -> String {
+        let units = ["B/s", "KB/s", "MB/s", "GB/s"]
+        var value = bytesPerSecond, unit = 0
+        while value >= 1_000 && unit < units.count - 1 { value /= 1_000; unit += 1 }
+        return value.formatted(.number.precision(.fractionLength(unit == 0 ? 0 : 1))) + " " + units[unit]
     }
 
     /// "0 KB" rather than "Zero KB" before anything is copied.

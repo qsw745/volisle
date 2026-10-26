@@ -12,6 +12,7 @@ cd "${0:A:h:h:h}"
 version=${1:-} notes=${2:-}
 [[ $version =~ '^[0-9]+\.[0-9]+\.[0-9]+$' && -f $notes ]] || { print -u2 "用法：$0 <版本号，如 0.6.2> <更新说明.txt>"; exit 2; }
 notes=${notes:A}
+[[ -z ${VOLISLE_TEST_CHECKPOINT_FAIL:-} ]] || { print -u2 'VOLISLE_TEST_CHECKPOINT_FAIL 只用于本地测试包，发布前请去掉'; exit 2; }
 step() { print "\n━━ $1"; }
 ask() { local answer; read "answer?$1 输入 y 继续，其他任意键停止："; [[ $answer == y ]] || { print '已停止。'; exit 1; }; }
 # Stopped or failed before the website commit: drop the version commit this run

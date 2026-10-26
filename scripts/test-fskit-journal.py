@@ -54,8 +54,10 @@ def log_since(start):
 
 
 def journal_dirs():
-    base = Path.home() / 'Library/Containers'
-    return [p for p in base.glob('*/Data/Library/Application Support/VolisleWriteJournal') if p.is_dir()]
+    # Official build: the extension's container. Store build: the app group container.
+    home = Path.home()
+    return [p for p in [*(home / 'Library/Containers').glob('*/Data/Library/Application Support/VolisleWriteJournal'),
+                        *(home / 'Library/Group Containers').glob('*/VolisleWriteJournal')] if p.is_dir()]
 
 
 def journal_records():

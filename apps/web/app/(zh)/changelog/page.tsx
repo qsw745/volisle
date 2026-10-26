@@ -3,6 +3,10 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.8 · 2026 年 10 月 22 日</h2><ul>
+<li>设置中新增菜单栏和 Dock 图标显示开关，可分别隐藏，并记住选择。</li>
+<li>隐藏图标后继续在后台运行，可通过应用程序或 Spotlight 重新打开盘屿。</li>
+</ul>
 <h2>0.9.7 · 2026 年 10 月 22 日</h2><ul>
 <li>修复 NTFS 日志检查失败时错误归因于“未安全弹出”的提示，提供只读检查和诊断指引。</li>
 </ul>

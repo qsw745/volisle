@@ -34,9 +34,19 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     private var engineWritable = false          // guarded by engineQueue
     private var writeActivationFailed = false   // guarded by operationLock
     private var closeFailed = false             // guarded by engineQueue
+    /// A sync has reported this volume's failed write session. Guarded by operationLock.
+    private var syncFailureReported = false
     /// This activation rolled back a cleanly ended session (unplugged before the
     /// drive wrote its cache out). Guarded by operationLock.
     private var rolledBackAfterEnd = false
+    #if VOLISLE_STORE
+    /// What this activation's recovery undid, for the app.
+    private var storeRecovery: StoreMountStatus.Recovery?
+    /// The last StoreWriteActivity state told to the app. Guarded by operationLock.
+    private var publishedWriting = false
+    /// Keeps the records in the order the states changed.
+    private let activityQueue = DispatchQueue(label: "top.qisw.volisle.mas.write-activity", qos: .utility)
+    #endif
     private let identityCache = ItemIdentityCache()
     /// Enumeration verifiers: bumped for each directory a namespace mutation
     /// touches, so a change elsewhere does not restart (or keep restarting) the
@@ -103,6 +113,13 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     private lazy var journal = JournaledIO(device: self)
     private var journalLock: Int32 = -1          // guarded by engineQueue
     private var checkpointTimer: DispatchSourceTimer?
+    #if VOLISLE_TEST_CHECKPOINT_FAIL
+    /// Local test candidates only (VOLISLE_TEST_CHECKPOINT_FAIL=1): creating a
+    /// file with this name makes the next checkpoint fail, as a drive that stops
+    /// answering would. Guarded by engineQueue.
+    private static let testFailCheckpointName = "volisle-test-fail-next-checkpoint"
+    private var testFailNextCheckpoint = false
+    #endif
 
     fileprivate var deviceBlockSize: Int {
         // Stable cache granularity, independent of each libntfs request size.
@@ -142,10 +159,25 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
                                       length: length)
             ioMode = .metadata
             log.info("device I/O upgraded to kernel buffer cache")
-        } catch {
+        } catch let cached {
+            #if VOLISLE_STORE
+            // The engine's read callback reports only -1; a system mount needs the cause in the log.
+            do {
+                let n = try resource.read(into: scratch, startingAt: off_t(start), length: length)
+                guard n == length else {
+                    log.error("设备读取不完整：位置=\(start) 长度=\(length) 实得=\(n)")
+                    throw posix(EIO)
+                }
+            } catch {
+                log.error("设备读取失败：位置=\(start) 长度=\(length) 缓存读=\(String(describing: cached), privacy: .public) 直接读=\(String(describing: error), privacy: .public)")
+                throw error
+            }
+            #else
+            _ = cached
             let n = try resource.read(into: scratch, startingAt: off_t(start),
                                       length: length)
             guard n == length else { throw posix(EIO) }
+            #endif
         }
     }
 
@@ -210,7 +242,13 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             }
             if let b = bde { nk_bde_close(b); bde = nil }
             let reason = String(decoding: errbuf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            #if VOLISLE_STORE
+            // A system mount has no helper to report through. The engine's
+            // reason is an errno text, never a name from the disk.
+            log.error("nk_mount_io failed: \(reason, privacy: .public) 容量=\(self.deviceSize) 块=\(self.resource.blockSize)/\(self.resource.physicalBlockSize) 可写=\(self.resource.isWritable)")
+            #else
             log.error("nk_mount_io failed: \(reason, privacy: .private)")
+            #endif
             throw self.posix(EIO)
         }
     }
@@ -257,6 +295,9 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     @discardableResult
     private func closeEngine() -> Int32 {
         checkpointTimer?.cancel(); checkpointTimer = nil
+        #if VOLISLE_STORE
+        publishWriteActivity(false)
+        #endif
         return engineQueue.sync {
             #if VOLISLE_EXPERIMENTAL_REPLACEMENT
             if !replacements.isEmpty { nk_abort_write_session(vol) }
@@ -412,7 +453,16 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         log.notice("恢复记录只读复核：卷=\(serial, privacy: .public) 已完成=\(audit.completed) 未完成=\(audit.unresolved)；未执行磁盘修复或删除")
         // A Windows check may have cleared the NTFS dirty flag. The host
         // recovery record still prohibits new writes until it is resolved.
-        if !readOnly && audit.blocksWriting { throw posix(EBUSY) }
+        if !readOnly && audit.blocksWriting {
+            #if VOLISLE_STORE
+            // The engine is still open read-only here; keep it that way.
+            readOnly = true
+            wantReadOnlyMount = true
+            storeReason = .journal("replacement")
+            #else
+            throw posix(EBUSY)
+            #endif
+        }
     }
 
     #if VOLISLE_EXPERIMENTAL_REPLACEMENT
@@ -518,6 +568,10 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     /// FSMountOptions exists. On 15.4–26.3 the kernel mount mode just follows
     /// the block device's own writability; the volume still works read-only.
     fileprivate var wantReadOnlyMount = false
+    #if VOLISLE_STORE
+    /// Why this store mount is read-only; nil while it may write. Set during activation only.
+    private var storeReason: StoreMountPolicy.ReadOnlyReason?
+    #endif
 
     /// FSKit reads this after mount() replies; the kernel mount matches the
     /// explicit read-only intent. There is no silent write-mount fallback.
@@ -556,7 +610,12 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     }
 
     var volumeStatistics: FSStatFSResult {
+        // Must equal the bundle's FSShortName: the store build is a separate module.
+        #if VOLISLE_STORE
+        let stats = FSStatFSResult(fileSystemTypeName: "volislemas")
+        #else
         let stats = FSStatFSResult(fileSystemTypeName: "volisle")
+        #endif
         var total: Int64 = 0, free: Int64 = 0
         var cluster: Int32 = 0
         engineQueue.sync { _ = nk_statvfs(vol, &total, &free, &cluster) }
@@ -599,6 +658,9 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             // single-resource process (revoke does not close it), which blocks
             // eject. Nothing is mounted here; exit after the error is delivered.
             log.notice("激活被拒绝；稍后结束本实例以释放设备")
+            #if VOLISLE_STORE
+            StoreMountStatus.record(serial: volumeSerial, bsdName: resource.bsdName, readOnly: .failed)
+            #endif
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { exit(0) }
             throw error
         }
@@ -627,6 +689,32 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             try openEngine()
             return try activatedRoot()
         }
+        #if VOLISLE_STORE
+        return try StoreEngineLog.whileOpening { try self.activateEngine(options: options) }
+        #else
+        return try activateEngine(options: options)
+        #endif
+        }
+    }
+
+    /// Runs under operationLock.
+    private func activateEngine(options: FSTaskOptions) throws -> FSItem {
+        #if VOLISLE_STORE
+        // The system mounts whatever activation returns, and nobody is there to
+        // act on a refusal: a volume that cannot be written safely is mounted
+        // read-only, with the reason left for the app.
+        // This is not the silent downgrade the website build rules out: there
+        // a write was asked for and refused; here nothing asked.
+        storeReason = try StoreMountPolicy.resolve(
+            StoreMountPolicy.readOnlyReason(options: options.taskOptions, writable: resource.isWritable,
+                serial: volumeSerial, byteCount: UInt64(max(0, deviceSize)), preferReadOnly: StoreMountStatus.preferReadOnly,
+                disk: StoreMountStatus.diskPreference(serial: volumeSerial)),
+            recover: { self.recoverInterruptedWrites().map { String(describing: $0) } },
+            inspect: { try self.inspectBeforeWritableActivation() })
+        readOnly = storeReason != nil
+        wantReadOnlyMount = readOnly
+        log.notice("商店版激活参数=\(options.taskOptions.description, privacy: .public) 只读原因=\(self.storeReason?.token ?? "无", privacy: .public)")
+        #endif
         #if VOLISLE_DAILY_WRITES
         readOnly = !WriteMountPolicy.allowsDaily(options: options.taskOptions, writable: resource.isWritable,
             serial: volumeSerial, byteCount: UInt64(max(0, deviceSize)))
@@ -661,9 +749,13 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         // An update from an experimental build must not bypass unresolved
         // evidence. All builds audit before the first writable engine opens.
         try auditReplacementJournals()
-        return try activatedRoot()
-    
-        }
+        let root = try activatedRoot()
+        #if VOLISLE_STORE
+        // Only now is it known what was mounted; the app shows this.
+        StoreMountStatus.record(serial: volumeSerial, bsdName: resource.bsdName, readOnly: storeReason,
+                                recovery: storeRecovery)
+        #endif
+        return root
     }
 
     private func activatedRoot() throws -> FSItem {
@@ -709,7 +801,18 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             vol == nil ? (closeFailed ? Int32(-1) : Int32(0))
                 : checkpointJournal(force: journal.session.map { $0.checkpointSeconds >= 1 } ?? true)
         }
-        guard rc == 0 else { throw posix(EIO) }
+        guard rc != 0 else { return }
+        // Every failure here is final: the session has stopped, changes fail,
+        // and the next connection rolls back to the last checkpoint whether the
+        // volume is unmounted or unplugged first. The kernel syncs before an
+        // unmount and gives up on an error, so failing every sync kept the volume
+        // until it was unplugged (2026-10-15). Report it once, to whichever sync
+        // comes first; after that the unmount may go ahead. Deactivation still
+        // reports the failure.
+        guard !syncFailureReported else { return }
+        syncFailureReported = true
+        log.error("写入会话已失败：本次同步报错；之后的同步放行以便卸载，最近的写入在下次连接时退回")
+        throw posix(EIO)
     
         }
     }
@@ -948,6 +1051,12 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         try requirePathIdentity(dir)
         try requireMutableNamespace(dir.childPath(childName))
         guard type == .file || type == .directory else { throw posix(ENOTSUP) }
+        #if VOLISLE_TEST_CHECKPOINT_FAIL
+        if childName == Self.testFailCheckpointName {
+            engineQueue.sync { testFailNextCheckpoint = true }
+            log.notice("测试开关：下一次检查点将失败")
+        }
+        #endif
         let update = try AttributeUpdate(newAttributes, kind: type, privateModes: privateModesEnabled, creating: true)
         try requireWritableEngine()
         let error: Int32 = engineQueue.sync {
@@ -1427,11 +1536,32 @@ extension NTFSVolume: JournalBlockDevice {
 
     private var journalSerial: String { volumeSerial.map { String(format: "%02x", $0) }.joined() }
 
+    private static let writeJournalFolder = "VolisleWriteJournal"
+
+    /// Only OS-provided bases, never a path from the disk or options.
     private func writeJournalStore() throws -> WriteJournalStore {
-        // Only the OS-provided sandbox base, never a path from the disk or options.
+        #if VOLISLE_STORE
+        // The app group container, not the extension's own: a cleaner removing an
+        // uninstalled copy's leftovers deleted the extension container while a
+        // session was writing (2026-10-15, Tencent Lemon), every record with it,
+        // and a sandboxed extension cannot make its container again. The group
+        // container stayed.
+        guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: StoreMountStatus.group) else {
+            throw posix(EACCES)
+        }
+        return try WriteJournalStore(directory: group.resolvingSymlinksInPath()
+            .appendingPathComponent(Self.writeJournalFolder, isDirectory: true))
+        #else
+        return try WriteJournalStore(directory: containerWriteJournalURL())
+        #endif
+    }
+
+    /// The extension's own container: where the official build keeps its
+    /// records, and where earlier store versions kept theirs.
+    private func containerWriteJournalURL() throws -> URL {
         let base = try FileManager.default.url(for: .applicationSupportDirectory,
             in: .userDomainMask, appropriateFor: nil, create: true).resolvingSymlinksInPath()
-        return try WriteJournalStore(directory: base.appendingPathComponent("VolisleWriteJournal", isDirectory: true))
+        return base.appendingPathComponent(Self.writeJournalFolder, isDirectory: true)
     }
 
     /// Activation, before the writable inspection: roll an interrupted session
@@ -1439,25 +1569,50 @@ extension NTFSVolume: JournalBlockDevice {
     func recoverInterruptedWrites() -> WriteJournalError? {
         engineQueue.sync {
             rolledBackAfterEnd = false
-            let outcome: WriteJournalCoordinator.Outcome
-            do { outcome = WriteJournalCoordinator.recover(store: try writeJournalStore(), serial: journalSerial, io: journal) }
-            catch { outcome = .refused(.unavailable) }
-            switch outcome {
-            case .none: return nil
-            case .superseded:
-                log.notice("这块盘中断后在其他系统上用过：旧的恢复记录已作废并归档，按磁盘当前状态检查")
-                return nil
-            case .recovered:
-                log.notice("上次写入中断已回滚到最后一致点并释放本机脏标记")
-                return nil
-            case .recoveredAfterEnd:
-                log.notice("上次正常结束后过早断开，最近的改动没有写到盘上：已回到之前的一致状态并释放本机脏标记")
-                rolledBackAfterEnd = true
-                return nil
-            case .refused(let reason):
-                log.error("上次写入中断无法安全恢复（\(String(describing: reason), privacy: .public)）；保持只读，记录保留")
-                return reason
+            #if VOLISLE_STORE
+            storeRecovery = nil
+            #endif
+            var stores: [() throws -> WriteJournalStore] = []
+            #if VOLISLE_STORE
+            // Records an earlier version left in the extension's own container
+            // first: a session there predates any in the group container. Never
+            // made where there is none.
+            if let legacy = try? containerWriteJournalURL(), FileManager.default.fileExists(atPath: legacy.path) {
+                stores.append { try WriteJournalStore(directory: legacy) }
             }
+            #endif
+            stores.append { try self.writeJournalStore() }
+            for outcome in WriteJournalCoordinator.recover(stores: stores, serial: journalSerial, io: journal) {
+                if let refused = reportRecovery(outcome) { return refused }
+            }
+            return nil
+        }
+    }
+
+    /// Engine queue. Logs what recovery did; returns why writes must stay off, or nil.
+    private func reportRecovery(_ outcome: WriteJournalCoordinator.Outcome) -> WriteJournalError? {
+        dispatchPrecondition(condition: .onQueue(engineQueue))
+        switch outcome {
+        case .none: return nil
+        case .superseded:
+            log.notice("这块盘中断后在其他系统上用过：旧的恢复记录已作废并归档，按磁盘当前状态检查")
+            return nil
+        case .recovered:
+            log.notice("上次写入中断已回滚到最后一致点并释放本机脏标记")
+            #if VOLISLE_STORE
+            storeRecovery = .interrupted
+            #endif
+            return nil
+        case .recoveredAfterEnd:
+            log.notice("上次正常结束后过早断开，最近的改动没有写到盘上：已回到之前的一致状态并释放本机脏标记")
+            rolledBackAfterEnd = true
+            #if VOLISLE_STORE
+            storeRecovery = .afterEnd
+            #endif
+            return nil
+        case .refused(let reason):
+            log.error("上次写入中断无法安全恢复（\(String(describing: reason), privacy: .public)）；保持只读，记录保留")
+            return reason
         }
     }
 
@@ -1465,6 +1620,11 @@ extension NTFSVolume: JournalBlockDevice {
         try engineQueue.sync {
             guard journal.session == nil else { throw posix(EBUSY) }
             do {
+                #if VOLISLE_STORE
+                if let legacy = try? containerWriteJournalURL(), FileManager.default.fileExists(atPath: legacy.path) {
+                    try WriteJournalCoordinator.retire(store: WriteJournalStore(directory: legacy), serial: journalSerial, io: journal)
+                }
+                #endif
                 (_, journalLock) = try WriteJournalCoordinator.begin(store: try writeJournalStore(),
                                                                        serial: journalSerial, io: journal)
                 log.notice("写入日志会话开始：卷=\(self.journalSerial, privacy: .public)")
@@ -1490,7 +1650,7 @@ extension NTFSVolume: JournalBlockDevice {
         guard journal.session != nil, journalLock >= 0 else { return -1 }
         defer { journalLock = -1 }
         do {
-            try WriteJournalCoordinator.finish(store: try writeJournalStore(), io: journal, lock: journalLock)
+            try WriteJournalCoordinator.finish(io: journal, lock: journalLock)
             log.notice("写入日志会话正常结束：记录保留到确认写入")
             return 0
         } catch {
@@ -1526,8 +1686,19 @@ extension NTFSVolume: JournalBlockDevice {
         // Even when idle: a retained epoch left past its window would make an
         // unplug minutes later undo writes long since on the disk.
         session.pruneRetained()
+        // Also when the records directory went away: the checkpoint makes it
+        // again, idle or not, so an unplug is still recovered.
         guard force || session.checkpointDue ||
-              (session.hasUncheckpointedWrites && (session.idleSeconds >= 1 || session.epochSeconds >= 5)) else { return 0 }
+              (session.hasUncheckpointedWrites && (session.idleSeconds >= 1 || session.epochSeconds >= 5)) ||
+              session.recordsMissing else { return 0 }
+        #if VOLISLE_TEST_CHECKPOINT_FAIL
+        if testFailNextCheckpoint {
+            testFailNextCheckpoint = false
+            session.stop()
+            log.error("检查点失败（测试开关）；停止写入，下次连接时恢复")
+            return -1
+        }
+        #endif
         guard nk_sync(vol) == 0 else { session.stop(); return -1 }
         do {
             let epoch = session.epoch
@@ -1535,15 +1706,41 @@ extension NTFSVolume: JournalBlockDevice {
             if session.epoch != epoch { log.info("检查点完成：周期=\(epoch, privacy: .public)") }
             return 0
         }
-        catch { log.error("检查点失败；停止写入，下次连接时恢复"); return -1 }
+        catch {
+            log.error("检查点失败（\(String(describing: error), privacy: .public)）；停止写入，下次连接时恢复")
+            return -1
+        }
     }
+
+    #if VOLISLE_STORE
+    /// Under operationLock. Tells the app only on a change: the checkpoint
+    /// timer asks four times a second. Off the write path, and the record is
+    /// written on its own queue so no lock waits for the preferences daemon.
+    private func publishWriteActivity(_ writing: Bool) {
+        guard writing != publishedWriting else { return }
+        publishedWriting = writing
+        let serial = volumeSerial, bsdName = resource.bsdName
+        activityQueue.async { StoreMountStatus.recordActivity(serial: serial, bsdName: bsdName, writing: writing) }
+    }
+    #endif
 
     private func startCheckpointTimer() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(250), leeway: .milliseconds(100))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            self.operationLock.withLock { _ = self.engineQueue.sync { self.checkpointJournal(force: false) } }
+            self.operationLock.withLock {
+                #if VOLISLE_STORE
+                // A continuous copy can keep this lock busy; the state then follows at the next pause.
+                self.publishWriteActivity(self.engineQueue.sync {
+                    _ = self.checkpointJournal(force: false)
+                    return self.journal.session.map { StoreWriteActivity.isWriting(
+                        hasUncheckpointedWrites: $0.hasUncheckpointedWrites, idleSeconds: $0.idleSeconds) } ?? false
+                })
+                #else
+                _ = self.engineQueue.sync { self.checkpointJournal(force: false) }
+                #endif
+            }
         }
         checkpointTimer = timer
         timer.resume()

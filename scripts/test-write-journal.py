@@ -809,9 +809,119 @@ def archive_per_volume(m, base):
     image.unlink(); shutil.rmtree(journal)
 
 
+def records_gone(m, base):
+    # The records directory goes away while a session runs (2026-10-15: emptying
+    # a Trash holding an app copy with the same identifier deleted the
+    # extension's container). The session makes it again and an unplug after
+    # that is still recovered, dirty marker released. Moved away (into the
+    # Trash) is the same. Before this, the records were gone and the volume
+    # stayed marked as needing a check.
+    env = {'BLOCK': '4096'}
+    for how in ['deleted', 'moved']:
+        for when in ['idle', 'change', 'open']:
+            image, journal = m.fresh(base, f'records-{how}-{when}')
+            p = driver('records-gone', image, journal, how, when, expect=86)
+            out = json.loads(p.stdout)
+            assert not out['failed'] and not out['missing'], out
+            assert '0123456789abcdef.session' in out['records'].split(), out
+            # idle: nothing was retained any more. change, open: the last epoch
+            # (in the remade directory, or gone with the old one) is not reported
+            # safe to unplug before its retention window ends.
+            assert out['durableNow'] == (when == 'idle') and out['durableLater'], out
+            m.recover_ok(image, journal)
+            names = listing(image)
+            assert 'copied' in names and 'after' not in names, names
+            # The change before the unplug was past its retention window by then
+            # (open: it went with the old directory; change: pruned in the new one).
+            assert ('late' in names) == (when != 'idle'), (when, names)
+            if when == 'open':
+                data = subprocess.run([BIN / 'ntfscat', '-f', image, '/late'], capture_output=True, check=True).stdout
+                assert data == b'\x4d' * (9 * 1024 * 1024), len(data)
+            healthy(image, expect_new=False)
+            m.next_session(image, journal, env)
+            m.checks.append(f'records-dir-{how}-{when}-remade-and-recovered')
+            image.unlink(); shutil.rmtree(journal)
+            shutil.rmtree(Path(str(journal) + '.moved'), ignore_errors=True)
+    # Nothing can be made where the directory was: the session stops and every
+    # change is refused; with no records the volume stays marked as needing a check.
+    image, journal = m.fresh(base, 'records-blocked')
+    out = json.loads(driver('records-gone', image, journal, 'blocked', 'change', expect=86).stdout)
+    assert out['failed'] and out['refused'], out
+    journal.unlink(); journal.mkdir(mode=0o700)
+    assert json.loads(driver('recover', image, journal, expect=0).stdout)['outcome'] == 'none'
+    assert inspect(image) == 1
+    m.checks.append('records-dir-blocked-stops-session')
+    image.unlink(); shutil.rmtree(journal)
+
+
+def store_locations(m, base):
+    # The store build keeps its records in the app group container; an earlier
+    # version left them in the extension's own. Activation recovers both, the
+    # older place first, and a refusal there keeps the volume read-only.
+    env = {'BLOCK': '4096'}
+    image, older = m.fresh(base, 'older-place')
+    newer = m.folder / 'older-place.group'
+    driver('op', image, older, 'file', 'crash', 3, env=env, expect=86)
+    out = json.loads(driver('recover-both', image, newer, older, expect=0).stdout)
+    assert out['outcomes'] == ['recovered', 'none'], out
+    assert records(older) == [] and records(newer) == [], (records(older), records(newer))
+    healthy(image, expect_new=False)
+    m.next_session(image, newer, env)
+    m.checks.append('store-older-place-recovered')
+    image.unlink(); shutil.rmtree(older); shutil.rmtree(newer)
+    # Recovered before the kernel mount (no device barrier yet): the older place
+    # keeps its records as recovered. The next write session, which begins in
+    # the newer place, must clean them up; left there they are refused at the
+    # next connection once the volume changed, and the disk stays read-only.
+    image, older = m.fresh(base, 'older-recovered')
+    newer = m.folder / 'older-recovered.group'
+    driver('op', image, older, 'file', 'crash', 3, env=env, expect=86)
+    out = json.loads(driver('recover-both', image, newer, older, env={'NOT_DURABLE': '1'}, expect=0).stdout)
+    assert out['outcomes'] == ['recovered', 'none'] and records(older), (out, records(older))
+    out = json.loads(driver('op', image, newer, 'next', 'none', 0, env={**env, 'RETIRE': str(older)}, expect=0).stdout)
+    assert not out['failed'] and records(older) == [], (out, records(older))
+    out = json.loads(driver('recover-both', image, newer, older, expect=0).stdout)
+    assert out['outcomes'] == ['none', 'none'], out
+    assert 'next-session' in listing(image) and 'new-node' not in listing(image)
+    healthy(image, expect_new=False)
+    m.checks.append('store-older-place-recovered-records-retired')
+    image.unlink(); shutil.rmtree(older); shutil.rmtree(newer)
+    # An interrupted session still on record in the older place is not dropped: writing is refused.
+    image, older = m.fresh(base, 'older-active')
+    newer = m.folder / 'older-active.group'
+    driver('op', image, older, 'file', 'crash', 3, env=env, expect=86)
+    p = driver('op', image, newer, 'next', 'none', 0, env={**env, 'RETIRE': str(older)})
+    assert p.returncode != 0 and records(older), (p.returncode, records(older))
+    m.checks.append('store-older-place-active-blocks-writes')
+    image.unlink(); shutil.rmtree(older); shutil.rmtree(newer)
+    # Only the newer place has records; a missing older one is not made.
+    image, newer = m.fresh(base, 'newer-place')
+    older = m.folder / 'newer-place.container'
+    driver('op', image, newer, 'file', 'crash', 3, env=env, expect=86)
+    out = json.loads(driver('recover-both', image, newer, older, expect=0).stdout)
+    assert out['outcomes'] == ['recovered'] and not older.exists(), out
+    healthy(image, expect_new=False)
+    m.checks.append('store-newer-place-recovered')
+    image.unlink(); shutil.rmtree(newer)
+    # Damaged records in the older place: refused, the newer place not consulted, nothing written.
+    image, older = m.fresh(base, 'older-refused')
+    newer = m.folder / 'older-refused.group'
+    driver('op', image, older, 'file', 'crash', 5, env=env, expect=86)
+    epoch = sorted(older.glob('*.epoch'))[-1]
+    data = bytearray(epoch.read_bytes()); data[len(data) // 2] ^= 0xff; epoch.write_bytes(data)
+    before = sha(image)
+    out = json.loads(driver('recover-both', image, newer, older, expect=0).stdout)
+    assert out == {'outcomes': ['refused-corrupt'], 'writes': 0} and sha(image) == before and records(newer) == [], out
+    assert records(older), 'a refusal keeps the records'
+    m.checks.append('store-older-place-refusal-stops')
+    image.unlink(); shutil.rmtree(older); shutil.rmtree(newer)
+
+
 def full_matrix(m, base, folder):
     archive_per_volume(m, base)
     durability_report(m, base)
+    records_gone(m, base)
+    store_locations(m, base)
     # Retained (as shipped) and without retention (the checkpoint logic alone).
     for retention in [{}, {'RETENTION': '0'}]:
         for block in ['4096', '16384', '65536']:
@@ -834,10 +944,12 @@ def main():
     result = {'completed': False, 'success': False}
     try:
         base = folder / 'base.img'; make_base(base)
-        # --quick: only the cases that need no long runs (archive, durability report).
+        # --quick: only the cases that need no long runs (archive, durability report, records directory gone, store record places).
         if '--quick' in sys.argv:
             archive_per_volume(m, base)
             durability_report(m, base)
+            records_gone(m, base)
+            store_locations(m, base)
         elif '--finish-loss' in sys.argv:
             finish_cache_loss(m, base)
             clean_end_records(m, base)

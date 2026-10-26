@@ -38,9 +38,7 @@ enum WriteJournalCoordinator {
         let lock = try store.lock(serial: serial)
         do {
             if let old = try store.sessionRecord(serial: serial) {
-                guard old.state == .recovered, io.device.flushIsDurable else { throw WriteJournalError.busy }
-                try io.device.journalFlush()
-                try store.removeAll(serial: serial)
+                try dropRecovered(old, store: store, io: io)
             } else if let finished = try store.finishedRecord(serial: serial) {
                 // Never one this volume instance has not accounted for.
                 guard io.landedSession == finished.record.session else { throw WriteJournalError.busy }
@@ -70,6 +68,28 @@ enum WriteJournalCoordinator {
             Darwin.close(lock)
             throw error
         }
+    }
+
+    /// A recovery done before the kernel mount stays on record until a device
+    /// barrier confirms it; anything still active there is not this host's to drop.
+    private static func dropRecovered(_ record: WriteJournalSessionRecord, store: WriteJournalStore, io: JournaledIO) throws {
+        guard record.state == .recovered, io.device.flushIsDurable else { throw WriteJournalError.busy }
+        try io.device.journalFlush()
+        try store.removeAll(serial: record.serial)
+    }
+
+    /// Before a write session begins elsewhere: a place records are no longer
+    /// kept in (the store build's extension container) gets the cleanup `begin`
+    /// does for its own place, which no session there will do any more. Left
+    /// recovered, those records would be judged again at every connection and,
+    /// once this session changed the volume, refused for good. A cleanly ended
+    /// session's records there are left to recovery (they are dropped once their
+    /// writes are found, or the volume changed).
+    static func retire(store: WriteJournalStore, serial: String, io: JournaledIO) throws {
+        let lock = try store.lock(serial: serial)
+        defer { Darwin.close(lock) }
+        guard let record = try store.sessionRecord(serial: serial) else { return }
+        try dropRecovered(record, store: store, io: io)
     }
 
     /// The cleanly ended session goes on: same record, the next epoch number,
@@ -104,15 +124,18 @@ enum WriteJournalCoordinator {
     }
 
     /// After a successful nk_umount only. Anything else keeps the records.
-    static func finish(store: WriteJournalStore, io: JournaledIO, lock: Int32,
+    static func finish(io: JournaledIO, lock: Int32,
                        wallClock: TimeInterval = Date().timeIntervalSince1970) throws {
-        defer { Darwin.close(lock); io.session = nil }
+        defer { Darwin.close(lock); io.session?.closeRehomedLock(); io.session = nil }
         guard let session = io.session else { throw WriteJournalError.failed }
         // Keep every epoch: removing the newest first (as the retention window
         // would) and then being interrupted would leave an older subset that
         // recovery rolls back over newer data.
         session.retention = .infinity
         try session.checkpoint()
+        // Where the session's records are now: the checkpoint makes the
+        // directory again if it went away.
+        let store = session.store
         guard io.device.flushIsDurable else { throw WriteJournalError.unavailable }
         try io.device.journalFlush()
         let serial = session.record.serial
@@ -126,6 +149,22 @@ enum WriteJournalCoordinator {
                                            finishedUptime: session.clock(), finishedWall: wallClock))
         try store.removeSessionRecord(serial: serial)
         io.landedSession = session.record.session
+    }
+
+    /// Recovery in every place records may be, oldest first (a store that cannot
+    /// be opened is refused as unavailable). Stops at the first refusal: the
+    /// volume stays read-only and later places are left as they are.
+    static func recover(stores: [() throws -> WriteJournalStore], serial: String, io: JournaledIO,
+                        now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> [Outcome] {
+        var outcomes: [Outcome] = []
+        for open in stores {
+            let outcome: Outcome
+            do { outcome = recover(store: try open(), serial: serial, io: io, now: now) }
+            catch { outcome = .refused(.unavailable) }
+            outcomes.append(outcome)
+            if case .refused = outcome { break }
+        }
+        return outcomes
     }
 
     /// Roll back to the oldest retained checkpoint and release this host's own dirty

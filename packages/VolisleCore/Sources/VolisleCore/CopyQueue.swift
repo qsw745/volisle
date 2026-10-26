@@ -21,6 +21,21 @@ extension ResumableCopier: CopyQueueCopier {}
         public var progress: CopyProgress
         public var status = ResumableCopier.Status()
         public var running = false
+        private var transferRate = CopyTransferRate()
+
+        /// Recent transfer rate, excluding comparison and past runs. nil while not copying.
+        public func transferBytesPerSecond(at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Double? {
+            guard running, !status.checking else { return nil }
+            return transferRate.bytesPerSecond(at: uptime)
+        }
+
+        mutating func resetTransferRate() { transferRate = CopyTransferRate() }
+
+        mutating func recordTransfer(_ status: ResumableCopier.Status, at uptime: TimeInterval) {
+            self.status = status
+            if status.checking { resetTransferRate() }
+            else { transferRate.record(bytes: status.transferredBytes, at: uptime) }
+        }
         /// Finished, and past the time in which an unplug could still undo its last files.
         public var confirmed = false
         /// The write session it finished in: only that session can confirm it.
@@ -440,7 +455,7 @@ extension ResumableCopier: CopyQueueCopier {}
         let resuming = progress.started
         progress.started = true; progress.pause = nil; progress.problem = nil; progress.pausedAt = nil
         store.trySave(progress, for: job.id)
-        update(job.id) { $0.progress = progress; $0.running = true }
+        update(job.id) { $0.progress = progress; $0.resetTransferRate(); $0.running = true }
         // A long copy should not slow down with the window closed or let the Mac
         // sleep idly halfway: sleep and unplugging are what interrupts copies.
         if activity == nil {
@@ -477,7 +492,8 @@ extension ResumableCopier: CopyQueueCopier {}
                             let checkedAll = status.checking && status.checkedBytes == status.bytesToCheck
                             guard phaseChanged || checkedAll || Date().timeIntervalSince(lastShown) >= 0.25 else { return }
                             lastShown = Date(); shown = status
-                            Task { @MainActor in self?.live(id) { $0.status = status } }
+                            let uptime = ProcessInfo.processInfo.systemUptime
+                            Task { @MainActor in self?.live(id) { $0.recordTransfer(status, at: uptime) } }
                         })
                     }
                     // Its writes leave the system's cache for the disk, then the disk says how far its journal is.
@@ -499,6 +515,7 @@ extension ResumableCopier: CopyQueueCopier {}
         let present = diskPresent(jobs.first { $0.id == id }?.plan.diskKey ?? "")
         update(id) { job in
             job.running = false
+            job.resetTransferRate()
             job.status.checking = false
             job.status.checkedBytes = 0; job.status.bytesToCheck = 0; job.status.checkingWholeFile = false
             job.status.current = nil

@@ -17,9 +17,20 @@ replacement=false
 private_permissions=false
 physical=false
 daily=false
+store=false
 if (( $# == 1 )) && [[ "$1" == "--daily-write" ]]; then
   extra_flags=(-D VOLISLE_DAILY_WRITES)
   daily=true
+elif (( $# == 1 )) && [[ "$1" == "--store" ]]; then
+  # Mac App Store build: mounted by the system, no background component.
+  # Its read-only fallback relies on requestedMountOptions (26.4): on an older
+  # system the kernel would mount such a volume read-write over a read-only engine.
+  autoload -Uz is-at-least
+  is-at-least 26.4 "$min_macos" || { print -u2 "商店版最低系统不能低于 26.4（VOLISLE_MIN_MACOS=$min_macos）"; exit 1; }
+  extra_flags=(-D VOLISLE_STORE)
+  # No cipher code in the store build: it does not take BitLocker volumes.
+  c_flags=(-DNK_NO_BITLOCKER=1)
+  store=true
 elif (( $# == 2 )) && [[ "$1" == "--physical-test" ]]; then
   python3 scripts/physical_test_binding.py "$2" .workbench/fskit-build/PhysicalTestTarget.swift
   extra_flags=(-D VOLISLE_PHYSICAL_TEST .workbench/fskit-build/PhysicalTestTarget.swift)
@@ -44,6 +55,15 @@ elif (( $# > 0 )); then
     fi
   done
 fi
+# VOLISLE_TEST_CHECKPOINT_FAIL=1: local test candidates only. Creating a file named
+# volisle-test-fail-next-checkpoint makes the next checkpoint fail (NTFSVolume.swift).
+# Store packages and website releases refuse it.
+test_checkpoint_fail=false
+if [[ ${VOLISLE_TEST_CHECKPOINT_FAIL:-} == 1 ]]; then
+  extra_flags+=(-D VOLISLE_TEST_CHECKPOINT_FAIL)
+  test_checkpoint_fail=true
+  print '测试构建：创建 volisle-test-fail-next-checkpoint 会让下一次检查点失败'
+fi
 clang "${c_flags[@]}" -arch arm64 -arch x86_64 -mmacosx-version-min="$min_macos" -c -fPIC -DHAVE_CONFIG_H -I "$source_dir" -I "$source_dir/include" \
   packages/VolisleNTFS/bridge/ntfs_bridge.c -o .workbench/fskit-build/ntfs_bridge.o
 # One slice per architecture (swiftc builds one at a time), then one universal binary.
@@ -61,7 +81,7 @@ lipo -create .workbench/fskit-build/VolisleFS-arm64 .workbench/fskit-build/Volis
 rm .workbench/fskit-build/VolisleFS-arm64 .workbench/fskit-build/VolisleFS-x86_64
 python3 scripts/verify-extension-entry.py
 # Default builds remain read-only; experimental builds bind one tiny fixture.
-python3 - "$#" "$replacement" "$physical" "$daily" "$private_permissions" "$min_macos" <<'PY'
+python3 - "$#" "$replacement" "$physical" "$daily" "$private_permissions" "$min_macos" "$store" "$test_checkpoint_fail" <<'PY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -70,8 +90,10 @@ import sys
 binary = Path('.workbench/fskit-build/VolisleFS')
 receipt = {
     'target': 'arm64+x86_64-apple-macos' + sys.argv[6],
-    'experimental_writes': sys.argv[1] != '0' and sys.argv[4] != 'true',
+    'experimental_writes': sys.argv[1] != '0' and sys.argv[4] != 'true' and sys.argv[7] != 'true',
     'daily_writes': sys.argv[4] == 'true',
+    'store': sys.argv[7] == 'true',
+    'test_checkpoint_fail': sys.argv[8] == 'true',
     'experimental_private_permissions': sys.argv[5] == 'true',
     'experimental_replacement': sys.argv[2] == 'true',
     'entry_point': '_NSExtensionMain',

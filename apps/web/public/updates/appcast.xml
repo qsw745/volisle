@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.9.7</title><pubDate>Thu, 22 Oct 2026 01:08:11 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.9.7
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.9.8</title><pubDate>Thu, 22 Oct 2026 07:45:44 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.9.8
 
-· 修复 NTFS 日志检查失败时错误归因于“未安全弹出”的提示，提供只读检查和诊断指引。
+· 设置中新增菜单栏和 Dock 图标显示开关，可分别隐藏，并记住选择。
+· 隐藏图标后继续在后台运行，可通过应用程序或 Spotlight 重新打开盘屿。
 
-对应源码：https://qisw.top/volisle/updates/Volisle-0.9.7-79-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.9.7
+对应源码：https://qisw.top/volisle/updates/Volisle-0.9.8-80-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.9.8
 
-· Fix misleading NTFS log safety messages and clarify read-only checks and diagnostics.
+· Add independent menu bar and Dock icon visibility settings that remember your choice.
+· Keep running in the background with icons hidden, and reopen Volisle from Applications or Spotlight.
 
-Source code: https://qisw.top/volisle/updates/Volisle-0.9.7-79-source.tar.gz</description><sparkle:version>79</sparkle:version><sparkle:shortVersionString>0.9.7</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.9.7-79-universal.zip" length="10839602" type="application/octet-stream" sparkle:edSignature="ayaGi9FABj//Gfpg0GMDGat1ijqTTnJnblAy6QsCeGEntkmG04d3f5eO/hacZC3q7QOBI4R1wdt0iFNQt2YOAA==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
-edSignature: e6gnsi5x9eV+dlYB5INsdCP2gLSK5R+flPzEHr9riRe1j8tnBPpfVXgvlMCXw/4PJjWbySQ4eUKWGklc3hEmBQ==
-length: 1542
+Source code: https://qisw.top/volisle/updates/Volisle-0.9.8-80-source.tar.gz</description><sparkle:version>80</sparkle:version><sparkle:shortVersionString>0.9.8</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.9.8-80-universal.zip" length="10848698" type="application/octet-stream" sparkle:edSignature="M5hvG4FJCqweksSdl989oIuezivnC9j4yidvtdj11/eZVyGuJjsSMG6T3OiExjr2eOMWrRvx7Q+HJ/1nkkJIDQ==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
+edSignature: sZZh6qjWEviJ3toAYVq7HXFbhu9ZBKcguO7LLBZV2XgP04rqMnlwNP3UJcZz8Ohn2yLUyhfiZA26Nreoc7scBw==
+length: 1718
 -->

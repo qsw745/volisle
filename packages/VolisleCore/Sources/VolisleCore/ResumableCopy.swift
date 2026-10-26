@@ -326,6 +326,8 @@ public struct CopyJobStore: Sendable {
 public final class ResumableCopier: @unchecked Sendable {
     public struct Status: Sendable, Equatable {
         public var copiedBytes: Int64 = 0
+        /// Bytes newly written by this run; excludes restored, skipped and rechecked content.
+        public var transferredBytes: Int64 = 0
         public var current: String?
         /// Comparing what is already on the disk with the source.
         public var checking = false
@@ -615,6 +617,7 @@ public final class ResumableCopier: @unchecked Sendable {
                 let n = buffers.0.withUnsafeBytes { pwrite(target, $0.baseAddress! + written, read - written, off_t(offset) + off_t(written)) }
                 guard n > 0 else { throw CopyError.destination(part, n < 0 ? errno : EIO) }
                 written += n
+                status.transferredBytes += Int64(n)
             }
             offset += Int64(read)
             status.copiedBytes += Int64(read)
