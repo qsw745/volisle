@@ -596,7 +596,8 @@ import Testing
         bench.present = false  // unplugged
         await queue.sessionWillEnd()
         queue.sessionDidEnd(bench.session, cleanly: false)
-        let part = bench.disk.appendingPathComponent("备份/.movie.bin.volisle-part")
+        let owner = try #require(queue.jobs.first { $0.id == plan.id }?.plan.partID)
+        let part = URL(fileURLWithPath: ResumableCopier.partPath(for: bench.disk.appendingPathComponent("备份/movie.bin").path, partID: owner))
         try FileManager.default.createDirectory(at: part.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: part.path) { try Data(count: 4096).write(to: part) }
         await queue.cancel(plan.id)

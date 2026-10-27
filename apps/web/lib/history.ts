@@ -9,6 +9,9 @@ export type PastRelease = {
 };
 
 export const history: PastRelease[] = [
+  { version: '0.9.8', build: 80, date: '2026 年 10 月 22 日', dateEn: 'October 22, 2026',
+    dmg: '/downloads/Volisle-0.9.8-universal.dmg', dmgSize: '12.7 MB', dmgSha256: '1502171daf22149de1685ee9b00e80385746e30afee12795f6450f48d925c8be',
+    source: '/downloads/Volisle-0.9.8-source.tar.gz', sourceSize: '20.3 MB', sourceSha256: '2d9d27aba218a8dae4e4f8ee98f25b32d1741247b2dd38cb3df95bff3024b47a' },
   { version: '0.9.7', build: 79, date: '2026 年 10 月 22 日', dateEn: 'October 22, 2026',
     dmg: '/downloads/Volisle-0.9.7-universal.dmg', dmgSize: '12.7 MB', dmgSha256: '8c7a37ae40feacadaed7b671d34d59c8f83ce3905578deab255f78583d504701',
     source: '/downloads/Volisle-0.9.7-source.tar.gz', sourceSize: '20.3 MB', sourceSha256: 'cc730de265effbe4eb09b70bd4376c11dc6c7435158f10a81f7007d87d4e3b92' },

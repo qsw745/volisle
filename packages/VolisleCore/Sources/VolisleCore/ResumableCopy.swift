@@ -1,6 +1,7 @@
 import Foundation
 import Darwin
 import os
+import CryptoKit
 
 /// One copy onto an NTFS disk that survives unplugging. The plan (what to copy,
 /// in order) is written once; the progress is a small separate record. When the
@@ -25,6 +26,12 @@ public struct CopyPlan: Codable, Sendable, Equatable {
     public let items: [Item]
     public let totalBytes: Int64
     public let created: Date
+    /// New queue jobs own a separate part namespace. Missing in records from older versions.
+    public var partID: UUID? = nil
+
+    func usingOwnedParts() -> CopyPlan {
+        var plan = self; plan.partID = id; return plan
+    }
 
     /// Each folder comes before its contents. Anything that cannot be read is
     /// reported now rather than silently left out of a copy that says "done".
@@ -76,7 +83,8 @@ public struct CopyPlan: Codable, Sendable, Equatable {
     /// Paths stay below the destination and never pass through a copied link,
     /// whatever the record on disk says; the sizes add up.
     func validate() throws {
-        guard !diskKey.isEmpty, destination.isEmpty || Self.safe(destination) else { throw CopyError.invalidPlan }
+        guard !diskKey.isEmpty, destination.isEmpty || Self.safe(destination),
+              partID == nil || partID == id else { throw CopyError.invalidPlan }
         var links = Set<String>()
         var total: Int64 = 0
         for item in items {
@@ -175,6 +183,8 @@ public struct CopyProgress: Codable, Sendable, Equatable {
     /// Last observed transfer count, for display while paused or rechecking.
     /// It is not a resume offset: the disk's actual matching bytes decide that.
     public var observedBytes: Int64?
+    /// Verified bytes retained from existing complete files or unfinished parts in the latest run.
+    public var reusedBytes: Int64?
     /// Device read/write errors (EIO) in a row at item `deviceErrorAt`: a disk
     /// failing at the same place again (bad sectors) gains nothing from
     /// reconnecting. Optional: records written by 0.8.0 have neither.
@@ -253,6 +263,7 @@ public struct CopyJobStore: Sendable {
     public struct Cleanup: Codable, Sendable, Equatable {
         public let diskKey: String
         public var targets: [String]
+        public var partID: UUID? = nil
     }
     let directory: URL
     private static let log = Logger(subsystem: "top.qisw.volisle", category: "copy")
@@ -279,13 +290,14 @@ public struct CopyJobStore: Sendable {
         let file = directory.appendingPathComponent(id.uuidString, isDirectory: true).appendingPathComponent("write-request.json")
         return (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(WriteRequest.self, from: $0) }
     }
-    public func saveCleanups(_ cleanups: [Cleanup]) {
+    @discardableResult public func saveCleanups(_ cleanups: [Cleanup]) -> Bool {
         let file = directory.appendingPathComponent("cleanup.json")
         do {
-            if cleanups.isEmpty { try? FileManager.default.removeItem(at: file); return }
+            if cleanups.isEmpty { try? FileManager.default.removeItem(at: file); return true }
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try JSONEncoder().encode(cleanups).write(to: file, options: .atomic)
-        } catch { Self.log.error("待清理记录未能保存：\(error.localizedDescription, privacy: .public)") }
+            return true
+        } catch { Self.log.error("待清理记录未能保存：\(error.localizedDescription, privacy: .public)"); return false }
     }
     public func loadCleanups() -> [Cleanup] {
         guard let data = try? Data(contentsOf: directory.appendingPathComponent("cleanup.json")),
@@ -328,6 +340,8 @@ public final class ResumableCopier: @unchecked Sendable {
         public var copiedBytes: Int64 = 0
         /// Bytes newly written by this run; excludes restored, skipped and rechecked content.
         public var transferredBytes: Int64 = 0
+        /// Verified existing bytes actually reused by this run, not bytes merely examined.
+        public var reusedBytes: Int64 = 0
         public var current: String?
         /// Comparing what is already on the disk with the source.
         public var checking = false
@@ -369,9 +383,16 @@ public final class ResumableCopier: @unchecked Sendable {
     private var shouldStop: Bool { lock.lock(); defer { lock.unlock() }; return stopRequested }
 
     /// The hidden file a copy of `target` is written to before it takes its name.
-    public static func partPath(for target: String) -> String {
+    public static func partPath(for target: String, partID: UUID? = nil) -> String {
         let folder = (target as NSString).deletingLastPathComponent
         let name = (target as NSString).lastPathComponent
+        if let partID {
+            let suffix = partID.uuidString.lowercased()
+            let part = "." + name + ".volisle-part-" + suffix
+            if part.utf16.count <= 255 { return folder + "/" + part }
+            let hash = SHA256.hash(data: Data(name.utf8)).map { String(format: "%02x", $0) }.joined()
+            return folder + "/.volisle-part-" + suffix + "-" + hash
+        }
         let part = "." + name + ".volisle-part"
         if part.utf16.count <= 255 { return folder + "/" + part }
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
@@ -381,7 +402,7 @@ public final class ResumableCopier: @unchecked Sendable {
 
     /// Removes the part left for `target` (a path below the disk root `root`):
     /// only a part, never through a link or on another file system.
-    public static func removePart(of target: String, root: String) {
+    public static func removePart(of target: String, root: String, partID: UUID? = nil) {
         var rootInfo = stat()
         guard CopyPlan.safe(target), stat(root, &rootInfo) == 0 else { return }
         var current = root
@@ -390,7 +411,7 @@ public final class ResumableCopier: @unchecked Sendable {
             var info = stat()
             guard lstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_dev == rootInfo.st_dev else { return }
         }
-        let part = partPath(for: root + "/" + target)
+        let part = partPath(for: root + "/" + target, partID: partID)
         var info = stat()
         guard lstat(part, &info) == 0, info.st_mode & S_IFMT == S_IFREG || info.st_mode & S_IFMT == S_IFLNK else { return }
         unlink(part)
@@ -403,6 +424,7 @@ public final class ResumableCopier: @unchecked Sendable {
     public func run(from start: CopyProgress, resuming: Bool, save: (CopyProgress) -> Void, report: (Status) -> Void) throws -> CopyProgress {
         var progress = start.sanitized(itemCount: plan.items.count)
         progress.pause = nil; progress.problem = nil; progress.pausedAt = nil; progress.failedAt = nil
+        progress.reusedBytes = 0
         var rootInfo = stat()
         // No root: the disk is gone, which is not a problem with any item.
         guard stat(root.path, &rootInfo) == 0 else { throw CopyError.destination(root.path, ENXIO) }
@@ -451,6 +473,7 @@ public final class ResumableCopier: @unchecked Sendable {
             while oldest < recent.count && now - recent[oldest].at > Self.recheckWindow { oldest += 1 }
             progress.next = max(progress.next, index + 1)
             progress.recheckFrom = oldest < recent.count ? recent[oldest].index : progress.next
+            progress.reusedBytes = status.reusedBytes
             save(progress)
             tick(status, true)
         }
@@ -529,7 +552,7 @@ public final class ResumableCopier: @unchecked Sendable {
             guard info.st_mode & S_IFMT != S_IFDIR else { throw CopyError.destination(path, EISDIR) }
         }
         // Like a file, the new link takes the name in one step.
-        let part = Self.partPath(for: path)
+        let part = Self.partPath(for: path, partID: plan.partID)
         if lstat(part, &info) == 0 {
             guard info.st_mode & S_IFMT != S_IFDIR else { throw CopyError.destination(part, EISDIR) }
             guard onDisk() else { throw CopyError.destination(part, ENXIO) }
@@ -561,7 +584,7 @@ public final class ResumableCopier: @unchecked Sendable {
         // Writing there would empty the very file being copied.
         if exists && targetInfo.st_dev == sourceInfo.st_dev && targetInfo.st_ino == sourceInfo.st_ino { throw CopyError.sameFile(path) }
         if exists && targetInfo.st_mode & S_IFMT == S_IFDIR { throw CopyError.destination(path, EISDIR) }
-        let part = Self.partPath(for: path)
+        let part = Self.partPath(for: path, partID: plan.partID)
 
         // Finished before (or renamed just before a pause) and still whole: only the dates and attributes again.
         if mode != .fresh, exists, targetInfo.st_mode & S_IFMT == S_IFREG, Int64(targetInfo.st_size) == size {
@@ -577,6 +600,7 @@ public final class ResumableCopier: @unchecked Sendable {
                 guard onDisk() else { throw CopyError.destination(part, ENXIO) }
                 unlink(part)
                 status.copiedBytes = before + size
+                status.reusedBytes += size
                 return
             }
         }
@@ -605,6 +629,7 @@ public final class ResumableCopier: @unchecked Sendable {
             if offset > 0 { Self.log.notice("续传：从 \(offset, privacy: .public) 字节接着拷") }
         }
         status.copiedBytes = before + offset
+        status.reusedBytes += offset
         tick(status, true)
         while offset < size {
             if shouldStop { throw CopyError.stopped }

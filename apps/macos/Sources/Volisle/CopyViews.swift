@@ -57,9 +57,13 @@ struct CopyJobsSection: View {
             }
             Text(detail(job)).font(.caption).foregroundStyle(job.progress.pause == .problem ? .red : .secondary).lineLimit(4)
                 .textSelection(.enabled)
-            if job.running && !job.status.checking {
+                .fixedSize(horizontal: false, vertical: true)
+            if job.running {
                 TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                    if let rate = job.transferBytesPerSecond() {
+                    if job.status.checking, let rate = job.comparisonBytesPerSecond() {
+                        Text("核对速度：\(Self.speed(rate))")
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    } else if let rate = job.transferBytesPerSecond() {
                         Text("速度：\(Self.speed(rate))")
                             .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
@@ -74,12 +78,18 @@ struct CopyJobsSection: View {
     }
 
     private func detail(_ job: CopyQueue.Job) -> String {
+        if job.isCancelling { return String(localized: "正在取消，等待当前读写结束后清理未完成部分…") }
+        if job.isPausing { return String(localized: "正在暂停，等待当前读写结束…") }
         let done = Self.size(job.copiedBytes)
         let total = Self.size(job.plan.totalBytes)
         if job.progress.finished {
             let text = job.confirmed ? String(localized: "已拷完 \(total)。")
                 : String(localized: "已拷完 \(total)，正在确认写入（通常半分钟内）。这段时间里拔线，插回后会自动复查补齐；拔线前请先推出。")
             var lines = [text]
+            let reused = min(job.plan.totalBytes, max(0, job.progress.reusedBytes ?? 0))
+            if reused > 0 {
+                lines.insert(String(localized: "已核对并复用已有内容 \(Self.size(reused))，这些内容无需重新传输。"), at: 0)
+            }
             let skipped = job.progress.skipped.count, vanished = job.progress.vanished.count
             if skipped > 0 { lines.append(String(localized: "有 \(skipped) 项按你的选择跳过，没有拷贝。")) }
             if vanished > 0 { lines.append(String(localized: "有 \(vanished) 项的原文件已经不在了，无法复查盘上的那份是否完整。")) }
@@ -91,7 +101,7 @@ struct CopyJobsSection: View {
                 let text = job.status.checkingWholeFile
                     ? String(localized: "正在核对盘上已有的同名文件：\(checked) / \(toCheck)。")
                     : String(localized: "正在核对已拷部分：\(checked) / \(toCheck)。")
-                return [text, String(localized: "上次已拷 \(done) / \(total)。核对完成后会自动继续。")].joined(separator: "\n")
+                return [text, String(localized: "上次已拷 \(done) / \(total)。核对一致的内容会直接复用，其余部分继续拷贝。")].joined(separator: "\n")
             }
             let name = job.status.current.map { ($0 as NSString).lastPathComponent } ?? ""
             return String(localized: "已拷 \(done) / \(total) · \(name)")
@@ -104,6 +114,14 @@ struct CopyJobsSection: View {
             let failed = (job.progress.deviceErrors ?? 0) > 0
                 ? String(localized: "上次写入时这块盘出现读写错误（可能是坏道，或数据线、接口、供电不稳）。") : nil
             return [completed, failed, message].compactMap { $0 }.joined(separator: "\n")
+        }
+        if diskWritable, job.progress.pause == nil || job.progress.pause == .disk {
+            switch job.waitingFor {
+            case .capacity?: return waiting(String(localized: "这块盘已有两个拷贝任务在运行，等待空位…"))
+            case .targetConflict?: return waiting(String(localized: "等待同名文件或重叠目录的前一个任务结束并确认写入；若前一个任务已暂停，请先继续或取消它。"))
+            case .cleanup?: return waiting(String(localized: "正在清理之前任务的未完成部分，稍后开始…"))
+            case nil: break
+            }
         }
         switch job.progress.pause {
         case .disk?:
@@ -142,7 +160,9 @@ struct CopyJobsSection: View {
 
     @ViewBuilder private func buttons(_ job: CopyQueue.Job) -> some View {
         HStack(spacing: 8) {
-            if job.progress.finished {
+            if job.isCancelling || job.isPausing {
+                ProgressView().controlSize(.small)
+            } else if job.progress.finished {
                 if job.confirmed {
                     Button("打开文件") { openCopiedFiles?(job) }
                         .disabled(!diskPresent || openCopiedFiles == nil)
@@ -197,28 +217,68 @@ struct CopyManagerSheet: View {
 
 /// The two panels of "Copy to This Disk": what to copy, then where on the disk.
 @MainActor enum CopyPicker {
-    static func sources() -> [URL]? {
-        let panel = NSOpenPanel()
+    private static var panel: NSOpenPanel?
+    private static var preparing = false
+    private static var sourceDirectory = FileManager.default.homeDirectoryForCurrentUser
+
+    /// Connecting AppKit's panel service belongs to disk setup, not each click.
+    static func prepare() {
+        guard panel == nil, !preparing else { return }
+        preparing = true
+        defer { preparing = false }
+        panel = NSOpenPanel()
+        panel?.animationBehavior = .none
+        panel?.directoryURL = sourceDirectory
+    }
+
+    static func cancel() { if panel?.isVisible == true { panel?.cancel(nil) } }
+
+    static func sources() async -> [URL]? {
+        guard !Task.isCancelled else { return nil }
+        prepare()
+        guard !Task.isCancelled, let panel, !preparing, !panel.isVisible else { return nil }
         panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
+        panel.canCreateDirectories = false
+        // Do not inherit the destination's removable (or now stale) mount.
+        panel.directoryURL = sourceDirectory
         panel.title = String(localized: "选择要拷贝的文件或文件夹")
         panel.prompt = String(localized: "下一步")
-        return panel.runModal() == .OK && !panel.urls.isEmpty ? panel.urls : nil
+        guard await present(panel) == .OK, !panel.urls.isEmpty else { return nil }
+        sourceDirectory = panel.directoryURL ?? sourceDirectory
+        return panel.urls
     }
 
     /// A folder on the disk, as a path below its root ("" for the root), or nil if cancelled.
-    static func destination(root: URL, volumeName: String) throws -> String? {
-        let panel = NSOpenPanel()
+    static func destination(root: URL, volumeName: String) async throws -> String? {
+        guard !Task.isCancelled else { return nil }
+        prepare()
+        guard !Task.isCancelled, let panel, !preparing, !panel.isVisible else { return nil }
         panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = root
         panel.title = String(localized: "选择拷到“\(volumeName)”上的哪个文件夹")
         panel.prompt = String(localized: "拷贝到这里")
-        guard panel.runModal() == .OK, let chosen = panel.url else { return nil }
+        guard await present(panel) == .OK, let chosen = panel.url else { return nil }
         let base = root.resolvingSymlinksInPath().standardizedFileURL.path
         let folder = chosen.resolvingSymlinksInPath().standardizedFileURL.path
         if folder == base { return "" }
         guard folder.hasPrefix(base + "/") else { throw CopyPickerError.outsideDisk(volumeName) }
         return String(folder.dropFirst(base.count + 1))
+    }
+
+    private static func present(_ panel: NSOpenPanel) async -> NSApplication.ModalResponse {
+        guard !Task.isCancelled else { return .cancel }
+        return await withCheckedContinuation { continuation in
+            let finished: (NSApplication.ModalResponse) -> Void = { response in
+                // Fully close before reusing this panel for the destination step.
+                panel.orderOut(nil)
+                continuation.resume(returning: response)
+            }
+            // Consecutive sheets synchronously wait through two transitions.
+            // The standard modeless panel keeps both steps off that wait path;
+            // the caller revalidates the volume/session before doing any work.
+            panel.begin(completionHandler: finished)
+        }
     }
 }
 

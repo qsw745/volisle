@@ -37,6 +37,8 @@ struct MainView: View {
     @State private var staleRepairTarget: CheckMarkerTarget?
     @State private var markerResult: String?
     @State private var showCopies = false
+    @State private var choosingCopy = false
+    @State private var copySelectionTask: Task<Void, Never>?
     @State private var bitLocker = BitLockerController()
     /// A Windows-disk assistant: other file systems belong to Finder and Disk Utility.
     /// NTFS that another driver mounted is listed too, with how to hand it over.
@@ -46,6 +48,10 @@ struct MainView: View {
         discovery.volumes.filter(\.isUnrecognizedWindows).map { $0.identity.connection.uuidString } + [String(describing: helperService.state), "\(showErase)"]
     }
     private var selected: VolumeSnapshot? { volumes.first { $0.id == selection } }
+    private var copyPickerDiskKey: String? {
+        guard let selected, mountCycle.isWritable(selected) else { return nil }
+        return selected.identity.resumeKey
+    }
     private var bottomMessage: String? {
         if windowsLog.phase == .needsVerification { return String(localized: "尚未确认磁盘恢复结果，请保持连接并导出诊断联系支持。") }
         if markerClearer.isWorking { return String(localized: "正在 Mac 上检查磁盘，请勿拔出…") }
@@ -231,7 +237,7 @@ struct MainView: View {
                        unpluggedFromWindows: unpluggedFromWindows(selected), recoverOnMac: { windowsLogTarget = checkTarget(for: selected) },
                        writeRefusal: DailyWriteAvailability.refusal(selected)?.errorDescription,
                        copyJobs: copies.jobs.filter { $0.plan.diskKey == selected.identity.resumeKey },
-                       copies: copies, copyToDisk: { urls in startCopy(to: selected, sources: urls) },
+                       copies: copies, copyToDisk: { urls in startCopy(to: selected, sources: urls) }, choosingCopy: choosingCopy,
                        openCopiedFiles: { job in revealCopy(job, on: selected) },
                        checkDisk: { checkingDisk = selected },
                        writeRecoveryMessage: ownCycleNeedsAttention ? ownCycle?.lastError : nil,
@@ -316,6 +322,8 @@ struct MainView: View {
             }
         }
         .onAppear { selectIfNeeded(volumes.map(\.id)) }
+        .onDisappear { copySelectionTask?.cancel(); CopyPicker.cancel() }
+        .task(id: copyPickerDiskKey) { await prepareCopyPicker() }
         .task(id: bitLockerCandidates) {
             // Erasing creates an empty Windows partition; asking about it could hold the device just as formatting starts.
             guard !showErase else { return }
@@ -325,6 +333,7 @@ struct MainView: View {
         // Disk Arbitration does not report the helper's BitLocker mounts; Finder ejects do reach here.
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in bitLocker.refreshMounts() }
         .onReceive(NotificationCenter.default.publisher(for: .volisleCloseSheetsForQuit)) { _ in
+            copySelectionTask?.cancel(); CopyPicker.cancel()
             showSetup = false; showDetails = false; showCopies = false; checkingDisk = nil
             if !recovering { showRecovery = false }  // erasing closes itself when it is not working
             // Open confirmations hold a quit back as sheets do.
@@ -578,37 +587,59 @@ struct MainView: View {
         }
     }
 
+    private func prepareCopyPicker() async {
+        guard copyPickerDiskKey != nil else { return }
+        await Task.yield()
+        guard !Task.isCancelled, !choosingCopy else { return }
+        choosingCopy = true
+        defer { choosingCopy = false }
+        CopyPicker.prepare()
+    }
+
     /// "Copy to This Disk": what (unless dropped), where on the disk, then queue it.
     private func startCopy(to volume: VolumeSnapshot, sources dropped: [URL]?) {
+        guard !choosingCopy else { return }
         guard let slot = mountCycle.session(for: volume), slot.isWritable(volume),
               let root = slot.writableURL, let session = slot.operation?.id else { return }
         guard let key = volume.identity.resumeKey else { operationError = CopyPickerError.noVolumeID.errorDescription; return }
-        guard let sources = dropped ?? CopyPicker.sources() else { return }
-        let destination: String
-        do {
-            guard let chosen = try CopyPicker.destination(root: root, volumeName: volume.name) else { return }
-            destination = chosen
-        } catch { operationError = error.localizedDescription; return }
-        let folder = destination.isEmpty ? root : root.appendingPathComponent(destination)
-        let targets = sources.map { folder.appendingPathComponent($0.lastPathComponent) }
-        if zip(sources, targets).contains(where: { $0.resolvingSymlinksInPath().path == $1.resolvingSymlinksInPath().path }) {
-            operationError = String(localized: "不能把项目拷贝到它自己所在的位置。")
-            return
-        }
-        let existing = targets.filter { (try? $0.checkResourceIsReachable()) == true || (try? FileManager.default.destinationOfSymbolicLink(atPath: $0.path)) != nil }
-        if let first = existing.first, !Self.confirm(String(localized: "目标文件夹里已有同名项目"),
-            String(localized: "有 \(existing.count) 个同名项目（如“\(first.lastPathComponent)”）。继续会用这次拷贝的内容替换同名文件，同名文件夹会合并。"),
-            action: String(localized: "替换")) { return }
-        Task {
+        choosingCopy = true
+        copySelectionTask = Task {
+            defer { choosingCopy = false; copySelectionTask = nil }
             do {
+                let sources: [URL]
+                if let dropped { sources = dropped }
+                else { guard let chosen = await CopyPicker.sources() else { return }; sources = chosen }
+                try Task.checkCancellation()
+                let sourceRoot = try await slot.verifiedWritableURL(for: volume)
+                try Task.checkCancellation()
+                guard slot.operation?.id == session, sourceRoot == root else { throw VolumeError.identityChanged }
+                guard let destination = try await CopyPicker.destination(root: root, volumeName: volume.name) else { return }
+                try Task.checkCancellation()
+                // The asynchronous picker can outlive a disk or write session.
+                let selectedRoot = try await slot.verifiedWritableURL(for: volume)
+                try Task.checkCancellation()
+                guard slot.operation?.id == session, selectedRoot == root else { throw VolumeError.identityChanged }
+                let folder = destination.isEmpty ? root : root.appendingPathComponent(destination)
+                let targets = sources.map { folder.appendingPathComponent($0.lastPathComponent) }
+                if zip(sources, targets).contains(where: { $0.resolvingSymlinksInPath().path == $1.resolvingSymlinksInPath().path }) {
+                    operationError = String(localized: "不能把项目拷贝到它自己所在的位置。")
+                    return
+                }
+                let existing = targets.filter { (try? $0.checkResourceIsReachable()) == true || (try? FileManager.default.destinationOfSymbolicLink(atPath: $0.path)) != nil }
+                if let first = existing.first, !Self.confirm(String(localized: "目标文件夹里已有同名项目"),
+                    String(localized: "有 \(existing.count) 个同名项目（如“\(first.lastPathComponent)”）。继续会用这次拷贝的内容替换同名文件，同名文件夹会合并。"),
+                    action: String(localized: "替换")) { return }
                 let (plan, available) = try await copies.plan(sources: sources, diskKey: key, volumeName: volume.name, destination: destination, root: root)
+                try Task.checkCancellation()
                 if let available, plan.totalBytes > available, !Self.confirm(String(localized: "盘上的可用空间可能不够"),
                     String(localized: "要拷贝 \(ByteCountFormatter.string(fromByteCount: plan.totalBytes, countStyle: .file))，盘上可用 \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file))。替换同名文件会腾出一些空间；空间不够时拷贝会停下，删掉文件后可以继续。"),
                     action: String(localized: "仍然拷贝")) { return }
                 let verifiedRoot = try await slot.verifiedWritableURL(for: volume)
+                try Task.checkCancellation()
                 guard slot.operation?.id == session, verifiedRoot == root else { throw VolumeError.identityChanged }
                 try await copies.enqueue(plan)
-            } catch { operationError = error.localizedDescription }
+            } catch is CancellationError { }
+            catch { operationError = error.localizedDescription }
         }
     }
 
@@ -670,6 +701,7 @@ struct VolumeDetail: View {
     var copies: CopyQueue? = nil
     /// "Copy to This Disk": nil asks for the items; dropped items come as URLs.
     var copyToDisk: (([URL]?) -> Void)? = nil
+    var choosingCopy = false
     var openCopiedFiles: ((CopyQueue.Job) -> Void)? = nil
     /// Shows the read-write conditions of this disk, one by one.
     var checkDisk: (() -> Void)? = nil
@@ -719,7 +751,7 @@ struct VolumeDetail: View {
                         .keyboardShortcut("o")
                         .buttonStyle(.borderedProminent).disabled(!controlledWrite && (volume.mountURL == nil || busy))
                     if controlledWrite, let copyToDisk {
-                        Button("拷贝到这块盘…", systemImage: "doc.on.doc") { copyToDisk(nil) }
+                        Button("拷贝到这块盘…", systemImage: "doc.on.doc") { copyToDisk(nil) }.disabled(choosingCopy)
                             .help("由盘屿拷贝：拔线后插回，会核对已拷的部分并从断点接着拷。也可以把文件拖到这里。")
                     }
                     if volume.isNTFS && volume.mountState != .readWrite && !requiresVerification && !controlledWrite {

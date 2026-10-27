@@ -3,6 +3,10 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.9 · October 26, 2026</h2><ul>
+<li>New: Live transfer speed for in-app copies. Choose Copy to This Disk or drag files into the Volisle window to see it.</li>
+<li>Speed reflects data transferred over roughly the last three seconds. It hides during pause and comparison, restarts after resuming, and excludes skipped or reused files.</li>
+</ul>
 <h2>0.9.8 · October 22, 2026</h2><ul>
 <li>Add independent menu bar and Dock icon visibility settings that remember your choice.</li>
 <li>Keep running in the background with icons hidden, and reopen Volisle from Applications or Spotlight.</li>

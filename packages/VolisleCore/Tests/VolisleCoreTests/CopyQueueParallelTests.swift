@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import VolisleCore
 
-/// Copies onto different disks run side by side; onto one disk, one at a time.
+/// Copies onto different disks run side by side; conflicting targets stay ordered.
 /// Stopping, pausing or ending the write session of one disk leaves the copy
 /// onto the other alone.
 @MainActor struct CopyQueueParallelTests {
@@ -81,13 +81,15 @@ import Testing
                 "each is confirmed by its own disk's session")
     }
 
-    @Test func aSecondCopyOntoTheSameDiskWaitsForTheFirst() async throws {
+    @Test func aSecondCopyOntoTheSameTargetWaitsUntilTheFirstIsCancelled() async throws {
         let bench = try Bench(), queue = bench.queue(copierFactory: { _, _ in HeldCopy() })
         let first = try await bench.add(queue, to: "A"), second = try await bench.add(queue, to: "A")
         let other = try await bench.add(queue, to: "B")
         try await waitUntil { running(queue, first) && running(queue, other) }
-        #expect(!running(queue, second), "one disk takes one copy at a time")
+        #expect(!running(queue, second), "the same target cannot be written by two jobs")
         await queue.pause(first)
+        #expect(!running(queue, second), "a paused job retains its target")
+        await queue.cancel(first)
         try await waitUntil { running(queue, second) }
         #expect(!running(queue, first) && running(queue, other))
         await queue.sessionWillEnd()

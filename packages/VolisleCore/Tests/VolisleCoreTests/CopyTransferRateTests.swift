@@ -3,6 +3,34 @@ import Testing
 @testable import VolisleCore
 
 struct CopyTransferRateTests {
+    @Test func checkingHasItsOwnSpeedAndRestartsForEachComparison() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source")
+        try Data("source".utf8).write(to: source)
+        let plan = try CopyPlan.make(sources: [source], diskKey: "V", volumeName: "Disk", destination: "")
+        var job = CopyQueue.Job(plan: plan, progress: CopyProgress()); job.running = true
+        job.recordTransfer(.init(current: "source", checking: true, checkedBytes: 0, bytesToCheck: 16_000_000, checkingWholeFile: true), at: 0)
+        #expect(job.comparisonBytesPerSecond(at: 0) == nil)
+        job.recordTransfer(.init(current: "source", checking: true, checkedBytes: 4_000_000, bytesToCheck: 16_000_000, checkingWholeFile: true), at: 1)
+        #expect(job.comparisonBytesPerSecond(at: 1) == 4_000_000)
+        #expect(job.transferBytesPerSecond(at: 1) == nil)
+        // Same path but now comparing its incomplete part: do not reuse the whole-file sample.
+        job.recordTransfer(.init(current: "source", checking: true, checkedBytes: 0, bytesToCheck: 8_000_000), at: 2)
+        #expect(job.comparisonBytesPerSecond(at: 2) == nil)
+        job.recordTransfer(.init(current: "source", checking: true, checkedBytes: 6_000_000, bytesToCheck: 8_000_000), at: 3)
+        #expect(job.comparisonBytesPerSecond(at: 3) == 6_000_000)
+        job.running = false
+        #expect(job.comparisonBytesPerSecond(at: 3) == nil)
+        job.running = true
+        job.recordTransfer(.init(copiedBytes: 8_000_000, transferredBytes: 0, current: "source"), at: 4)
+        #expect(job.comparisonBytesPerSecond(at: 4) == nil)
+        #expect(job.transferBytesPerSecond(at: 4) == nil)
+        job.recordTransfer(.init(copiedBytes: 10_000_000, transferredBytes: 2_000_000, current: "source"), at: 5)
+        #expect(job.transferBytesPerSecond(at: 5) == 2_000_000)
+    }
+
     // Counting the restored offset as new traffic would inflate the first speed.
     @Test func restoredBytesAreOnlyABaseline() {
         var rate = CopyTransferRate()

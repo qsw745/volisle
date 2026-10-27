@@ -232,6 +232,9 @@ import VolisleCore
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Hidden or minimized, the sheet of a running erase no longer holds the quit back.
         if !Self.poweringOff, let busy = QuitGuard.busy { Self.refuseQuit(busy); return .terminateCancel }
+        // Modeless file pickers do not enter the sheet-closing path. Cancel
+        // selection before an update/maintenance operation can defer quitting.
+        NotificationCenter.default.post(name: .volisleCloseSheetsForQuit, object: nil)
         guard let updates, updates.pendingInstall || updates.maintenance.blocking else { return .terminateNow }
         guard !waiting else { return .terminateLater }
         waiting = true

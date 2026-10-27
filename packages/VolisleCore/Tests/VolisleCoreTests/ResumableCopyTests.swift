@@ -6,6 +6,45 @@ import Testing
 /// Copies that survive unplugging: interrupted, the disk "rolled back" (files
 /// cut short, finished files gone or back to an older version), then resumed.
 struct ResumableCopyTests {
+    @Test func reusedPartCountsOnlyTheVerifiedPrefixOfThisRun() throws {
+        let source = try Folder(), disk = try Folder()
+        let data = Self.random(16 << 20)
+        try source.write("part.bin", data)
+        let target = disk.url.appendingPathComponent("part.bin")
+        try Data(data.prefix(5 << 20)).write(to: URL(fileURLWithPath: ResumableCopier.partPath(for: target.path)))
+        let plan = try CopyPlan.make(sources: [source.url.appendingPathComponent("part.bin")], diskKey: "V", volumeName: "Disk", destination: "")
+        var initial = CopyProgress(); initial.started = true; initial.observedBytes = 12 << 20; initial.reusedBytes = 30 << 20
+        var last = ResumableCopier.Status()
+        let result = try ResumableCopier(plan: plan, root: disk.url).run(from: initial, resuming: true, save: { _ in }, report: { last = $0 })
+        #expect(result.reusedBytes == 5 << 20)
+        #expect(last.transferredBytes == 11 << 20)
+        #expect(try Data(contentsOf: target) == data)
+    }
+
+    @Test func resumingPausedOverwriteCanReuseTheExistingCompleteFile() throws {
+        let source = try Folder(), disk = try Folder()
+        let data = Self.random(24 << 20)
+        try source.write("same.bin", data)
+        try disk.write("same.bin", data)
+        let plan = try CopyPlan.make(sources: [source.url.appendingPathComponent("same.bin")], diskKey: "V", volumeName: "Disk", destination: "")
+        var saved = CopyProgress()
+        let first = ResumableCopier(plan: plan, root: disk.url); first.reportInterval = 0
+        #expect(throws: CopyError.stopped) {
+            _ = try first.run(from: CopyProgress(), resuming: false, save: { saved = $0 }, report: {
+                if $0.transferredBytes >= 4 << 20 { first.stop() }
+            })
+        }
+        #expect(saved.observedBytes == 4 << 20)
+        let second = ResumableCopier(plan: plan, root: disk.url)
+        var reports: [ResumableCopier.Status] = []
+        let result = try second.run(from: saved, resuming: true, save: { _ in }, report: { reports.append($0) })
+        #expect(result.finished)
+        #expect(result.reusedBytes == 24 << 20)
+        #expect(reports.contains { $0.checkingWholeFile && $0.checkedBytes == 24 << 20 })
+        #expect(reports.allSatisfy { $0.transferredBytes == 0 })
+        #expect(try Data(contentsOf: disk.url.appendingPathComponent("same.bin")) == data)
+    }
+
     private final class Folder {
         let url: URL
         init() throws {

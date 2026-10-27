@@ -3,6 +3,10 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.9 · 2026 年 10 月 26 日</h2><ul>
+<li>新功能：应用内拷贝显示实时速度；点“拷贝到这块盘…”或把文件拖进盘屿窗口即可查看。</li>
+<li>速度按最近约 3 秒的实际传输量计算，暂停和核对时隐藏；继续拷贝后重新统计，跳过或复用的文件不会计入速度。</li>
+</ul>
 <h2>0.9.8 · 2026 年 10 月 22 日</h2><ul>
 <li>设置中新增菜单栏和 Dock 图标显示开关，可分别隐藏，并记住选择。</li>
 <li>隐藏图标后继续在后台运行，可通过应用程序或 Spotlight 重新打开盘屿。</li>

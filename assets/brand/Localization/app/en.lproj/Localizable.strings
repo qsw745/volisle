@@ -478,7 +478,6 @@
 "已经拷好的文件保留在盘上。没拷完的那个文件会在这块盘下次开启读写时清理掉；盘上原来的同名文件不会被改动。" = "Files already copied stay on the disk. The unfinished file is cleaned up the next time this disk has write access, and a file with the same name that was already on the disk isn’t changed.";
 "正在核对盘上已有的同名文件：%@ / %@。" = "Checking the existing file with the same name: %@ of %@.";
 "正在核对已拷部分：%@ / %@。" = "Checking the copied portion: %@ of %@.";
-"上次已拷 %@ / %@。核对完成后会自动继续。" = "Previously copied %@ of %@. The copy will continue automatically after checking.";
 "核对进度" = "Verification progress";
 "上次已拷 %@ / %@。继续时会核对并续传。" = "Previously copied %@ of %@. The copied portion will be checked before resuming.";
 "已拷 %@ / %@ · %@" = "%@ of %@ copied · %@";
@@ -743,3 +742,11 @@
 "隐藏图标后，盘屿仍在后台运行。可从“应用程序”或 Spotlight 再次打开，查看磁盘状态和处理提示。" = "Volisle keeps running in the background when the icon is hidden. Open it again from Applications or Spotlight to check disk status and any messages.";
 "在 Dock 栏显示图标" = "Show icon in Dock";
 "隐藏 Dock 图标后，盘屿仍在后台运行，也不会出现在 ⌘Tab 切换列表中。可从“应用程序”或 Spotlight 再次打开。" = "Volisle keeps running in the background when the Dock icon is hidden and no longer appears in the ⌘Tab app switcher. Open it again from Applications or Spotlight.";
+"核对速度：%@" = "Comparison speed: %@";
+"已核对并复用已有内容 %@，这些内容无需重新传输。" = "Verified and reused %@ of existing data; it did not need to be transferred again.";
+"上次已拷 %@ / %@。核对一致的内容会直接复用，其余部分继续拷贝。" = "Previously copied %@ / %@. Matching data will be reused; anything still needed will be copied.";
+"正在取消，等待当前读写结束后清理未完成部分…" = "Cancelling; waiting for current I/O to finish before removing incomplete data…";
+"正在暂停，等待当前读写结束…" = "Pausing; waiting for current I/O to finish…";
+"这块盘已有两个拷贝任务在运行，等待空位…" = "Two copy tasks are already running on this disk; waiting for a slot…";
+"等待同名文件或重叠目录的前一个任务结束并确认写入；若前一个任务已暂停，请先继续或取消它。" = "Waiting for the earlier task for the same file or overlapping folder to finish and confirm its writes. If it is paused, resume or cancel it first.";
+"正在清理之前任务的未完成部分，稍后开始…" = "Removing incomplete data from an earlier task; starting shortly…";
