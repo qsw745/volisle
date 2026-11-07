@@ -17,14 +17,25 @@ from pathlib import Path
 
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO, IO
 
+CUSTOM_FIXTURES = bool(os.environ.get('VOLISLE_BDE_NAMES') or os.environ.get('VOLISLE_BDE_FIXTURES'))
+if CUSTOM_FIXTURES and not os.environ.get('VOLISLE_BDE_REPORT'):
+    raise SystemExit('自定义 BitLocker 样本必须指定 VOLISLE_BDE_REPORT，避免覆盖默认验收报告')
+if CUSTOM_FIXTURES and not os.environ.get('VOLISLE_BDE_WRITTEN'):
+    raise SystemExit('自定义 BitLocker 样本必须指定 VOLISLE_BDE_WRITTEN，避免覆盖默认回读镜像')
+
 ELIB = C.CDLL(LIB._name, use_errno=True)
 ELIB.nk_bde_open.argtypes = [C.POINTER(IO), C.c_int, C.c_char_p, C.c_char_p, C.c_size_t]
 ELIB.nk_bde_open.restype = C.c_void_p
 ELIB.nk_bde_io.argtypes = [C.c_void_p]
 ELIB.nk_bde_io.restype = IO
 ELIB.nk_bde_close.argtypes = [C.c_void_p]
-FIXTURES = ROOT / '.workbench/bitlocker-fixtures'
-WRITTEN = ROOT / '.workbench/bitlocker-written'
+FIXTURES = Path(os.environ.get('VOLISLE_BDE_FIXTURES', ROOT / '.workbench/bitlocker-fixtures'))
+WRITTEN = Path(os.environ.get('VOLISLE_BDE_WRITTEN', ROOT / '.workbench/bitlocker-written'))
+assert WRITTEN.resolve().is_relative_to((ROOT / '.workbench').resolve()) and WRITTEN.resolve() != (ROOT / '.workbench').resolve()
+assert not WRITTEN.is_symlink(), '测试输出必须是 .workbench 内的普通目录'
+assert not (FIXTURES.resolve().is_relative_to(WRITTEN.resolve()) or WRITTEN.resolve().is_relative_to(FIXTURES.resolve())), '原始样本与测试输出目录不能相同或互相包含'
+if CUSTOM_FIXTURES:
+    assert WRITTEN.resolve() != (ROOT / '.workbench/bitlocker-written').resolve(), '自定义样本不能覆盖默认回读镜像'
 PASSWORD, RECOVERY = 1, 2
 META_REGION = 65536
 # ctypes only captures errno for its own foreign functions, not for calls through
@@ -89,7 +100,7 @@ def write_file(v, path, data):
     assert LIB.nk_write(v, path.encode(), 0, len(data), data) == len(data), path
 
 
-names = ['xts128', 'xts256', 'cbc128', 'cbc256']
+names = os.environ.get('VOLISLE_BDE_NAMES', 'xts128,xts256,cbc128,cbc256').split(',')
 metas = {n: json.loads((FIXTURES / f'{n}.json').read_text(encoding='utf-8-sig')) for n in names}
 before = {n: digest(FIXTURES / f'{n}.img') for n in names}
 shutil.rmtree(WRITTEN, ignore_errors=True)
@@ -179,7 +190,7 @@ for n in names:
     extra = '再加一行\n'.encode()
     assert LIB.nk_write(v, ('/' + note['path']).encode(), note['size'], len(extra), extra) == len(extra)
     # PowerShell's [Text.Encoding]::UTF8 writes a byte order mark.
-    original_note = b'\xef\xbb\xbf' + f'盘屿 BitLocker 测试 {n}\n'.encode()
+    original_note = b'\xef\xbb\xbf' + f'盘屿 BitLocker 测试 {metas[n]["name"]}\n'.encode()
     assert sha(original_note) == note['sha256']
     assert LIB.nk_create(v, b'/', b'delete-me.tmp') == 0
     write_file(v, '/delete-me.tmp', b'x' * 70000)
@@ -210,11 +221,14 @@ for n in names:
 passed('在加密卷上新建文件夹与中文名文件（9 MiB 与小文件）、改写 Windows 写的文件中段、追加、删除、改名；卸载后卷是干净的，换恢复密钥解锁读回全部一致；元数据与卷头密文不变')
 
 assert all(digest(FIXTURES / f'{n}.img') == before[n] for n in names)
-passed('四块原始加密镜像在全部测试前后逐字节不变')
+passed('所有原始加密镜像在全部测试前后逐字节不变')
 
 (WRITTEN / 'expected.json').write_text(json.dumps(expected, ensure_ascii=False, indent=2) + '\n')
 report = {'generated_at': datetime.now(timezone.utc).isoformat(), 'checks': checks,
           'fixtures': {n: metas[n]['method'] for n in names},
           'scope': 'Windows 11 专业版生成的 BitLocker 镜像副本（160 MB，完全加密）；引擎直接读写；不涉及 FSKit、写入日志或实盘；Windows 回读见 windows-verify'}
-(ROOT / 'docs/testing/bitlocker-write-result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+if CUSTOM_FIXTURES:
+    report['scope'] = '参考实现转换的 NTFS 镜像副本；非 Windows 7 原生样本；引擎直接读写；不涉及 FSKit 或实盘'
+    report['provenance'] = {n: metas[n].get('provenance') for n in names}
+Path(os.environ.get('VOLISLE_BDE_REPORT', ROOT / 'docs/testing/bitlocker-write-result.json')).write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
 print(f'{len(checks)} 项通过')

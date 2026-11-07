@@ -1,5 +1,7 @@
 # 来源与修改记录
 
+2026-11-07 BitLocker 扩散器兼容：`bridge/bitlocker.inc` 按 Ferguson 2006 的公开算法及 libyal BDE 格式说明增加 AES-CBC + Elephant Diffuser 128/256 位实现，使用现有 CommonCrypto；未引入 Dislocker 生产依赖。测试向量由固定 Dislocker 提交 `21ef6e58deb400502121e80fc0dfc7d9974e364f` 的原始函数与 OpenSSL 独立生成，来源、文件哈希及可复现脚本位于 `scripts/bitlocker-fixtures/make-diffuser-vectors.py`。NTFS 集成样本来自现有 Windows 11 CBC 镜像的独立重加密，不能冒充 Windows 7 原生样本；具体验收范围见 `docs/testing/2026-11-07-BitLocker扩散器兼容.md`。
+
 NTFS 桥接来源于 whereteam/ntfskit 的 NTFSModule/bridge/ntfs_bridge.c 与 .h：
 https://github.com/whereteam/ntfskit/tree/b7153a8dd51b895d0a87345c6ad8e95bda963ed3/NTFSModule/bridge
 固定提交：b7153a8dd51b895d0a87345c6ad8e95bda963ed3。

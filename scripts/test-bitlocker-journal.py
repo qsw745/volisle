@@ -19,9 +19,14 @@ from pathlib import Path
 
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO, IO
 
+CUSTOM_FIXTURES = bool(os.environ.get('VOLISLE_BDE_NAMES') or os.environ.get('VOLISLE_BDE_FIXTURES'))
+if CUSTOM_FIXTURES and not os.environ.get('VOLISLE_BDE_REPORT'):
+    raise SystemExit('自定义 BitLocker 样本必须指定 VOLISLE_BDE_REPORT，避免覆盖默认验收报告')
+
 SRC = ROOT / '.workbench/ntfs-3g-2026.9.28'
 OUT = ROOT / '.workbench/write-journal-20260925'
-FIXTURES = ROOT / '.workbench/bitlocker-fixtures'
+FIXTURES = Path(os.environ.get('VOLISLE_BDE_FIXTURES', ROOT / '.workbench/bitlocker-fixtures'))
+assert not (FIXTURES.resolve().is_relative_to(OUT.resolve()) or OUT.resolve().is_relative_to(FIXTURES.resolve())), '原始样本与日志测试构建目录不能相同或互相包含'
 SOURCES = ['MetadataBlocks', 'MetadataWritePipeline', 'WriteJournalStore', 'WriteJournal', 'WriteJournalRecovery']
 PASSWORD = 1
 LIB.nk_bde_open.argtypes = [C.POINTER(IO), C.c_int, C.c_char_p, C.c_char_p, C.c_size_t]
@@ -144,7 +149,7 @@ def ended(journal):
 
 
 build()
-names = ['xts128', 'xts256', 'cbc128', 'cbc256']
+names = os.environ.get('VOLISLE_BDE_NAMES', 'xts128,xts256,cbc128,cbc256').split(',')
 metas = {n: json.loads((FIXTURES / f'{n}.json').read_text(encoding='utf-8-sig')) for n in names}
 originals = {n: (FIXTURES / f'{n}.img').read_bytes() for n in names}
 cases = 0
@@ -257,16 +262,19 @@ with tempfile.TemporaryDirectory(prefix='volisle-bde-journal-', dir=ROOT / '.wor
         cases += 1
         print(f'  {n}：{meta["method"]} 通过（完整会话写入 {writes} 次）', flush=True)
 
-passed('四种加密方式：完整会话提交，记录保留到下次连接确认写入后清除；新文件读回一致；BitLocker 保留区域、卷头与 Windows 的卷标志不变')
+passed('各测试加密方式：完整会话提交，记录保留到下次连接确认写入后清除；新文件读回一致；BitLocker 保留区域、卷头与 Windows 的卷标志不变')
 passed('新建与大文件写入在任意写入点崩溃或半写后，恢复到干净卷，Windows 写的文件完好，下一次会话正常')
 passed('引擎写入中途崩溃、硬盘缓存丢失部分已刷盘数据后，恢复结果同样干净完整')
 passed('正常结束后硬盘缓存丢失最后的写入：下次连接回滚到一致状态；窗口内再次写入接续原会话，中断后一并回滚')
 passed('没有密钥时恢复流程拒绝且零写入、记录保留（中断的和正常结束的都是）；带上密钥后正常恢复')
 assert all((FIXTURES / f'{n}.img').read_bytes() == originals[n] for n in names)
-passed('四块原始加密镜像在全部测试前后逐字节不变')
+passed('所有原始加密镜像在全部测试前后逐字节不变')
 
 report = {'generated_at': datetime.now(timezone.utc).isoformat(), 'checks': checks, 'cases': cases,
           'fixtures': {n: metas[n]['method'] for n in names},
           'scope': '扩展写入日志源码 + 真实引擎，Windows 11 生成的 BitLocker 镜像副本；块设备为测试替身；不涉及 FSKit 或实盘'}
-(ROOT / 'docs/testing/bitlocker-journal-result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+if CUSTOM_FIXTURES:
+    report['scope'] = '扩展写入日志源码 + 真实引擎，参考实现转换的 NTFS 镜像副本；非 Windows 7 原生样本；不涉及 FSKit 或实盘'
+    report['provenance'] = {n: metas[n].get('provenance') for n in names}
+Path(os.environ.get('VOLISLE_BDE_REPORT', ROOT / 'docs/testing/bitlocker-journal-result.json')).write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
 print(f'{len(checks)} 项通过，{cases} 个场景')

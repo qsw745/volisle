@@ -6,11 +6,16 @@ import ctypes as C
 import errno
 import hashlib
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ntfs_bridge_test_support import ROOT, LIB, ImageIO, IO
+
+CUSTOM_FIXTURES = bool(os.environ.get('VOLISLE_BDE_NAMES') or os.environ.get('VOLISLE_BDE_FIXTURES'))
+if CUSTOM_FIXTURES and not os.environ.get('VOLISLE_BDE_REPORT'):
+    raise SystemExit('自定义 BitLocker 样本必须指定 VOLISLE_BDE_REPORT，避免覆盖默认验收报告')
 
 ELIB = C.CDLL(LIB._name, use_errno=True)
 ELIB.nk_bde_probe.argtypes = [C.POINTER(IO)]
@@ -24,7 +29,7 @@ ELIB.nk_bde_derive_key.argtypes = [C.POINTER(IO), C.c_int, C.c_char_p, C.c_char_
 ELIB.nk_bde_derive_key.restype = C.c_int
 LIB.nk_format.argtypes = [C.c_void_p, C.c_char_p, C.c_int, C.c_char_p, C.c_size_t]
 LIB.nk_format.restype = C.c_int
-FIXTURES = ROOT / '.workbench/bitlocker-fixtures'
+FIXTURES = Path(os.environ.get('VOLISLE_BDE_FIXTURES', ROOT / '.workbench/bitlocker-fixtures'))
 PASSWORD, RECOVERY, KEY = 1, 2, 3
 checks = []
 
@@ -68,7 +73,7 @@ def verify(name, kind, secret, files):
     device.close()
 
 
-names = ['xts128', 'xts256', 'cbc128', 'cbc256']
+names = os.environ.get('VOLISLE_BDE_NAMES', 'xts128,xts256,cbc128,cbc256').split(',')
 metas = {n: json.loads((FIXTURES / f'{n}.json').read_text(encoding='utf-8-sig')) for n in names}
 before = {n: digest(FIXTURES / f'{n}.img') for n in names}
 
@@ -76,11 +81,11 @@ for n in names:
     started = time.time()
     verify(n, PASSWORD, metas[n]['password'], metas[n]['files'])
     print(f'  {n}：{metas[n]["method"]}，{time.time() - started:.1f}s', flush=True)
-passed('XTS-AES 128/256 与 AES-CBC 128/256：用密码解锁后只读挂载，中文路径文件与 3 MiB 文件的 SHA-256 与 Windows 一致')
+passed('各测试加密方式：用密码解锁后只读挂载，中文路径文件与 3 MiB 文件的 SHA-256 与 Windows 一致')
 
 for n in names:
     verify(n, RECOVERY, metas[n]['recovery'], metas[n]['files'])
-passed('四块盘都能用 48 位恢复密钥解锁并读出一致的内容')
+passed('所有测试盘都能用 48 位恢复密钥解锁并读出一致的内容')
 
 def derive(device, kind, secret):
     out, err = C.create_string_buffer(65), C.create_string_buffer(96)
@@ -107,10 +112,10 @@ for n in names:
     device.close()
 passed('密码与恢复密钥导出同一把卷主密钥；用主密钥可只读挂载且内容一致；错一位拒绝访问，格式不对参数无效')
 
-device = ImageIO(FIXTURES / 'xts128.img', readonly=True)
+device = ImageIO(FIXTURES / f'{names[0]}.img', readonly=True)
 assert ELIB.nk_bde_probe(C.byref(device.io)) == 1
 assert unlock(device, PASSWORD, 'wrong-password')[1] == errno.EACCES
-recovery = metas['xts128']['recovery']
+recovery = metas[names[0]]['recovery']
 wrong_digit = recovery[:-1] + ('0' if recovery[-1] != '0' else '1')
 assert unlock(device, RECOVERY, wrong_digit)[1] == errno.EACCES, '最后一组不能被 11 整除'
 valid_but_wrong = '-'.join(['000000'] * 8)
@@ -135,10 +140,13 @@ with tempfile.TemporaryDirectory(prefix='volisle-bde-', dir=ROOT / '.workbench')
 passed('普通 NTFS 盘不被识别为 BitLocker，解锁请求被拒绝')
 
 assert all(digest(FIXTURES / f'{n}.img') == before[n] for n in names)
-passed('四块加密镜像在全部测试前后逐字节不变')
+passed('所有加密镜像在全部测试前后逐字节不变')
 
 report = {'generated_at': datetime.now(timezone.utc).isoformat(), 'checks': checks,
           'fixtures': {n: metas[n]['method'] for n in names},
           'scope': 'Windows 11 专业版生成的 BitLocker 镜像（160 MB，完全加密）；只读；不涉及 FSKit 或实盘'}
-(ROOT / 'docs/testing/bitlocker-result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+if CUSTOM_FIXTURES:
+    report['scope'] = '参考实现转换的 NTFS 镜像；非 Windows 7 原生样本；只读；不涉及 FSKit 或实盘'
+    report['provenance'] = {n: metas[n].get('provenance') for n in names}
+Path(os.environ.get('VOLISLE_BDE_REPORT', ROOT / 'docs/testing/bitlocker-result.json')).write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
 print(f'{len(checks)} 项通过')
