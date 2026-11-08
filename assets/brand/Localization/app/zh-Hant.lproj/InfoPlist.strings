@@ -2,3 +2,4 @@
 "CFBundleDisplayName" = "盤嶼";
 "CFBundleName" = "盤嶼";
 "NSRemovableVolumesUsageDescription" = "盤嶼需要取用你選擇的外接硬碟，以檢查磁碟狀態並提供檔案系統服務。只在你選擇啟用讀寫並通過檢查後寫入。";
+"NSPhotoLibraryUsageDescription" = "盤嶼需要讀取你選擇的照片和影片，將未修改的原始檔輸出到所選磁碟，並保留原況照片的圖片和配套影片。";

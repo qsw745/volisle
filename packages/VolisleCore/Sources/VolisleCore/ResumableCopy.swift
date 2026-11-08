@@ -28,6 +28,7 @@ public struct CopyPlan: Codable, Sendable, Equatable {
     public let created: Date
     /// New queue jobs own a separate part namespace. Missing in records from older versions.
     public var partID: UUID? = nil
+    public var photoExport: PhotoExportInfo? = nil
 
     func usingOwnedParts() -> CopyPlan {
         var plan = self; plan.partID = id; return plan
@@ -101,6 +102,7 @@ public struct CopyPlan: Codable, Sendable, Equatable {
             total = sum
         }
         guard total == totalBytes else { throw CopyError.invalidPlan }
+        try photoExport?.validate(items: items)
     }
 
     /// A path that stays below the folder it is relative to.
@@ -422,6 +424,7 @@ public final class ResumableCopier: @unchecked Sendable {
     /// `save` gets the progress after every item, `report` the status a few
     /// times a second. Throws CopyError.
     public func run(from start: CopyProgress, resuming: Bool, save: (CopyProgress) -> Void, report: (Status) -> Void) throws -> CopyProgress {
+        guard plan.photoExport == nil || (start.skipped.isEmpty && start.vanished.isEmpty) else { throw CopyError.invalidPlan }
         var progress = start.sanitized(itemCount: plan.items.count)
         progress.pause = nil; progress.problem = nil; progress.pausedAt = nil; progress.failedAt = nil
         progress.reusedBytes = 0
@@ -458,7 +461,7 @@ public final class ResumableCopier: @unchecked Sendable {
                 let mode: Mode = index < resumeAt ? .recheck : resuming ? .resume : .fresh
                 do {
                     try copy(item, to: base + "/" + item.relative, mode: mode, status: &status, tick: tick)
-                } catch CopyError.source(_, let code) where code == ENOENT && mode == .recheck {
+                } catch CopyError.source(_, let code) where code == ENOENT && mode == .recheck && plan.photoExport == nil {
                     // Copied before; its original is gone since, so there is nothing to check it against.
                     if !progress.vanished.contains(index) { progress.vanished.append(index) }
                     status.copiedBytes += item.size

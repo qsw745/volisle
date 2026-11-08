@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / 'assets/brand/Localization/app'
 
 TERMS = [
+    ('實況照片', '原況照片'),
     ('退出', '結束'), ('推出', '退出'),
     # OpenCC reads the 只 of 只读的 as the measure word 隻.
     ('只讀', '唯讀'), ('隻讀', '唯讀'),

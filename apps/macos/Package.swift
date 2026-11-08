@@ -11,7 +11,7 @@ let package = Package(name: "Volisle", defaultLocalization: "zh-Hans", platforms
     dependencies: [.package(path: "../../packages/VolisleCore")],
     targets: [.executableTarget(name: "Volisle", dependencies: ["VolisleCore"], resources: [.process("Resources")],
                   swiftSettings: [.unsafeFlags(["-F", sparklePath])],
-                  linkerSettings: [.unsafeFlags(["-F", sparklePath, "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]), .linkedFramework("Sparkle")]),
+                  linkerSettings: [.unsafeFlags(["-F", sparklePath, "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]), .linkedFramework("Sparkle"), .linkedFramework("Photos"), .linkedFramework("PhotosUI")]),
               .executableTarget(name: "VolisleProbe", dependencies: ["VolisleCore"]),
               .executableTarget(name: "VolisleMountProbe", dependencies: ["VolisleCore"]),
               .target(name: "VolisleNTFSFormat"),

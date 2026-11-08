@@ -12,6 +12,8 @@ import VolisleCore
     private let helper: HelperServiceController
     private let updates: UpdateMaintenance
     private let copies: CopyQueue
+    private let photoCache = PhotoExportCache.shared
+    private var photoCacheState: [UUID: Bool]?
     /// No idle sleep while a copy runs (a setting, on by default).
     private let sleepGuard = CopySleepGuard()
     private var started = false
@@ -113,6 +115,13 @@ import VolisleCore
         // A disk came back writable (or went away): copies onto it continue or wait.
         Task { await copies.reconcile() }
         sleepGuard.update(copying: copies.jobs.contains(where: \.running))
+        // Retirement must work with the main window closed. Share the cache
+        // actor with preparation so an active bind cannot race this cleanup.
+        let state = Dictionary(uniqueKeysWithValues: copies.jobs.map { ($0.id, $0.confirmed) })
+        if state != photoCacheState {
+            photoCacheState = state
+            Task { try? await photoCache.cleanup() }
+        }
     }
     /// Each session whose disk is gone is wound up on its own, with bounded retries.
     private func scheduleRecoveryIfNeeded(_ volumes: [VolumeSnapshot]) {

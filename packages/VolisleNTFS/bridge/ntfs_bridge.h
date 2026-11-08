@@ -241,11 +241,11 @@ int nk_bitmap_layout(nk_volume *v, long long *cluster_size, long long *clusters,
  * the device. Not thread-safe (mkntfs keeps process-global state). 0 / -1. */
 int nk_format(const nk_io *io, const char *label, int sector_size, char *errbuf, size_t errlen);
 
-/* ---- BitLocker (read-only) ----
+/* ---- BitLocker (AES-XTS / AES-CBC, including Elephant Diffuser) ----
  * nk_bde_probe: 1 if the device carries a BitLocker volume header, 0 if not.
  * nk_bde_open: unlocks with a password or 48-digit recovery password. errno:
- * EACCES wrong or malformed secret, ENOTSUP unsupported (Vista, Elephant
- * Diffuser, not fully encrypted, no such protector), EIO, EINVAL. The secret is
+ * EACCES wrong or malformed secret, ENOTSUP unsupported (Vista metadata,
+ * not fully encrypted, no such protector), EIO, EINVAL. The secret is
  * not retained. nk_bde_io: the decrypted view, same size; writable (writes
  * encrypted in place, reserved BitLocker regions refused with EIO) only when
  * the device under it has pwrite and sync and is not read-only. Valid until

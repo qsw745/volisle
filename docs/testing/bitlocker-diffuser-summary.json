@@ -1,0 +1,52 @@
+{
+  "implementation": "AES-CBC + Elephant Diffuser 128/256, metadata v2, existing nk_io read/write",
+  "independent_reference": "Dislocker 21ef6e58deb400502121e80fc0dfc7d9974e364f + OpenSSL",
+  "vector_cases": 12,
+  "sanitizer_test_groups": 7,
+  "core_swift_tests": 532,
+  "regression_journal_cases": 132,
+  "diffuser_journal_cases": 66,
+  "builds": [
+    "macOS app/helper arm64 + x86_64 release",
+    "FSKit daily-write extension arm64 + x86_64"
+  ],
+  "review": {
+    "independent_review": "no production defect; path containment and empty-manifest issues fixed",
+    "coderabbit": "custom report overwrite and journal path-containment issues fixed; upload failure remains fail-fast (no false success)"
+  },
+  "limitations": [
+    "No Windows 7-created fixture or physical disk test",
+    "No Finder/FSKit live mount test",
+    "Windows 11 rejects rewritten-metadata fixtures, including ordinary CBC rekey control; conversion fixtures cannot establish Windows interoperability",
+    "仅独立兼容测试版；未安装本机应用，未进入正式更新渠道；真实磁盘与 Windows 7 验收仍待完成"
+  ],
+  "status": "已按所有者授权独立发布 0.9.11 兼容测试版 1（86）；真实 Win7 和跨系统验收仍待完成；不推送正式更新",
+  "windows_interop": {
+    "accepted": false,
+    "original_cbc128": "Aes128, 2 protectors, password unlock success",
+    "rewritten_diffuser128": "Unknown, 0 protectors, HRESULT 0x80310033",
+    "rewritten_cbc256_control": "Unknown, 0 protectors, HRESULT 0x80310033",
+    "inference": "Rewritten metadata fixtures remain unvalidated in Windows; does not establish a production sector-transform defect",
+    "logs": [
+      ".workbench/bitlocker-diffuser-tests/windows-baseline.log",
+      ".workbench/bitlocker-diffuser-tests/windows-fresh.log",
+      ".workbench/bitlocker-diffuser-tests/windows-control.log"
+    ]
+  },
+  "prerelease": {
+    "version": "0.9.11",
+    "build": 86,
+    "tag": "v0.9.11-beta.1",
+    "url": "https://github.com/qsw745/volisle/releases/tag/v0.9.11-beta.1",
+    "download_url": "https://github.com/qsw745/volisle/releases/download/v0.9.11-beta.1/Volisle-0.9.11-beta.1-universal.dmg",
+    "published_at": "2026-11-07T12:13:10Z",
+    "prerelease": true,
+    "notarized_and_stapled": true,
+    "anonymous_download_sha256_verified": "4182e62c98dee2defd60e7e71360a5b5dc32fda08199855337ee98f5f60a0555",
+    "anonymous_download_bytes": 12925073,
+    "stable_feed_unchanged": true,
+    "latest_stable": "v0.9.10",
+    "private_source_commit": "3636dcd",
+    "public_source_commit": "5426f5fb0351c048ce8f904a25ab42175d16bfbd"
+  }
+}

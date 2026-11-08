@@ -11,8 +11,9 @@
  * Written from the published format description (libyal "BitLocker Drive
  * Encryption (BDE) format"); crypto primitives come from CommonCrypto.
  *
- * Supported: fully encrypted volumes with AES-XTS 128/256 or AES-CBC 128/256.
- * Refused: partially encrypted/decrypting volumes, Elephant Diffuser (Vista/7),
+ * Supported: fully encrypted volumes with AES-XTS 128/256 or AES-CBC 128/256,
+ * including Windows 7's AES-CBC with Elephant Diffuser.
+ * Refused: partially encrypted/decrypting volumes,
  * Vista-format metadata, TPM-only protectors. Keys are wiped on close.
  */
 #include <CommonCrypto/CommonCrypto.h>
@@ -26,10 +27,11 @@ struct nk_bde {
     int64_t header_offset;     /* where Windows moved the first sectors */
     int64_t header_length;
     int64_t meta[3];           /* FVE metadata block offsets */
-    uint32_t method;           /* 0x8002..0x8005 */
+    uint32_t method;           /* 0x8000..0x8005 */
     CCCryptorRef data_dec;     /* XTS key 1 / CBC key, decrypt */
     CCCryptorRef data_enc;     /* XTS key 1 / CBC key, encrypt */
     CCCryptorRef tweak_enc;    /* XTS key 2 / CBC key (IV), encrypt, ECB */
+    CCCryptorRef diffuser_enc; /* Elephant sector key, encrypt, ECB */
 };
 
 /* Sectors moved per call to the device below. */
@@ -219,6 +221,10 @@ int nk_bde_probe(const nk_io *io) {
 static int bde_set_keys(nk_bde *b, const uint8_t *fvek, size_t len) {
     size_t half = 0;
     switch (b->method) {
+    /* Diffuser key data always reserves 32 bytes for each of FVEK and
+     * TWEAK, even when only 16 bytes of each are used by AES-128. */
+    case 0x8000: half = 16; if (len != 64) return -1; break;
+    case 0x8001: half = 32; if (len != 64) return -1; break;
     case 0x8004: half = 16; if (len < 32) return -1; break;
     case 0x8005: half = 32; if (len < 64) return -1; break;
     case 0x8002: half = 16; if (len < 16) return -1; break;
@@ -232,6 +238,9 @@ static int bde_set_keys(nk_bde *b, const uint8_t *fvek, size_t len) {
     if (CCCryptorCreate(kCCEncrypt, kCCAlgorithmAES, xts ? kCCOptionECBMode : 0, data_key, half, NULL, &b->data_enc) != kCCSuccess)
         return -1;
     if (CCCryptorCreate(kCCEncrypt, kCCAlgorithmAES, kCCOptionECBMode, tweak_key, half, NULL, &b->tweak_enc) != kCCSuccess)
+        return -1;
+    if (b->method <= 0x8001 &&
+        CCCryptorCreate(kCCEncrypt, kCCAlgorithmAES, kCCOptionECBMode, fvek + 32, half, NULL, &b->diffuser_enc) != kCCSuccess)
         return -1;
     return 0;
 }
@@ -277,7 +286,7 @@ static nk_bde *bde_unlock(const nk_io *io, int kind, const char *secret, uint8_t
     uint32_t vmk_method = 0, fvek_method = 0;
     int error = EIO;
     if (!parsed) { snprintf(errbuf, errlen, "no readable metadata (Vista or damaged)"); error = ENOTSUP; goto fail; }
-    if (method < 0x8002 || method > 0x8005) { snprintf(errbuf, errlen, "unsupported method 0x%04x", method); error = ENOTSUP; goto fail; }
+    if (method < 0x8000 || method > 0x8005) { snprintf(errbuf, errlen, "unsupported method 0x%04x", method); error = ENOTSUP; goto fail; }
     if (encrypted != io->size) { snprintf(errbuf, errlen, "not fully encrypted"); error = ENOTSUP; goto fail; }
     int64_t header_length = header_sectors * sector;
     if (header_length <= 0 || header_length > 1024 * 1024 || header_offset <= 0 || header_offset > io->size - header_length) {
@@ -363,6 +372,7 @@ void nk_bde_close(nk_bde *b) {
     if (b->data_dec) CCCryptorRelease(b->data_dec);   /* releases wipe the key schedule */
     if (b->data_enc) CCCryptorRelease(b->data_enc);
     if (b->tweak_enc) CCCryptorRelease(b->tweak_enc);
+    if (b->diffuser_enc) CCCryptorRelease(b->diffuser_enc);
     memset_s(b, sizeof(*b), 0, sizeof(*b));
     free(b);
 }
@@ -372,6 +382,57 @@ static void xts_next(uint8_t t[16]) {
     uint8_t carry = t[15] >> 7;
     for (int i = 15; i > 0; i--) t[i] = (uint8_t)(t[i] << 1 | t[i - 1] >> 7);
     t[0] = (uint8_t)(t[0] << 1 ^ (carry ? 0x87 : 0));
+}
+
+static uint32_t bde_rotl32(uint32_t word, unsigned int bits) {
+    return bits ? (word << bits) | (word >> (32 - bits)) : word;
+}
+
+/* Elephant operates on little-endian words modulo 2^32. Explicit loads keep
+ * unaligned byte buffers valid and avoid host-endian/aliasing assumptions.
+ * Encryption: A then B, subtract in reverse word order. Decryption: B then A,
+ * add in forward word order. The round counts and rotations are from the
+ * published AES-CBC + Elephant Diffuser algorithm (Ferguson, 2006). */
+static void bde_diffuse(uint8_t *sector, size_t bytes, int encrypt) {
+    uint32_t words[4096 / 4];
+    int count = (int)(bytes / 4);
+    const unsigned int rotations[2][4] = {{9, 0, 13, 0}, {0, 10, 0, 25}};
+    for (int i = 0; i < count; i++) words[i] = bde_le32(sector + 4 * i);
+    for (int phase = 0; phase < 2; phase++) {
+        int part = encrypt ? phase : 1 - phase;
+        int cycles = part ? 3 : 5;
+        for (int cycle = 0; cycle < cycles; cycle++) {
+            for (int step = 0; step < count; step++) {
+                int i = encrypt ? count - 1 - step : step;
+                int a = part ? (i + 2) % count : (i + count - 2) % count;
+                int b = part ? (i + 5) % count : (i + count - 5) % count;
+                uint32_t delta = words[a] ^ bde_rotl32(words[b], rotations[part][i % 4]);
+                if (encrypt) words[i] -= delta;
+                else words[i] += delta;
+            }
+        }
+    }
+    for (int i = 0; i < count; i++)
+        for (int j = 0; j < 4; j++) sector[4 * i + j] = (uint8_t)(words[i] >> (8 * j));
+    memset_s(words, sizeof(words), 0, sizeof(words));
+}
+
+/* Sector key = AES-TWEAK(LE128(byte offset)) || AES-TWEAK(offset with its
+ * high byte set to 0x80), repeated over the whole sector. CBC's IV continues
+ * to use FVEK, not TWEAK. `source` is the on-disk position after relocation. */
+static int bde_diffuser_xor(nk_bde *b, uint8_t *sector, int64_t source) {
+    uint8_t counters[32] = {0}, key[32];
+    for (int i = 0; i < 8; i++) counters[i] = counters[16 + i] = (uint8_t)((uint64_t)source >> (8 * i));
+    counters[31] = 0x80;
+    size_t moved = 0;
+    int result = -1;
+    if (CCCryptorUpdate(b->diffuser_enc, counters, sizeof(counters), key, sizeof(key), &moved) == kCCSuccess && moved == sizeof(key)) {
+        for (int i = 0; i < b->sector; i++) sector[i] ^= key[i % 32];
+        result = 0;
+    }
+    memset_s(key, sizeof(key), 0, sizeof(key));
+    memset_s(counters, sizeof(counters), 0, sizeof(counters));
+    return result;
 }
 
 /* Decrypts (encrypt == 0) or encrypts one sector in place; `source` is its
@@ -398,7 +459,15 @@ static int bde_crypt_sector(nk_bde *b, uint8_t *sector, int64_t source, int encr
     }
     for (int i = 0; i < 8; i++) iv[i] = (uint8_t)((uint64_t)source >> (8 * i));
     if (CCCryptorUpdate(b->tweak_enc, iv, 16, t, 16, &moved) || moved != 16) return -1;
+    if (b->diffuser_enc && encrypt) {
+        if (bde_diffuser_xor(b, sector, source)) return -1;
+        bde_diffuse(sector, n, 1);
+    }
     if (CCCryptorReset(data, t) || CCCryptorUpdate(data, sector, n, sector, n, &moved) || moved != n) return -1;
+    if (b->diffuser_enc && !encrypt) {
+        bde_diffuse(sector, n, 0);
+        if (bde_diffuser_xor(b, sector, source)) return -1;
+    }
     return 0;
 }
 

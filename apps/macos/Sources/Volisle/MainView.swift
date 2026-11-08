@@ -39,6 +39,18 @@ struct MainView: View {
     @State private var showCopies = false
     @State private var choosingCopy = false
     @State private var copySelectionTask: Task<Void, Never>?
+    @State private var photos = PhotoLibraryExport()
+    @State private var photoTarget: PhotoTarget?
+    private struct PhotoTarget {
+        let volume: VolumeSnapshot
+        let session: UUID
+    }
+    private var photoTargetAvailable: Bool {
+        guard let target = photoTarget else { return true }
+        return discovery.volumes.contains { $0.id == target.volume.id }
+            && mountCycle.session(for: target.volume)?.operation?.id == target.session
+            && mountCycle.isWritable(target.volume)
+    }
     @State private var bitLocker = BitLockerController()
     /// A Windows-disk assistant: other file systems belong to Finder and Disk Utility.
     /// NTFS that another driver mounted is listed too, with how to hand it over.
@@ -148,7 +160,7 @@ struct MainView: View {
                           markHalfWritten: refusal(for: volume)?.failure == .markHalfWritten)
     }
     private var groups: [String] { Array(Set(volumes.map(\.deviceGroup))).sorted() }
-    var body: some View {
+    private var diskContent: some View {
         // The disk list is the window's main content: keep it visible. macOS 26's
         // reveal animation swaps the sidebar content in abruptly at the end.
         NavigationSplitView(columnVisibility: .constant(.all)) {
@@ -238,6 +250,9 @@ struct MainView: View {
                        writeRefusal: DailyWriteAvailability.refusal(selected)?.errorDescription,
                        copyJobs: copies.jobs.filter { $0.plan.diskKey == selected.identity.resumeKey },
                        copies: copies, copyToDisk: { urls in startCopy(to: selected, sources: urls) }, choosingCopy: choosingCopy,
+                       exportPhotos: { startPhotoExport(to: selected) },
+                       photoPreparation: photoTarget?.volume.id == selected.id && photos.preparing ? photos : nil,
+                       cancelPhotoPreparation: { copySelectionTask?.cancel() },
                        openCopiedFiles: { job in revealCopy(job, on: selected) },
                        checkDisk: { checkingDisk = selected },
                        writeRecoveryMessage: ownCycleNeedsAttention ? ownCycle?.lastError : nil,
@@ -321,8 +336,21 @@ struct MainView: View {
                 .help("磁盘详情与更多操作")
             }
         }
+    }
+
+    var body: some View {
+        diskContent
         .onAppear { selectIfNeeded(volumes.map(\.id)) }
-        .onDisappear { copySelectionTask?.cancel(); CopyPicker.cancel() }
+        .onDisappear { copySelectionTask?.cancel(); CopyPicker.cancel(); photos.finishSelection(nil) }
+        .sheet(isPresented: $photos.showingPicker, onDismiss: { photos.finishSelection(nil) }) {
+            PhotoExportPickerSheet(complete: photos.finishSelection)
+        }
+        .onChange(of: photoTargetAvailable) { _, available in
+            if !available {
+                copySelectionTask?.cancel(); CopyPicker.cancel(); photos.finishSelection(nil)
+                operationError = String(localized: "磁盘已断开或读写状态改变，请重新连接并确认导出状态。")
+            }
+        }
         .task(id: copyPickerDiskKey) { await prepareCopyPicker() }
         .task(id: bitLockerCandidates) {
             // Erasing creates an empty Windows partition; asking about it could hold the device just as formatting starts.
@@ -333,7 +361,7 @@ struct MainView: View {
         // Disk Arbitration does not report the helper's BitLocker mounts; Finder ejects do reach here.
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in bitLocker.refreshMounts() }
         .onReceive(NotificationCenter.default.publisher(for: .volisleCloseSheetsForQuit)) { _ in
-            copySelectionTask?.cancel(); CopyPicker.cancel()
+            copySelectionTask?.cancel(); CopyPicker.cancel(); photos.finishSelection(nil)
             showSetup = false; showDetails = false; showCopies = false; checkingDisk = nil
             if !recovering { showRecovery = false }  // erasing closes itself when it is not working
             // Open confirmations hold a quit back as sheets do.
@@ -643,6 +671,51 @@ struct MainView: View {
         }
     }
 
+    private func startPhotoExport(to volume: VolumeSnapshot) {
+        guard !choosingCopy, let slot = mountCycle.session(for: volume), slot.isWritable(volume),
+              let root = slot.writableURL, let session = slot.operation?.id else { return }
+        guard let key = volume.identity.resumeKey else { operationError = CopyPickerError.noVolumeID.errorDescription; return }
+        choosingCopy = true
+        photoTarget = PhotoTarget(volume: volume, session: session)
+        copySelectionTask = Task {
+            defer { choosingCopy = false; copySelectionTask = nil; photoTarget = nil }
+            var prepared: PhotoExportBatch?
+            do {
+                guard let identifiers = try await photos.choose() else { return }
+                try Task.checkCancellation()
+                guard try await slot.verifiedWritableURL(for: volume) == root, slot.operation?.id == session else { throw VolumeError.identityChanged }
+                guard let destination = try await CopyPicker.destination(root: root, volumeName: volume.name,
+                    action: String(localized: "导出到这里")) else { return }
+                try Task.checkCancellation()
+                guard try await slot.verifiedWritableURL(for: volume) == root, slot.operation?.id == session else { throw VolumeError.identityChanged }
+                let batch = try await photos.prepare(identifiers)
+                prepared = batch
+                try Task.checkCancellation()
+                let folder = destination.isEmpty ? root : root.appendingPathComponent(destination)
+                let target = folder.appendingPathComponent(batch.sourceDirectory.lastPathComponent)
+                guard !FileManager.default.fileExists(atPath: target.path),
+                      (try? FileManager.default.destinationOfSymbolicLink(atPath: target.path)) == nil else { throw CopyError.invalidPlan }
+                let (plan, available) = try await copies.plan(sources: [batch.sourceDirectory], diskKey: key,
+                    volumeName: volume.name, destination: destination, root: root)
+                try Task.checkCancellation()
+                if let available, plan.totalBytes > available { throw CocoaError(.fileWriteOutOfSpace) }
+                let bound = try await photos.cache.bind(batch, to: plan)
+                try Task.checkCancellation()
+                guard try await slot.verifiedWritableURL(for: volume) == root, slot.operation?.id == session else { throw VolumeError.identityChanged }
+                try Task.checkCancellation()
+                try await copies.enqueue(bound)
+            } catch is CancellationError { }
+            catch { operationError = error.localizedDescription }
+            if let batch = prepared {
+                // Bound batches belong to the durable queue even if enqueue was
+                // interrupted. Only raw queue retirement can release that lease.
+                try? await photos.cache.discard(batch)
+                await photos.cache.release(batch)
+                try? await photos.cache.cleanup()
+            }
+        }
+    }
+
     /// Cancel is the default (Return); the action is marked destructive.
     private static func confirm(_ title: String, _ text: String, action: String) -> Bool {
         let alert = NSAlert()
@@ -702,6 +775,9 @@ struct VolumeDetail: View {
     /// "Copy to This Disk": nil asks for the items; dropped items come as URLs.
     var copyToDisk: (([URL]?) -> Void)? = nil
     var choosingCopy = false
+    var exportPhotos: (() -> Void)? = nil
+    var photoPreparation: PhotoLibraryExport? = nil
+    var cancelPhotoPreparation: () -> Void = {}
     var openCopiedFiles: ((CopyQueue.Job) -> Void)? = nil
     /// Shows the read-write conditions of this disk, one by one.
     var checkDisk: (() -> Void)? = nil
@@ -750,10 +826,6 @@ struct VolumeDetail: View {
                     Button("打开 Finder", systemImage: "folder") { openFinder() }
                         .keyboardShortcut("o")
                         .buttonStyle(.borderedProminent).disabled(!controlledWrite && (volume.mountURL == nil || busy))
-                    if controlledWrite, let copyToDisk {
-                        Button("拷贝到这块盘…", systemImage: "doc.on.doc") { copyToDisk(nil) }.disabled(choosingCopy)
-                            .help("由盘屿拷贝：拔线后插回，会核对已拷的部分并从断点接着拷。也可以把文件拖到这里。")
-                    }
                     if volume.isNTFS && volume.mountState != .readWrite && !requiresVerification && !controlledWrite {
                         Button(testDirectory == nil ? "启用读写" : "启用测试读写", systemImage: "lock.open") { enableWriting() }
                             .disabled(busy || waitingFor != nil || checkingEngine || writeRefusal != nil || !capability.available || (!capability.finderReadWrite && testDirectory == nil))
@@ -772,6 +844,22 @@ struct VolumeDetail: View {
                         ProgressView().controlSize(.small).accessibilityLabel("正在操作磁盘")
                     }
                 }.controlSize(.large)
+                if controlledWrite {
+                    HStack(spacing: 12) {
+                        if let copyToDisk {
+                            Button("拷贝到这块盘…", systemImage: "doc.on.doc") { copyToDisk(nil) }
+                                .help("由盘屿拷贝：拔线后插回，会核对已拷的部分并从断点接着拷。也可以把文件拖到这里。")
+                        }
+                        if let exportPhotos {
+                            Button("从相册导出…", systemImage: "photo.on.rectangle.angled", action: exportPhotos)
+                                .help("选择照片和视频，将未修改的原片导出到这块盘。实况照片会同时保留图片和配套视频。")
+                        }
+                    }.controlSize(.large).disabled(choosingCopy)
+                }
+                if let preparation = photoPreparation {
+                    PhotoExportPreparationView(assetCount: preparation.assetCount, completedResources: preparation.completedResources,
+                        resourceCount: preparation.resourceCount, fraction: preparation.fraction, cancel: cancelPhotoPreparation)
+                }
                 if volume.isNTFS, backgroundNeedsAttention {
                     Label(writeRecoveryMessage ?? String(localized: "磁盘当前无法写入，请按恢复提示处理。"), systemImage: "exclamationmark.circle")
                         .font(.callout).foregroundStyle(.orange).textSelection(.enabled)

@@ -3,6 +3,12 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.10 · 2026 年 10 月 27 日</h2><ul>
+<li>支持同一块盘同时运行两个拷贝任务；同名文件和重叠目录自动排队，暂停、继续与取消各自独立。</li>
+<li>改进暂停后继续的进度与速度显示，分别显示核对速度和传输速度，并说明复用的已有内容。</li>
+<li>优化选择源文件和目标位置的响应，减少两步切换等待，独立记住源文件目录。</li>
+<li>加强取消、断盘与重连时的任务保护，避免清理其他任务的未完成文件。</li>
+</ul>
 <h2>0.9.9 · 2026 年 10 月 26 日</h2><ul>
 <li>新功能：应用内拷贝显示实时速度；点“拷贝到这块盘…”或把文件拖进盘屿窗口即可查看。</li>
 <li>速度按最近约 3 秒的实际传输量计算，暂停和核对时隐藏；继续拷贝后重新统计，跳过或复用的文件不会计入速度。</li>

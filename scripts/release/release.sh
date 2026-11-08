@@ -98,6 +98,7 @@ cp $out/update-release/appcast.xml apps/web/public/updates/appcast.xml
 step "6/10 官网页面与暂存"
 dmg=$out/signed-dmg/Volisle-$version-universal.dmg source=$out/package/Volisle-$version-source.tar.gz
 python3 scripts/release/release_web.py website $dmg $source "$notes"
+python3 scripts/release/update-homebrew-tap.py set $version $dmg
 zsh scripts/stage-website-release.sh $out $out/site-stage
 python3 scripts/release/release_web.py history-files $out/site-stage/downloads
 (cd $out/site-stage && find . -type f ! -name MANIFEST.sha256 | LC_ALL=C sort | xargs shasum -a 256 > MANIFEST.sha256)
@@ -120,7 +121,7 @@ step "8/10 上线"
 site_name=$(date +%Y%m%d)-$version-build$build
 previous_site=$(ssh -o BatchMode=yes $VOLISLE_DEPLOY_HOST readlink $VOLISLE_SITE_DIR | xargs basename)
 zsh scripts/deploy-website.sh check $out/site-stage $site_name
-git add apps/web config/release-readiness.json docs/testing
+git add apps/web config/release-readiness.json docs/testing packaging/homebrew
 git commit -qm "chore: 官网与更新目录同步 $version"
 ask "即将把 $version 发布到 https://qisw.top/volisle/ ，老用户会收到更新提示；随后把对应源码快照推送到公开仓库 qsw745/volisle。"
 zsh scripts/deploy-website.sh deploy $out/site-stage $site_name | tail -3
@@ -129,7 +130,7 @@ step "9/10 标签与推送"
 git tag -a v$version $release_commit -m "盘屿 $version（构建 $build）"
 git push -q origin main v$version
 
-step "10/10 公开仓库源码快照"
+step "10/10 公开仓库源码快照与 Homebrew tap"
 # Already live: a failure here only leaves the public repository behind; say how to catch up.
 # The clone goes to a temporary folder outside this repository; macOS clears those.
 public_out=$out/public-snapshot public_clone=$(mktemp -d)/volisle
@@ -141,6 +142,9 @@ if python3 scripts/publish-public.py export v$version --out $public_out \
 else
   print -u2 "⚠️ 公开仓库没有同步（官网发布不受影响）。补做：见 docs/release/自己发布新版本.md「中途出错怎么办」"
 fi
+# Homebrew tap: same rule, the website is already live.
+python3 scripts/release/update-homebrew-tap.py push "volisle $version" \
+  || print -u2 "⚠️ Homebrew tap 没有推送（官网发布不受影响）。补做：python3 scripts/release/update-homebrew-tap.py push \"volisle $version\""
 print "\n✅ 盘屿 $version（构建 $build）已发布。"
 print "   安装包 SHA-256：$(shasum -a 256 $dmg | cut -c1-64)"
 print "   出问题回到上一版：scripts/deploy-website.sh rollback $previous_site"

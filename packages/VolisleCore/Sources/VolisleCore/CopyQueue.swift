@@ -265,7 +265,7 @@ extension ResumableCopier: CopyQueueCopier {}
     /// rechecking, that item lies before `next`.
     public func skip(_ id: UUID) async {
         guard runs[id] == nil, let job = jobs.first(where: { $0.id == id }), !job.isCancelling, !job.progress.finished,
-              let at = job.progress.failedAt, at < job.plan.items.count else { return }
+              job.plan.photoExport == nil, let at = job.progress.failedAt, at < job.plan.items.count else { return }
         guard await removeParts([at], of: job) else { return }
         // Cleanup suspends: a second skip, resume or cancellation may have won meanwhile.
         guard runs[id] == nil, let current = jobs.first(where: { $0.id == id }), !current.isCancelling,

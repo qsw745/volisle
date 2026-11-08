@@ -74,6 +74,7 @@ struct CopyJobsSection: View {
 
     private func title(_ job: CopyQueue.Job) -> String {
         let folder = job.plan.destination.isEmpty ? job.plan.volumeName : (job.plan.destination as NSString).lastPathComponent
+        if let photos = job.plan.photoExport { return String(localized: "导出 \(photos.assetCount) 个照片或视频到“\(folder)”") }
         return String(localized: "拷贝 \(job.topLevelCount) 个项目到“\(folder)”")
     }
 
@@ -175,7 +176,7 @@ struct CopyJobsSection: View {
                 if job.running {
                     Button("暂停") { Task { await queue.pause(job.id) } }
                 } else if job.progress.pause == .problem {
-                    if job.progress.failedAt != nil {
+                    if job.progress.failedAt != nil && job.plan.photoExport == nil {
                         Button("跳过此项") { Task { await queue.skip(job.id) } }.help("不拷这一项，接着拷后面的。")
                     }
                     Button("重试") { Task { await queue.resume(job.id) } }
@@ -249,7 +250,7 @@ struct CopyManagerSheet: View {
     }
 
     /// A folder on the disk, as a path below its root ("" for the root), or nil if cancelled.
-    static func destination(root: URL, volumeName: String) async throws -> String? {
+    static func destination(root: URL, volumeName: String, action: String? = nil) async throws -> String? {
         guard !Task.isCancelled else { return nil }
         prepare()
         guard !Task.isCancelled, let panel, !preparing, !panel.isVisible else { return nil }
@@ -257,7 +258,7 @@ struct CopyManagerSheet: View {
         panel.allowsMultipleSelection = false
         panel.directoryURL = root
         panel.title = String(localized: "选择拷到“\(volumeName)”上的哪个文件夹")
-        panel.prompt = String(localized: "拷贝到这里")
+        panel.prompt = action ?? String(localized: "拷贝到这里")
         guard await present(panel) == .OK, let chosen = panel.url else { return nil }
         let base = root.resolvingSymlinksInPath().standardizedFileURL.path
         let folder = chosen.resolvingSymlinksInPath().standardizedFileURL.path

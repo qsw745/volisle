@@ -42,6 +42,7 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>LSMinimumSystemVersion</key><string>15.4</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSPhotoLibraryUsageDescription</key><string>盘屿需要读取你选择的照片和视频，将未修改的原片导出到所选磁盘，并保留实况照片的图片和配套视频。</string>
 <key>NSRemovableVolumesUsageDescription</key><string>盘屿需要访问你选择的外接硬盘，以检查磁盘状态并提供文件系统服务。只在你选择启用读写并通过检查后写入。</string>
 </dict></plist>
 PLIST

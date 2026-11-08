@@ -127,7 +127,7 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
         case .sameVolumeWriting: String(localized: "另一块和这块一模一样的盘（例如克隆出来的盘）正在读写，两块盘的 NTFS 序列号相同，同一时间只能写其中一块。这块盘保持只读，数据不受影响；先推出另一块再开启读写。")
         case .notBitLocker: String(localized: "这个分区不是 BitLocker 加密分区。")
         case .bitLockerWrongSecret: String(localized: "密码或恢复密钥不正确。")
-        case .bitLockerUnsupported: String(localized: "暂不支持这块盘的加密方式。盘屿可以打开已完成加密、用密码或恢复密钥保护的 BitLocker 盘（XTS-AES、AES-CBC）；Windows 7 默认的“带扩散器的 AES”不支持，正在加密或解密中的盘请等 Windows 完成后再试。")
+        case .bitLockerUnsupported: String(localized: "这块盘的加密格式或解锁方式暂不支持。请确认磁盘已完成加密，并使用密码或 48 位恢复密钥解锁；如果 Windows 正在加密或解密，请等待完成后再试。")
         case .invalidRequest: String(localized: "磁盘检查请求无效。")
         case .protectedMedia: String(localized: "仅支持检查外接 USB 磁盘分区。")
         case .changedMedia: String(localized: "磁盘身份已变化，请刷新后重试。")
