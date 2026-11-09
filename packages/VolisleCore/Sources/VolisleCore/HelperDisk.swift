@@ -147,7 +147,9 @@ public enum HelperDiskFailure: String, Codable, Sendable, LocalizedError {
     /// `mount` reports the file system component's refusal on stderr. Only
     /// these fixed reasons are recognized; nothing else from the text crosses XPC.
     static func mountRefusal(_ stderr: String) -> Self? {
-        guard let line = stderr.split(separator: "\n").first(where: { $0.contains("Operation ended with error:") }) else { return nil }
+        guard let line = stderr.split(separator: "\n").first(where: {
+            $0.contains("Operation ended with error:") || $0.contains("Final mount step ended with error:")
+        }) else { return nil }
         // Reasons the extension tags; the token, not the words around it, decides.
         if line.contains("[journal:unsupportedFormat]") { return .interruptedWriteUnsupportedFormat }
         if line.contains("[journal:foreignChange]") || line.contains("[journal:corrupt]") { return .interruptedWriteUnverified }

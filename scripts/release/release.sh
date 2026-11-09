@@ -26,7 +26,9 @@ trap undo_version EXIT
 # Expected hashes: the extension's declarations, entitlements and the helper's
 # launchd plist must stay byte-identical to the released ones (a change breaks
 # in-place updates until the user logs out). Change them only on purpose.
-EXPECT_DECL=4738df1a5aff8684 EXPECT_APP=e3b0c44298fc1c14 EXPECT_EXT=7765429137f06229 EXPECT_HELPER=e3b0c44298fc1c14 EXPECT_PLIST=78a2800b2a0f3efd
+# The main app intentionally adds Photos Library access for Hardened Runtime.
+# Extension/helper declarations and permissions remain byte-identical.
+EXPECT_DECL=4738df1a5aff8684 EXPECT_APP=photos-only EXPECT_EXT=7765429137f06229 EXPECT_HELPER=e3b0c44298fc1c14 EXPECT_PLIST=78a2800b2a0f3efd
 source scripts/release/local-config.sh   # signing, notarization and server settings
 IDENTITY=$VOLISLE_SIGN_IDENTITY PROFILE=$VOLISLE_PROFILE NOTARY_KEY=$VOLISLE_NOTARY_KEY ISSUER=$VOLISLE_NOTARY_ISSUER
 
@@ -72,7 +74,7 @@ app=apps/macos/build/signed-$tag/top.qisw.volisle.app
 [[ $(plutil -extract CFBundleShortVersionString raw $app/Contents/Info.plist) == $version ]] || { print -u2 '候选包版本号不对'; exit 1; }
 hash16() { shasum -a 256 | cut -c1-16; }
 decl=$(plutil -extract EXAppExtensionAttributes xml1 -o - "$app/Contents/Extensions/VolisleFS.appex/Contents/Info.plist" | hash16)
-e_app=$(codesign -d --entitlements - --xml "$app" 2>/dev/null | hash16)
+e_app=$(codesign -d --entitlements - --xml "$app" 2>/dev/null | python3 -c 'import plistlib,sys; actual=plistlib.loads(sys.stdin.buffer.read()); print("photos-only" if actual=={"com.apple.security.personal-information.photos-library":True} else "unexpected")')
 e_ext=$(codesign -d --entitlements - --xml "$app/Contents/Extensions/VolisleFS.appex" 2>/dev/null | hash16)
 e_helper=$(codesign -d --entitlements - --xml "$app/Contents/Library/LaunchServices/VolisleMountHelper" 2>/dev/null | hash16)
 plist=$(cat "$app/Contents/Library/LaunchDaemons/"*.plist | hash16)

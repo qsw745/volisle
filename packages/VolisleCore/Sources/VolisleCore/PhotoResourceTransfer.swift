@@ -50,6 +50,16 @@ public final class PhotoResourceTransfer: @unchecked Sendable {
     }
     public func cancel() { finish(CancellationError()) }
 
+    /// Build the provider callbacks in this nonisolated type. Closure literals
+    /// made inside a MainActor caller can inherit its executor when passed to
+    /// older Objective-C APIs, then trap on PhotoKit's background fileIO queue.
+    public var dataReceivedHandler: @Sendable (Data) -> Void {
+        { [self] data in append(data) }
+    }
+    public var completionHandler: @Sendable ((any Error)?) -> Void {
+        { [self] error in finish(error) }
+    }
+
     /// Called under lock, so a write failure cannot race a successful finish.
     private func terminateLocked(_ error: (any Error)?) -> Completion {
         ended = true

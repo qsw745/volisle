@@ -56,7 +56,7 @@ def main():
     result = {'success': False, 'operation_id': operation_id, 'detached': False}
     device = None
     started = False
-    mount_path = '/private/var/run/volisle-write-mounts/' + operation_id.lower()
+    mount_path = '/Volumes/.volisle-write-mounts/' + operation_id.lower()
     name = '后台事务-' + uuid.uuid4().hex + '.txt'
     payload = ('后台写入和恢复验收\n' * 4096).encode()
     result['payload_name'] = name

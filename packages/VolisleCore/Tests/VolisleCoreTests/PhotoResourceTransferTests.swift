@@ -3,6 +3,21 @@ import Testing
 @testable import VolisleCore
 
 struct PhotoResourceTransferTests {
+    @Test @MainActor func callbacksCreatedOnMainActorAcceptBackgroundPhotoKitDelivery() async throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: path) }
+        let request = try PhotoResourceTransfer(destination: path, cancelRequest: { _ in })
+        let receive = request.dataReceivedHandler
+        let finish = request.completionHandler
+        try await withCheckedThrowingContinuation { (value: CheckedContinuation<Void, any Error>) in
+            #expect(request.begin(value))
+            DispatchQueue(label: "volisle-test.photos.fileIO").async {
+                receive(Data([1, 2, 255])); receive(Data([0, 3])); finish(nil)
+            }
+        }
+        #expect(try Data(contentsOf: path) == Data([1, 2, 255, 0, 3]))
+    }
+
     @Test func cancellationBeforeRequestRegistrationClosesFileAndCancelsLateID() async throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: path) }

@@ -113,7 +113,7 @@ enum PhotoLibraryExportError: Error, LocalizedError {
             try await withCheckedThrowingContinuation { continuation in
                 guard request.begin(continuation) else { return }
                 let id = PHAssetResourceManager.default().requestData(for: resource, options: options,
-                    dataReceivedHandler: { request.append($0) }, completionHandler: { request.finish($0) })
+                    dataReceivedHandler: request.dataReceivedHandler, completionHandler: request.completionHandler)
                 request.register(id)
             }
         } onCancel: { request.cancel() }

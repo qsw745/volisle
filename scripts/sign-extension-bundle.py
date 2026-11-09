@@ -21,6 +21,22 @@ from physical_test_binding import validate_binding
 from physical_service_policy import capture_service_scope
 
 ROOT = Path(__file__).resolve().parents[1]
+PHOTO_ENTITLEMENT = 'com.apple.security.personal-information.photos-library'
+
+
+def application_entitlements(info):
+    purpose = info.get('NSPhotoLibraryUsageDescription')
+    if not isinstance(purpose, str) or not purpose.strip():
+        raise ValueError('主应用缺少照片用途说明，停止签名')
+    # Required by Hardened Runtime even when the app is not sandboxed.
+    return {PHOTO_ENTITLEMENT: True}
+
+
+def validate_photo_entitlement_scope(application, extension, helper):
+    if application != {PHOTO_ENTITLEMENT: True}:
+        raise ValueError('主应用签入的照片权限缺失或超出允许范围')
+    if PHOTO_ENTITLEMENT in extension or PHOTO_ENTITLEMENT in helper:
+        raise ValueError('照片权限只能签入主应用，不能赋予扩展或后台组件')
 
 
 def validate_profile(profile, team, identifier, certificate_sha1, now=None):
@@ -123,6 +139,7 @@ def main():
     if args.write_service_physical and json.loads(physical_policy.read_text()) != capture_service_scope(physical):
         parser.error('后台实盘连接身份或启动会话已变化')
     app_info = plistlib.loads((source / 'Contents/Info.plist').read_bytes())
+    app_entitlements = application_entitlements(app_info)
     extension_relative = Path('Contents/Extensions/VolisleFS.appex')
     extension_info = plistlib.loads((source / extension_relative / 'Contents/Info.plist').read_bytes())
     if app_info['CFBundleIdentifier'] != bundle_id or extension_info['CFBundleIdentifier'] != extension_id:
@@ -168,7 +185,10 @@ def main():
         for component in ['XPCServices/Downloader.xpc', 'XPCServices/Installer.xpc', 'Autoupdate', 'Updater.app', '../..']:
             subprocess.run(['codesign', '--force', '--options', 'runtime', '--timestamp', '--sign', identity,
                             str((sparkle / component).resolve())], check=True)
-    subprocess.run(['codesign', '--force', '--options', 'runtime', '--timestamp', '--sign', identity, str(output)], check=True)
+    app_entitlement_file = output.parent / 'Volisle.entitlements'
+    app_entitlement_file.write_bytes(plistlib.dumps(app_entitlements))
+    subprocess.run(['codesign', '--force', '--options', 'runtime', '--timestamp', '--sign', identity,
+                    '--entitlements', str(app_entitlement_file), str(output)], check=True)
     subprocess.run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(output)], check=True)
     signed_components = [(output, bundle_id), (extension, extension_id)]
     if helper.exists():
@@ -183,11 +203,18 @@ def main():
                                         capture_output=True, check=True).stdout
     if plistlib.loads(signed_entitlements) != entitlements:
         raise RuntimeError('签入扩展的实际权限不匹配')
+    def actual_entitlements(component):
+        data = subprocess.run(['codesign', '-d', '--entitlements', '-', '--xml', str(component)],
+                              capture_output=True, check=True).stdout
+        return plistlib.loads(data) if data.strip() else {}
+    validate_photo_entitlement_scope(actual_entitlements(output), actual_entitlements(extension),
+                                     actual_entitlements(helper) if helper.exists() else {})
     (output.parent / 'signing-result.json').write_text(json.dumps({
         'team_id': team, 'bundle_id': bundle_id, 'extension_bundle_id': extension_id,
         'signed_at': datetime.now(timezone.utc).isoformat(),
         'codesign_verified': True, 'notarized': False, 'installed': False,
         'signed_entitlements_verified': True, 'hardened_runtime_verified': True,
+        'application_entitlements': app_entitlements,
         'extension_load_verified': False, 'write_mode': 'daily-write-candidate' if args.daily_write else 'physical-test-only' if physical else ('fixture-only' if fixture else 'read-only'),
         'helper_bundled': helper.exists(), 'helper_registered': False, 'helper_disk_operations_available': False,
         'physical_test': physical,

@@ -487,11 +487,11 @@ public extension MountCycleClientBackend {
     }
     public func waitForUpdate() async throws { try await Task.sleep(for: .seconds(1)) }
     public func writeSessionHealth(_ record: HelperMountOperation) async -> WriteSessionHealth {
-        let path = "/private/var/run/volisle-write-mounts/" + record.id.uuidString.lowercased()
         // Off the main thread: the volume answers between its own operations.
         return await Task.detached(priority: .utility) { () -> WriteSessionHealth in
             guard let records = try? SystemMountRecord.current() else { return .writing }
-            guard records.contains(where: { $0.path == path && $0.type == "volisle" }) else { return .gone }
+            guard let path = try? FSKitMountPoint.writePath(record.id, device: "/dev/" + record.disk.bsdName, records: records),
+                  records.contains(where: { $0.path == path && $0.type == "volisle" && $0.source == "/dev/" + record.disk.bsdName }) else { return .gone }
             var value = [UInt8](repeating: 0, count: 16)
             let size = getxattr(path, "top.qisw.volisle.write-state", &value, value.count, 0, 0)
             if size < 0, [ESTALE, ENXIO, ENODEV].contains(errno) { return .extensionEnded }
@@ -499,8 +499,10 @@ public extension MountCycleClientBackend {
         }.value
     }
     public func rolledBackAfterCleanEnd(_ record: HelperMountOperation) async -> Bool {
-        let path = "/private/var/run/volisle-write-mounts/" + record.id.uuidString.lowercased()
         return await Task.detached(priority: .utility) {
+            guard let records = try? SystemMountRecord.current(),
+                  let path = try? FSKitMountPoint.writePath(record.id, device: "/dev/" + record.disk.bsdName, records: records),
+                  records.contains(where: { $0.path == path && $0.type == "volisle" && $0.source == "/dev/" + record.disk.bsdName }) else { return false }
             var value = [UInt8](repeating: 0, count: 16)
             let size = getxattr(path, "top.qisw.volisle.recovery", &value, value.count, 0, 0)
             return size > 0 && String(decoding: value.prefix(size), as: UTF8.self) == "after-end"

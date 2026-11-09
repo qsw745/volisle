@@ -60,8 +60,9 @@ struct WriteFixturePolicy: Codable, Equatable, Sendable {
 struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     func originalDisconnected(_ operation: HelperMountOperation, currentBoot: String) async throws -> Bool {
         let records = try SystemMountRecord.current()
-        let path = point(operation)
-        guard !records.contains(where: { $0.path == path || ($0.type == "volisle" && $0.source == "/dev/" + operation.disk.bsdName) }) else { return false }
+        let paths = FSKitMountPoint.write.candidates(operation.id)
+        guard !records.contains(where: { FSKitMountPoint.write.canonicalPath($0.path).map(paths.contains) == true ||
+            ($0.type == "volisle" && $0.source == "/dev/" + operation.disk.bsdName) }) else { return false }
         if currentBoot != operation.bootSession { return true }
         // Enumerate every IOMedia and look for the recorded registry ID. A
         // registry-ID matching iterator with no result reports itself invalid
@@ -92,8 +93,9 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
               record.bootSession == (try SystemHelperMountService.currentBootSession()) else { throw HelperDiskFailure.busy }
         let disk = record.disk, metadata = try DeviceMetadata.read(record.disk.bsdName)
         guard metadata.registryID == disk.registryID, metadata.byteCount == disk.byteCount else { throw VolumeError.identityChanged }
-        let path = "/private/var/run/volisle-write-mounts/" + record.id.uuidString.lowercased()
-        let records = try SystemMountRecord.current().filter { $0.source == "/dev/" + disk.bsdName || $0.path == path }
+        let all = try SystemMountRecord.current()
+        let path = try FSKitMountPoint.writePath(record.id, device: "/dev/" + disk.bsdName, records: all)
+        let records = all.filter { $0.source == "/dev/" + disk.bsdName || $0.path == path }
         return try verifiedWritableMount(records, device: "/dev/" + disk.bsdName, path: path)
     }
     static func verifiedWritableMount(_ records: [SystemMountRecord], device: String, path: String,
@@ -105,9 +107,10 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         return URL(filePath: path)
     }
     private let readOnly = SystemHelperMountCycleBackend()
-    private let root = "/private/var/run/volisle-write-mounts"
     private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
-    private func point(_ operation: HelperMountOperation) -> String { root + "/" + operation.id.uuidString.lowercased() }
+    private func point(_ operation: HelperMountOperation) throws -> String {
+        try FSKitMountPoint.writePath(operation.id, device: "/dev/" + operation.disk.bsdName, records: SystemMountRecord.current())
+    }
     private struct Scope { let bootSHA256: String?; let option: String }
     private func validate(_ disk: HelperDiskRequest, owner: UInt32? = nil, initial: Bool = false, restoring: Bool = false) throws -> Scope {
         if disk.version == 1 {
@@ -207,12 +210,6 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         return .init(version: disk.version, bsdName: disk.bsdName, registryID: disk.registryID, byteCount: disk.byteCount,
                      bootSHA256: bootHash, effectiveUID: geteuid(), writeAccessAvailable: false, fileSystemHealthChecked: false)
     }
-    private func rootDirectory() throws {
-        if mkdir(root, 0o711) != 0 && errno != EEXIST { throw HelperDiskFailure.unavailable }
-        var info = stat()
-        guard lstat(root, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == 0,
-              info.st_mode & 0o777 == 0o711 else { throw HelperDiskFailure.unavailable }
-    }
     func activateWrite(_ operation: HelperMountOperation) async throws {
         let disk = operation.disk
         let scope = try validate(disk, owner: operation.ownerUID)
@@ -223,9 +220,12 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         let fresh = try await inspect(disk)
         guard fresh.bootSHA256 == inspected else { throw VolumeError.identityChanged }
         guard operation.isWrite, operation.phase == .mountingWrite, try mounts(disk).isEmpty else { throw HelperDiskFailure.busy }
-        try rootDirectory()
-        let path = point(operation)
-        guard mkdir(path, 0o700) == 0, chown(path, operation.ownerUID, gid_t.max) == 0 else { throw HelperDiskFailure.unavailable }
+        let directory = HelperMountDirectory(root: FSKitMountPoint.write.root)
+        try directory.prepare()
+        let mounted = Set(try SystemMountRecord.current().map(\.path))
+        try directory.prune(owner: operation.ownerUID, mounted: mounted)
+        let path = FSKitMountPoint.write.path(operation.id)
+        try directory.createLeaf(operation.id, owner: operation.ownerUID, mounted: mounted)
         _ = try validate(disk, owner: operation.ownerUID)
         // Real USB devices require root to obtain the FSKit block resource.
         // Keep the authenticated user's login context and owned mountpoint;
@@ -295,11 +295,12 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     func writeMountInPlace(_ operation: HelperMountOperation) async -> Bool {
         guard operation.isWrite, let records = try? SystemMountRecord.current() else { return false }
         let ofDevice = records.filter { $0.source == "/dev/" + operation.disk.bsdName }
-        return ofDevice.count == 1 && ofDevice[0].path == point(operation) && ofDevice[0].type == "volisle"
+        guard let path = try? FSKitMountPoint.writePath(operation.id, device: "/dev/" + operation.disk.bsdName, records: records) else { return false }
+        return ofDevice.count == 1 && ofDevice[0].path == path && ofDevice[0].type == "volisle"
     }
     func restoreWrite(_ operation: HelperMountOperation) async throws {
         guard operation.isWrite else { throw HelperDiskFailure.invalidRequest }
-        let disk = operation.disk, path = point(operation)
+        let disk = operation.disk, path = try point(operation)
         _ = try validate(disk, owner: operation.ownerUID, restoring: true)
         // A native copy that slipped in beside (or after) the write mount blocks
         // every check below. A single native mount that a previous attempt already
@@ -327,12 +328,10 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
             }
         }
         guard try !SystemMountRecord.current().contains(where: { $0.path == path }) else { throw HelperDiskFailure.busy }
-        var info = stat()
-        if lstat(path, &info) == 0 {
-            try rootDirectory()
-            guard info.st_mode & S_IFMT == S_IFDIR, [UInt32(0), operation.ownerUID].contains(info.st_uid),
-                  rmdir(path) == 0 else { throw HelperDiskFailure.unavailable }
-        } else if errno != ENOENT { throw HelperDiskFailure.unavailable }
+        let mounted = Set(try SystemMountRecord.current().map { FSKitMountPoint.write.canonicalPath($0.path) ?? $0.path })
+        for root in FSKitMountPoint.write.roots {
+            try HelperMountDirectory(root: root).removeLeaf(operation.id, owner: operation.ownerUID, mounted: mounted)
+        }
         let scope = try validate(disk, owner: operation.ownerUID, restoring: true)
         let remaining = try mounts(disk)
         let mountNative = Self.mountsNativeAfterRestore(operation)
@@ -393,7 +392,7 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     static func mountArguments(for operation: HelperMountOperation, option: String, asOwner: Bool) -> [String] {
         let context = ["asuser", String(operation.ownerUID)]
         let drop = asOwner ? ["/usr/bin/sudo", "-n", "-u", "#" + String(operation.ownerUID), "--"] : []
-        let path = "/private/var/run/volisle-write-mounts/" + operation.id.uuidString.lowercased()
+        let path = FSKitMountPoint.write.path(operation.id)
         return context + drop + ["/sbin/mount", "-F", "-k", "-t", "volisle", "-o", option + ",nosuid,nodev", "/dev/" + operation.disk.bsdName, path]
     }
     static func mountEnvironment(for operation: HelperMountOperation, asOwner: Bool) -> [String: String] {

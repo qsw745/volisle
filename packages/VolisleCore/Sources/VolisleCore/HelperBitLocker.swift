@@ -98,24 +98,21 @@ struct HelperBitLockerReply: Codable, Sendable {
 /// Unlocked volumes live under one root-owned directory, one fresh directory
 /// per mount, so the app can tell them apart from NTFS write mounts.
 public enum BitLockerMountPoint {
-    public static let root = "/private/var/run/volisle-bitlocker"
+    public static let root = FSKitMountPoint.bitLocker.root
     public static func owns(_ path: String) -> Bool {
         canonicalPath(path) != nil
     }
     static func canonicalPath(_ path: String) -> String? {
-        for base in [root, "/var/run/volisle-bitlocker"] {
-            let prefix = base + "/"
-            guard path.hasPrefix(prefix) else { continue }
-            let name = path.dropFirst(prefix.count)
-            guard UUID(uuidString: String(name)) != nil, name == name.lowercased() else { return nil }
-            return root + "/" + name
-        }
-        return nil
+        FSKitMountPoint.bitLocker.canonicalPath(path)
     }
     public static func isReady(_ path: String) -> Bool {
-        guard let path = canonicalPath(path), let pending = try? BitLockerPendingMount(parent: root,
-                                                                                      name: URL(filePath: path).lastPathComponent) else { return false }
+        guard let pending = try? pendingMount(path) else { return false }
         return pending.isReady
+    }
+    static func pendingMount(_ path: String) throws -> BitLockerPendingMount {
+        guard let path = canonicalPath(path) else { throw HelperDiskFailure.invalidRequest }
+        let url = URL(filePath: path)
+        return try BitLockerPendingMount(parent: url.deletingLastPathComponent().path, name: url.lastPathComponent)
     }
 }
 
@@ -229,15 +226,16 @@ enum HelperBitLockerService {
         guard metadata.registryID == request.registryID, metadata.byteCount == request.byteCount else { throw VolumeError.identityChanged }
         let device = "/dev/" + request.bsdName
         guard try !SystemMountRecord.current().contains(where: { $0.source == device }) else { throw VolumeError.busy }
-        try prepareRoot()
-        let path = BitLockerMountPoint.root + "/" + UUID().uuidString.lowercased()
+        try prepareRoot(uid: uid)
+        let id = UUID(), path = FSKitMountPoint.bitLocker.path(id)
         let pending = try BitLockerPendingMount(parent: BitLockerMountPoint.root, name: URL(filePath: path).lastPathComponent)
         try pending.begin()
         // The key is in mount's arguments for the moment it runs; the FSKit
         // module never logs options.
         let command = mountCommand(request, key: key, uid: uid, path: path, writable: writable)
         do {
-            guard mkdir(path, 0o700) == 0, chown(path, uid, gid_t.max) == 0 else { throw HelperDiskFailure.unavailable }
+            try HelperMountDirectory(root: BitLockerMountPoint.root).createLeaf(id, owner: uid,
+                mounted: Set(try SystemMountRecord.current().map(\.path)))
             let loan = command.asOwner ? try SystemHelperWriteMountBackend.DeviceLoan.lend(request.bsdName, to: uid) : nil
             let mount = { try await HelperLaunchctl.run(command.arguments, environment: command.environment) }
             if let loan { try await loan.duringMount(mount) }
@@ -315,13 +313,12 @@ enum HelperBitLockerService {
     }
 
     /// Root-owned, and emptied of directories left by earlier, since unmounted volumes.
-    private static func prepareRoot() throws {
+    private static func prepareRoot(uid: uid_t) throws {
         let root = BitLockerMountPoint.root
-        if mkdir(root, 0o711) != 0 && errno != EEXIST { throw HelperDiskFailure.unavailable }
-        var info = Darwin.stat()
-        guard lstat(root, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == 0,
-              info.st_mode & 0o777 == 0o711 else { throw HelperDiskFailure.unavailable }
+        let directory = HelperMountDirectory(root: root)
+        try directory.prepare()
         let mounted = Set(try SystemMountRecord.current().map { BitLockerMountPoint.canonicalPath($0.path) ?? $0.path })
+        try directory.prune(owner: uid, mounted: mounted)
         for name in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [] {
             if name.hasPrefix(".pending-") {
                 let identifier = String(name.dropFirst(".pending-".count))
@@ -332,13 +329,6 @@ enum HelperBitLockerService {
                 try pending.finish()
                 continue
             }
-            let path = root + "/" + name
-            guard BitLockerMountPoint.owns(path), !mounted.contains(path) else { continue }
-            // A recent one may be another partition's mount point whose mount is
-            // still running (unlocking two at once).
-            var entry = Darwin.stat()
-            guard lstat(path, &entry) == 0, time(nil) - entry.st_birthtimespec.tv_sec > Int(HelperLaunchctl.timeout) + 60 else { continue }
-            rmdir(path)  // only ever removes an empty directory
         }
     }
 }

@@ -2,6 +2,13 @@ import Testing
 @testable import VolisleCore
 
 @Suite struct MountRefusalTests {
+    @Test func recognizesFinalMountStepAndIgnoresCleanupErrors() {
+        let prefix = "mount: Final mount step ended with error: "
+        #expect(HelperDiskFailure.mountRefusal(prefix + "[media:writeProtected]\nmount: Final mount step cleanup ended with error: Invalid argument") == .writeProtected)
+        #expect(HelperDiskFailure.mountRefusal(prefix + "NTFS 卷带有脏标记") == .ntfsDirty)
+        #expect(HelperDiskFailure.mountRefusal(prefix + "Operation not permitted\nmount: Final mount step cleanup ended with error: [media:writeProtected]") == nil)
+        #expect(HelperDiskFailure.mountRefusal(prefix + "Operation not permitted") == nil)
+    }
     @Test func recognizesFileSystemRefusalsFromMountOutput() {
         let prefix = "mount: Operation ended with error: "
         #expect(HelperDiskFailure.mountRefusal(prefix + "NTFS 卷带有脏标记，拒绝可写挂载。\nmount: Unable to invoke task") == .ntfsDirty)
