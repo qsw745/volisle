@@ -104,6 +104,7 @@ struct DeviceMetadata {
     let deviceProtocol: String?
     let whole: Bool?
     let writable: Bool?
+    var volumeName: String? = nil
     static func read(_ name: String) throws -> Self {
         guard let session = DASessionCreate(nil), let disk = DADiskCreateFromBSDName(nil, session, name),
               let description = DADiskCopyDescription(disk) as NSDictionary? else { throw VolumeError.disconnected }
@@ -122,7 +123,8 @@ struct DeviceMetadata {
                      virtual: description[kDADiskDescriptionDeviceProtocolKey] as? String == "Virtual Interface",
                      deviceProtocol: description[kDADiskDescriptionDeviceProtocolKey] as? String,
                      whole: description[kDADiskDescriptionMediaWholeKey] as? Bool,
-                     writable: description[kDADiskDescriptionMediaWritableKey] as? Bool)
+                     writable: description[kDADiskDescriptionMediaWritableKey] as? Bool,
+                     volumeName: description[kDADiskDescriptionVolumeNameKey] as? String)
     }
 }
 

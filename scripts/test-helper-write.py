@@ -56,7 +56,7 @@ def main():
     result = {'success': False, 'operation_id': operation_id, 'detached': False}
     device = None
     started = False
-    mount_path = '/Volumes/.volisle-write-mounts/' + operation_id.lower()
+    mount_path = None
     name = '后台事务-' + uuid.uuid4().hex + '.txt'
     payload = ('后台写入和恢复验收\n' * 4096).encode()
     result['payload_name'] = name
@@ -77,6 +77,11 @@ def main():
         active = wait(operation_id); result['active'] = active
         if active['phase'] != 'writeMounted' or active.get('failure'):
             raise RuntimeError('后台未确认可写挂载')
+        location = active.get('writeLocation') or {}
+        component = location.get('name', '')
+        if not component or component.startswith('.') or '/' in component:
+            raise RuntimeError('后台未提供有效的可见挂载位置')
+        mount_path = '/Volumes/' + component
         if call('--helper-cycle-latest') != active:
             raise RuntimeError('新客户端读取的持久所有权不一致')
         if call(*args_start) != active:

@@ -61,7 +61,7 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     func originalDisconnected(_ operation: HelperMountOperation, currentBoot: String) async throws -> Bool {
         let records = try SystemMountRecord.current()
         let paths = FSKitMountPoint.write.candidates(operation.id)
-        guard !records.contains(where: { FSKitMountPoint.write.canonicalPath($0.path).map(paths.contains) == true ||
+        guard !records.contains(where: { $0.path == operation.writeLocation?.path || FSKitMountPoint.write.canonicalPath($0.path).map(paths.contains) == true ||
             ($0.type == "volisle" && $0.source == "/dev/" + operation.disk.bsdName) }) else { return false }
         if currentBoot != operation.bootSession { return true }
         // Enumerate every IOMedia and look for the recorded registry ID. A
@@ -94,7 +94,7 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         let disk = record.disk, metadata = try DeviceMetadata.read(record.disk.bsdName)
         guard metadata.registryID == disk.registryID, metadata.byteCount == disk.byteCount else { throw VolumeError.identityChanged }
         let all = try SystemMountRecord.current()
-        let path = try FSKitMountPoint.writePath(record.id, device: "/dev/" + disk.bsdName, records: all)
+        let path = try FSKitMountPoint.writePath(record.id, device: "/dev/" + disk.bsdName, records: all, location: record.writeLocation)
         let records = all.filter { $0.source == "/dev/" + disk.bsdName || $0.path == path }
         return try verifiedWritableMount(records, device: "/dev/" + disk.bsdName, path: path)
     }
@@ -109,7 +109,8 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     private let readOnly = SystemHelperMountCycleBackend()
     private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     private func point(_ operation: HelperMountOperation) throws -> String {
-        try FSKitMountPoint.writePath(operation.id, device: "/dev/" + operation.disk.bsdName, records: SystemMountRecord.current())
+        try FSKitMountPoint.writePath(operation.id, device: "/dev/" + operation.disk.bsdName,
+            records: SystemMountRecord.current(), location: operation.writeLocation, allowRestoredNative: true)
     }
     private struct Scope { let bootSHA256: String?; let option: String }
     private func validate(_ disk: HelperDiskRequest, owner: UInt32? = nil, initial: Bool = false, restoring: Bool = false) throws -> Scope {
@@ -210,6 +211,18 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         return .init(version: disk.version, bsdName: disk.bsdName, registryID: disk.registryID, byteCount: disk.byteCount,
                      bootSHA256: bootHash, effectiveUID: geteuid(), writeAccessAvailable: false, fileSystemHealthChecked: false)
     }
+    func reserveWriteLocation(_ operation: HelperMountOperation) async throws -> HelperWriteMountLocation? {
+        _ = try validate(operation.disk, owner: operation.ownerUID)
+        guard operation.isWrite, operation.phase == .inspecting, try mounts(operation.disk).isEmpty else {
+            throw HelperDiskFailure.busy
+        }
+        let metadata = try DeviceMetadata.read(operation.disk.bsdName)
+        guard metadata.registryID == operation.disk.registryID, metadata.byteCount == operation.disk.byteCount else {
+            throw VolumeError.identityChanged
+        }
+        return try VisibleWriteMountDirectory().reserve(label: metadata.volumeName, owner: operation.ownerUID,
+            mounted: Set(SystemMountRecord.current().map(\.path)))
+    }
     func activateWrite(_ operation: HelperMountOperation) async throws {
         let disk = operation.disk
         let scope = try validate(disk, owner: operation.ownerUID)
@@ -220,12 +233,10 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         let fresh = try await inspect(disk)
         guard fresh.bootSHA256 == inspected else { throw VolumeError.identityChanged }
         guard operation.isWrite, operation.phase == .mountingWrite, try mounts(disk).isEmpty else { throw HelperDiskFailure.busy }
-        let directory = HelperMountDirectory(root: FSKitMountPoint.write.root)
-        try directory.prepare()
         let mounted = Set(try SystemMountRecord.current().map(\.path))
-        try directory.prune(owner: operation.ownerUID, mounted: mounted)
-        let path = FSKitMountPoint.write.path(operation.id)
-        try directory.createLeaf(operation.id, owner: operation.ownerUID, mounted: mounted)
+        guard let location = operation.writeLocation else { throw HelperDiskFailure.invalidRequest }
+        try VisibleWriteMountDirectory().verify(location, owner: operation.ownerUID, mounted: mounted)
+        let path = location.path
         _ = try validate(disk, owner: operation.ownerUID)
         // Real USB devices require root to obtain the FSKit block resource.
         // Keep the authenticated user's login context and owned mountpoint;
@@ -295,7 +306,7 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     func writeMountInPlace(_ operation: HelperMountOperation) async -> Bool {
         guard operation.isWrite, let records = try? SystemMountRecord.current() else { return false }
         let ofDevice = records.filter { $0.source == "/dev/" + operation.disk.bsdName }
-        guard let path = try? FSKitMountPoint.writePath(operation.id, device: "/dev/" + operation.disk.bsdName, records: records) else { return false }
+        guard let path = try? FSKitMountPoint.writePath(operation.id, device: "/dev/" + operation.disk.bsdName, records: records, location: operation.writeLocation) else { return false }
         return ofDevice.count == 1 && ofDevice[0].path == path && ofDevice[0].type == "volisle"
     }
     func restoreWrite(_ operation: HelperMountOperation) async throws {
@@ -309,13 +320,13 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
         let strays = Self.strayNativeMounts(ofDevice, device: "/dev/" + disk.bsdName, keeping: path)
         // The only mount left is macOS's own read-only one and that is where this
         // restore ends anyway: keep it (unmounting it failed while Spotlight held it).
-        let nativeIsGoal = ofDevice.count == 1 && strays.count == 1 && Self.mountsNativeAfterRestore(operation)
+        let nativeIsGoal = Self.nativeRestoreIsGoal(ofDevice, operation: operation)
         if !strays.isEmpty, !nativeIsGoal, ofDevice.count > 1 || !operation.restoreRequired {
             if try removeStrayNativeMounts(disk, keeping: path) == .busy { throw HelperDiskFailure.busy }
         }
         let records = try mounts(disk)
         let atPoint = try SystemMountRecord.current().filter { $0.path == path }
-        if !atPoint.isEmpty {
+        if !atPoint.isEmpty && !nativeIsGoal {
             guard atPoint.count == 1, records.count == 1, atPoint[0].source == "/dev/" + disk.bsdName,
                   atPoint[0].type == "volisle" else { throw HelperDiskFailure.busy }
             do { try await NativeReadOnlyDisk(bsdName: disk.bsdName, registryID: disk.registryID).unmount() }
@@ -327,8 +338,13 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
                     .notice("写入会话已因设备错误停止，强制卸载读写挂载；恢复记录留待下次连接时回滚")
             }
         }
-        guard try !SystemMountRecord.current().contains(where: { $0.path == path }) else { throw HelperDiskFailure.busy }
+        if !nativeIsGoal {
+            guard try !SystemMountRecord.current().contains(where: { $0.path == path }) else { throw HelperDiskFailure.busy }
+        }
         let mounted = Set(try SystemMountRecord.current().map { FSKitMountPoint.write.canonicalPath($0.path) ?? $0.path })
+        if let location = operation.writeLocation, !(nativeIsGoal && mounted.contains(location.path)) {
+            try VisibleWriteMountDirectory().remove(location, owner: operation.ownerUID, mounted: mounted)
+        }
         for root in FSKitMountPoint.write.roots {
             try HelperMountDirectory(root: root).removeLeaf(operation.id, owner: operation.ownerUID, mounted: mounted)
         }
@@ -376,6 +392,10 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     static func mountsNativeAfterRestore(_ operation: HelperMountOperation) -> Bool {
         operation.restoreRequired || operation.failure != nil
     }
+    static func nativeRestoreIsGoal(_ records: [SystemMountRecord], operation: HelperMountOperation) -> Bool {
+        records.count == 1 && records[0].source == "/dev/" + operation.disk.bsdName &&
+        records[0].type == "ntfs" && records[0].flags & UInt32(MNT_RDONLY) != 0 && mountsNativeAfterRestore(operation)
+    }
     /// Run as root, mount(8) finds the invoking user's FSKit modules through
     /// SUDO_UID only from macOS 26. On macOS 15 it looks at root's own modules
     /// (none) and gives up before probing ("Unable to invoke task"). There the
@@ -392,7 +412,7 @@ struct SystemHelperWriteMountBackend: HelperWritableMountBackend {
     static func mountArguments(for operation: HelperMountOperation, option: String, asOwner: Bool) -> [String] {
         let context = ["asuser", String(operation.ownerUID)]
         let drop = asOwner ? ["/usr/bin/sudo", "-n", "-u", "#" + String(operation.ownerUID), "--"] : []
-        let path = FSKitMountPoint.write.path(operation.id)
+        let path = operation.writeLocation?.path ?? FSKitMountPoint.write.path(operation.id)
         return context + drop + ["/sbin/mount", "-F", "-k", "-t", "volisle", "-o", option + ",nosuid,nodev", "/dev/" + operation.disk.bsdName, path]
     }
     static func mountEnvironment(for operation: HelperMountOperation, asOwner: Bool) -> [String: String] {

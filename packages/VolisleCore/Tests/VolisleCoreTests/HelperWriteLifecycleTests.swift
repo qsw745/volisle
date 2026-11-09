@@ -45,6 +45,7 @@ struct HelperWriteLifecycleTests {
         let record = try await wait(service, id: id)
         #expect(record.phase == .writeMounted)
         #expect(record.isWrite)
+        #expect(record.writeLocation?.path == "/Volumes/测试卷")
         #expect(try journal.read() == record)
         #expect(await backend.state == .readWrite)
         await #expect(throws: (any Error).self) { try await service.quiesce() }
@@ -75,6 +76,7 @@ struct HelperWriteLifecycleTests {
         #expect(try await wait(restarted, id: id).phase == .finished)
         #expect(await backend.writeCount == 1)
         #expect(await backend.restoredID == id)
+        #expect(await backend.restoredLocation?.path == "/Volumes/测试卷")
     }
     @Test func writableMountFailureAlwaysEntersWriteAwareRecovery() async throws {
         let journal = try journal(); defer { try? FileManager.default.removeItem(at: journal.directory) }
@@ -179,6 +181,7 @@ private actor WriteDisk: HelperWritableMountBackend {
     var writeCount = 0
     var restoreWriteCount = 0
     var restoredID: UUID?
+    var restoredLocation: HelperWriteMountLocation?
     let failAfterMount: Bool
     var failRestore: Bool
     init(journal: HelperMountJournal, failAfterMount: Bool = false, failRestore: Bool = false) {
@@ -206,9 +209,14 @@ private actor WriteDisk: HelperWritableMountBackend {
         .init(version: 1, bsdName: disk.bsdName, registryID: disk.registryID, byteCount: disk.byteCount,
               bootSHA256: String(repeating: "a", count: 64), effectiveUID: 0, writeAccessAvailable: false, fileSystemHealthChecked: false)
     }
+    func reserveWriteLocation(_ operation: HelperMountOperation) throws -> HelperWriteMountLocation? {
+        guard operation.phase == .inspecting, state == .unmounted else { throw HelperDiskFailure.invalidRequest }
+        return .init(name: "测试卷", device: 1, inode: 2)
+    }
     func activateWrite(_ operation: HelperMountOperation) throws {
         guard let saved = try journal.read(), saved.phase == .mountingWrite, saved.isWrite,
-              saved.id == operation.id, saved.ownerUID == 501, state == .unmounted else { throw HelperDiskFailure.invalidRequest }
+              saved.id == operation.id, saved.ownerUID == 501, state == .unmounted,
+              saved.writeLocation?.path == "/Volumes/测试卷", saved.writeLocation == operation.writeLocation else { throw HelperDiskFailure.invalidRequest }
         state = .readWrite; writeCount += 1
         if failAfterMount { throw HelperDiskFailure.unavailable }
     }
@@ -217,7 +225,8 @@ private actor WriteDisk: HelperWritableMountBackend {
               saved.disk == operation.disk else { throw HelperDiskFailure.invalidRequest }
         restoreWriteCount += 1
         if failRestore { throw HelperDiskFailure.busy }
-        restoredID = operation.id; state = operation.restoreRequired ? .readOnly : .unmounted
+        restoredID = operation.id; restoredLocation = operation.writeLocation
+        state = operation.restoreRequired ? .readOnly : .unmounted
     }
     func restore(_ disk: HelperDiskRequest, originallyMounted: Bool) throws {
         guard state != .readWrite else { throw HelperDiskFailure.busy }

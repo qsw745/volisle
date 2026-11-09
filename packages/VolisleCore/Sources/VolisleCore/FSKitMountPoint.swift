@@ -30,13 +30,19 @@ enum FSKitMountPoint: CaseIterable {
         }
         return nil
     }
-    static func writePath(_ id: UUID, device: String, records: [SystemMountRecord]) throws -> String {
+    static func writePath(_ id: UUID, device: String, records: [SystemMountRecord], location: HelperWriteMountLocation? = nil,
+                          allowRestoredNative: Bool = false) throws -> String {
+        try location?.validate()
         let candidates = Self.write.candidates(id)
-        let atPoint = records.filter { Self.write.canonicalPath($0.path).map(candidates.contains) == true }
-        guard atPoint.count <= 1, atPoint.allSatisfy({ $0.source == device && $0.type == "volisle" }),
+        func matches(_ path: String) -> Bool {
+            (location != nil && path == location?.path) || Self.write.canonicalPath(path).map(candidates.contains) == true
+        }
+        let atPoint = records.filter { matches($0.path) }
+        guard atPoint.count <= 1, atPoint.allSatisfy({ $0.source == device && ($0.type == "volisle" ||
+            (allowRestoredNative && $0.path == location?.path && $0.type == "ntfs" && $0.flags & UInt32(MNT_RDONLY) != 0)) }),
               !records.contains(where: { $0.source == device && $0.type == "volisle" &&
-                  Self.write.canonicalPath($0.path).map(candidates.contains) != true }) else { throw HelperDiskFailure.busy }
-        return atPoint.first?.path ?? Self.write.path(id)
+                  !matches($0.path) }) else { throw HelperDiskFailure.busy }
+        return atPoint.first?.path ?? location?.path ?? Self.write.path(id)
     }
 }
 

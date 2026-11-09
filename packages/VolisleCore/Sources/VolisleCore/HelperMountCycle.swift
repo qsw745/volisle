@@ -26,11 +26,17 @@ public struct HelperMountOperation: Codable, Equatable, Sendable {
     public var purpose: HelperMountPurpose? = nil
     /// Start order among the daemon's records; absent (0) in records before 0.9.
     public var sequence: UInt64? = nil
+    /// Absent in pre-92 records, whose UUID mountpoints remain recoverable.
+    var writeLocation: HelperWriteMountLocation? = nil
     public var isWrite: Bool { purpose == .readWrite }
     func validate() throws {
         _ = try HelperDiskRequest.decode(JSONEncoder().encode(disk))
         guard ownerUID != 0, ownerUID != .max, !bootSession.isEmpty, bootSession.utf8.count <= 128 else {
             throw HelperServiceError.invalidReply
+        }
+        if let writeLocation {
+            guard isWrite else { throw HelperServiceError.invalidReply }
+            try writeLocation.validate()
         }
         if phase == .mountingWrite || phase == .writeMounted {
             guard isWrite, report != nil else { throw HelperServiceError.invalidReply }
@@ -63,6 +69,7 @@ extension HelperMountCycleBackend {
 /// claim. No client-provided path, shell command or mount options are accepted.
 protocol HelperWritableMountBackend: HelperMountCycleBackend {
     func prepareWrite(_ disk: HelperDiskRequest, id: UUID, uid: UInt32) async throws -> Bool
+    func reserveWriteLocation(_ operation: HelperMountOperation) async throws -> HelperWriteMountLocation?
     /// Recheck identity, perform authoritative NTFS preflight, mount at the
     /// operation-owned location, and independently verify the writable mount.
     func activateWrite(_ operation: HelperMountOperation) async throws
@@ -75,6 +82,7 @@ protocol HelperWritableMountBackend: HelperMountCycleBackend {
 }
 
 extension HelperWritableMountBackend {
+    func reserveWriteLocation(_ operation: HelperMountOperation) async throws -> HelperWriteMountLocation? { nil }
     func writeMountInPlace(_ operation: HelperMountOperation) async -> Bool { false }
 }
 
@@ -279,7 +287,9 @@ actor HelperMountCycleService {
                 guard !unfinished.contains(where: { $0.id != id && $0.isWrite && $0.report?.bootSHA256 == report.bootSHA256 }) else {
                     throw HelperDiskFailure.sameVolumeWriting
                 }
-                try change(id, to: .mountingWrite)
+                let location = try await writable.reserveWriteLocation(operations[id]!)
+                operations[id]?.writeLocation = location
+                try change(id, to: .mountingWrite) // Persist the selected directory before mounting.
                 try await writable.activateWrite(operations[id]!)
                 try change(id, to: .writeMounted)
                 working.remove(id)

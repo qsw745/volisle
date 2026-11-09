@@ -490,7 +490,7 @@ public extension MountCycleClientBackend {
         // Off the main thread: the volume answers between its own operations.
         return await Task.detached(priority: .utility) { () -> WriteSessionHealth in
             guard let records = try? SystemMountRecord.current() else { return .writing }
-            guard let path = try? FSKitMountPoint.writePath(record.id, device: "/dev/" + record.disk.bsdName, records: records),
+            guard let path = try? FSKitMountPoint.writePath(record.id, device: "/dev/" + record.disk.bsdName, records: records, location: record.writeLocation),
                   records.contains(where: { $0.path == path && $0.type == "volisle" && $0.source == "/dev/" + record.disk.bsdName }) else { return .gone }
             var value = [UInt8](repeating: 0, count: 16)
             let size = getxattr(path, "top.qisw.volisle.write-state", &value, value.count, 0, 0)
@@ -501,7 +501,7 @@ public extension MountCycleClientBackend {
     public func rolledBackAfterCleanEnd(_ record: HelperMountOperation) async -> Bool {
         return await Task.detached(priority: .utility) {
             guard let records = try? SystemMountRecord.current(),
-                  let path = try? FSKitMountPoint.writePath(record.id, device: "/dev/" + record.disk.bsdName, records: records),
+                  let path = try? FSKitMountPoint.writePath(record.id, device: "/dev/" + record.disk.bsdName, records: records, location: record.writeLocation),
                   records.contains(where: { $0.path == path && $0.type == "volisle" && $0.source == "/dev/" + record.disk.bsdName }) else { return false }
             var value = [UInt8](repeating: 0, count: 16)
             let size = getxattr(path, "top.qisw.volisle.recovery", &value, value.count, 0, 0)
