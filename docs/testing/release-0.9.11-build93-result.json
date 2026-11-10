@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "time": "2026-11-10T16:51:28.259064+08:00",
+  "version": "0.9.11",
+  "build": 93,
+  "published": true,
+  "website": "https://qisw.top/volisle/",
+  "github_release": "https://github.com/qsw745/volisle/releases/tag/v0.9.11",
+  "github_latest_stable": true,
+  "homebrew_version": "0.9.11",
+  "private_source_tag_commit": "584e523f0606474adb9550bcc854679e0080ed7d",
+  "public_source_tag_commit": "cfe5158d8d51d18e973b5012b8aa113e4883f7d8",
+  "website_release": "20261110-0.9.11-build93",
+  "previous_website_release": "20261027-0.9.10-build85",
+  "dmg": {
+    "bytes": 13403987,
+    "sha256": "239e9de9f96ed0f1e9809ee8683632502864f10956b505b40bb9f41b785d8850"
+  },
+  "source_sha256": "d44671196eb77b6b8287eec4a004015b7044487af94da36e6e388c7f613c6cf4",
+  "update_zip_sha256": "7370c0599e4706f13de9fe6ea2e83f52834516520504fff3ca084598d80219f9",
+  "feed_sha256": "4fda660d9045d5444a897e20acce606aabf9399c4169d1cf0299925550595c14",
+  "all_new_critical_acceptance_passed": true,
+  "origin_staged_files_full_sha256_verified": 193,
+  "public_current_full_download_or_page_checks": 11,
+  "public_other_url_head_and_first_last_range_checks": 55,
+  "all_historical_files_fully_redownloaded_after_switch": false,
+  "github_all_3_assets_anonymous_full_download_verified": true,
+  "homebrew_live_cask_and_readme_match": true,
+  "app_store_changed": false,
+  "physical_disk_safely_ejected": true
+}
