@@ -27,5 +27,12 @@
   "github_all_3_assets_anonymous_full_download_verified": true,
   "homebrew_live_cask_and_readme_match": true,
   "app_store_changed": false,
-  "physical_disk_safely_ejected": true
+  "physical_disk_safely_ejected": true,
+  "core_tests": {
+    "total": 564,
+    "passed": 560,
+    "skipped": 4,
+    "suites": 56,
+    "count_verified_from_per_test_log": true
+  }
 }

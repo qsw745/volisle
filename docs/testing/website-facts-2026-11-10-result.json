@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "updated": "2026-11-10T17:03:37.400270+08:00",
+  "deployed": true,
+  "website_release": "20261110-0.9.11-site-facts",
+  "previous_release": "20261110-0.9.11-build93",
+  "app_version": "0.9.11",
+  "build": 93,
+  "core_tests": {
+    "total": 564,
+    "passed": 560,
+    "skipped": 4,
+    "suites": 56
+  },
+  "bilingual_compatibility_and_privacy_updated": true,
+  "all_downloads_and_signed_updates_unchanged": true,
+  "origin_manifest_files": 193,
+  "public_changed_and_checkpoint_files_verified": 111,
+  "local_lint_typecheck_build_and_static_links": "passed"
+}
