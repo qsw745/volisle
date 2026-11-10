@@ -1,0 +1,36 @@
+{
+  "time": "2026-11-10T16:18:18.301526+08:00",
+  "build": 93,
+  "export_directory": "相册导出 2026-11-10 161726 A08E73CA",
+  "files": [
+    {
+      "name": "IMG_7079.HEIC",
+      "bytes": 1771701,
+      "sha256": "5ed9a496662825166ac51b75577aced76f123d7b974fb17de0af81598cefe475",
+      "matches_downloaded_original": true
+    },
+    {
+      "name": "IMG_7079.MOV",
+      "bytes": 3668404,
+      "sha256": "505f34b9bf329aacf87525587d63722798a062f41954127832318d63bc632478",
+      "matches_downloaded_original": true
+    }
+  ],
+  "pair": {
+    "imageHeight": 3024,
+    "imageWidth": 4032,
+    "pairIdentifierMatches": true,
+    "photoIdentifierPresent": true,
+    "videoDurationSeconds": 2.14,
+    "videoIdentifierPresent": true,
+    "videoTrackCount": 1
+  },
+  "original_image_and_video_not_local_before_export": true,
+  "on_demand_download_dates_recorded": true,
+  "both_resources_local_after_export": true,
+  "app_completed_write_confirmation": true,
+  "readonly_remount_verified": true,
+  "icloud_setting_enabled_by_owner": true,
+  "product_code_changed": false,
+  "readonly_verified_time": "2026-11-10T16:18:51.746611+08:00"
+}

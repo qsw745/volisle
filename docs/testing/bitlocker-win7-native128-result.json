@@ -1,0 +1,46 @@
+{
+  "time": "2026-11-10T13:53:55.671514+08:00",
+  "build": 92,
+  "partition_uuid": "44D4CEE8-FF63-4037-BE1A-8934977EE163",
+  "mount": "/Volumes/.volisle-bitlocker/e77b0683-ce2e-480f-b7a4-38e739cffd55",
+  "test_directory": "Volisle-Win7-Mac-20261110-4dcb0f1b",
+  "windows_report": {
+    "osVersion": "6.1.7601",
+    "osCaption": "Microsoft Windows 7 旗舰版 ",
+    "encryptionMethod": "1",
+    "encryptionPercentage": "100",
+    "volumeName": "加密测试",
+    "utcTime": "2026-11-10T05:51:40.9097822Z",
+    "verifiedFiles": "21",
+    "partitionUUID": "44D4CEE8-FF63-4037-BE1A-8934977EE163",
+    "success": "true"
+  },
+  "algorithm": "AES-128-CBC + Elephant Diffuser",
+  "windows_verified_mac_and_original_files": 21,
+  "mac_reverified_original_and_mac_files": 21,
+  "windows_new_files_verified_on_mac": [
+    {
+      "name": "Windows-created.txt",
+      "bytes": 46,
+      "sha256": "157e91eb472622d2cf52d5b67b6481a4c540653417d65a3962832d23615a6dc0"
+    },
+    {
+      "name": "Windows-created-1MiB-plus1.bin",
+      "bytes": 1048577,
+      "sha256": "45b49ca508e6aa9c5aaa60bcc27c1a7e2ac2b8895d2c0b4aec566d04326b17f6"
+    }
+  ],
+  "all_originals_preserved": true,
+  "windows_verifier_unchanged": true,
+  "roundtrip_verified": true,
+  "other_diffuser_key_size_tested": false,
+  "recovery_key_unlock_tested": true,
+  "final_state": {
+    "encrypted_partition_locked": true,
+    "ordinary_partition_native_readonly": true,
+    "unfinished_normal_write_operation": false,
+    "whole_disk_ejected": false
+  },
+  "verified_at": "2026-11-10T13:55:53.266854+08:00",
+  "recovery_key_evidence": "bitlocker-win7-native128-recovery-result.json"
+}

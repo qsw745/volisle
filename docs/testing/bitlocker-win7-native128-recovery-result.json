@@ -1,0 +1,16 @@
+{
+  "time": "2026-11-10T14:53:08.593382+08:00",
+  "method": "48-digit recovery key manually entered by owner; not recorded",
+  "algorithm": "AES-128-CBC + Elephant Diffuser",
+  "partition_uuid": "44D4CEE8-FF63-4037-BE1A-8934977EE163",
+  "new_mount": "/Volumes/.volisle-bitlocker/8937be9c-9d55-4a1f-8e8d-55eb98822d62",
+  "original_and_roundtrip_files_verified": 23,
+  "readwrite_fsync_verified": true,
+  "new_file": {
+    "path": "Volisle-Win7-Mac-20261110-4dcb0f1b/recovery-key-readwrite-check.txt",
+    "bytes": 47,
+    "sha256": "58579e6681d0fc5a73c593d20552bc20cc74e5c4c6fe96b2794cc88a289af147"
+  },
+  "locked_after_test": true,
+  "whole_disk_ejected": true
+}
