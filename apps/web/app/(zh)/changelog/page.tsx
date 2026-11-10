@@ -3,6 +3,13 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: '更新日志', alternates: alternates('zh', '/changelog/') };
 export default function Page() { return <ArticlePage title="每一步，都如实记录。" lead="未标注“已发布”的版本不提供公开安装包。">
+<h2>0.9.11 · 2026 年 11 月 10 日</h2><ul>
+<li>新增从相册导出：在磁盘详情中选择照片和视频，直接保存未修改的原片；Live Photo 同时保留图片与配套视频。</li>
+<li>支持按需下载 iCloud 原片，提供准备进度与取消；导出接入现有拷贝队列，保留写入确认与断盘恢复。</li>
+<li>新增 Windows 7 旧版 BitLocker 扩散器兼容，支持 AES-128 与 AES-256；已完成实体加密分区的跨系统双向读写验证。</li>
+<li>修复启用 NTFS 读写后部分软件无法找到磁盘路径的问题，恢复使用正常的卷名路径。</li>
+<li>兼容范围以官网说明为准；建议先用少量有备份的数据验证自己的磁盘与图库。</li>
+</ul>
 <h2>0.9.10 · 2026 年 10 月 27 日</h2><ul>
 <li>支持同一块盘同时运行两个拷贝任务；同名文件和重叠目录自动排队，暂停、继续与取消各自独立。</li>
 <li>改进暂停后继续的进度与速度显示，分别显示核对速度和传输速度，并说明复用的已有内容。</li>

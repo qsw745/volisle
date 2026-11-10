@@ -3,6 +3,13 @@ import { alternates } from '@/lib/i18n';
 import { ArticlePage } from '@/components/ArticlePage';
 export const metadata: Metadata = { title: 'Release Notes', alternates: alternates('en', '/changelog/') };
 export default function Page() { return <ArticlePage locale="en" title="Every step, on the record." lead="Versions not marked as released have no public installer.">
+<h2>0.9.11 · November 10, 2026</h2><ul>
+<li>Export selected photos and videos from the disk detail page as unmodified originals. Live Photos retain both their image and paired video.</li>
+<li>Download iCloud originals on demand, with preparation progress and cancellation, then use the existing copy queue with write confirmation and reconnect recovery.</li>
+<li>Add compatibility with Windows 7 BitLocker AES-128 and AES-256 Elephant Diffuser encryption, validated with physical encrypted partitions and bidirectional Windows/Mac file checks.</li>
+<li>Fix disk paths becoming unavailable to some applications after enabling NTFS write access by restoring normal volume-name paths.</li>
+<li>See the website for compatibility limits. Try a small set of backed-up data with your own disk and library first.</li>
+</ul>
 <h2>0.9.10 · October 27, 2026</h2><ul>
 <li>Run up to two copy tasks on the same disk. Conflicting files and folders wait their turn; pause, resume and cancel each task independently.</li>
 <li>Show separate comparison and transfer speeds after resuming, with a clear summary of existing data reused.</li>

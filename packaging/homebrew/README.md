@@ -12,6 +12,13 @@ brew install --cask qsw745/volisle/volisle
 
 盘屿在应用内自动更新：安装更新前会先安全结束磁盘读写。因此 `brew upgrade` 默认不会升级盘屿，这是有意的。
 
+通过 Homebrew 更新时，先在盘屿或 Finder 中推出全部盘屿磁盘，再运行：
+
+```bash
+brew update
+brew upgrade --cask --greedy volisle
+```
+
 ## 卸载
 
 1. 在盘屿或 Finder 中推出所有 NTFS 磁盘（挂着盘时 brew 会拒绝卸载）。

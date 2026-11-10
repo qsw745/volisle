@@ -4,7 +4,7 @@
     "zh-CN",
     "en"
   ],
-  "links_checked": 402,
+  "links_checked": 406,
   "metadata": "通过",
   "published": true,
   "download_links": [
@@ -46,6 +46,8 @@
     "/downloads/Volisle-0.9.1-universal.dmg",
     "/downloads/Volisle-0.9.10-source.tar.gz",
     "/downloads/Volisle-0.9.10-universal.dmg",
+    "/downloads/Volisle-0.9.11-source.tar.gz",
+    "/downloads/Volisle-0.9.11-universal.dmg",
     "/downloads/Volisle-0.9.2-source.tar.gz",
     "/downloads/Volisle-0.9.2-universal.dmg",
     "/downloads/Volisle-0.9.3-source.tar.gz",

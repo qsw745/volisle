@@ -1,20 +1,22 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.9.10</title><pubDate>Tue, 27 Oct 2026 07:44:05 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.9.10
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><title>盘屿正式版更新</title><link>https://qisw.top/volisle/</link><item><title>盘屿 0.9.11</title><pubDate>Tue, 10 Nov 2026 08:37:50 +0000</pubDate><description sparkle:format="plain-text" xml:lang="zh-Hans">盘屿 0.9.11
 
-· 支持同一块盘同时运行两个拷贝任务；同名文件和重叠目录自动排队，暂停、继续与取消各自独立。
-· 改进暂停后继续的进度与速度显示，分别显示核对速度和传输速度，并说明复用的已有内容。
-· 优化选择源文件和目标位置的响应，减少两步切换等待，独立记住源文件目录。
-· 加强取消、断盘与重连时的任务保护，避免清理其他任务的未完成文件。
+· 新增从相册导出：在磁盘详情中选择照片和视频，直接保存未修改的原片；Live Photo 同时保留图片与配套视频。
+· 支持按需下载 iCloud 原片，提供准备进度与取消；导出接入现有拷贝队列，保留写入确认与断盘恢复。
+· 新增 Windows 7 旧版 BitLocker 扩散器兼容，支持 AES-128 与 AES-256；已完成实体加密分区的跨系统双向读写验证。
+· 修复启用 NTFS 读写后部分软件无法找到磁盘路径的问题，恢复使用正常的卷名路径。
+· 兼容范围以官网说明为准；建议先用少量有备份的数据验证自己的磁盘与图库。
 
-对应源码：https://qisw.top/volisle/updates/Volisle-0.9.10-85-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.9.10
+对应源码：https://qisw.top/volisle/updates/Volisle-0.9.11-93-source.tar.gz</description><description sparkle:format="plain-text" xml:lang="en">Volisle 0.9.11
 
-· Run up to two copy tasks on the same disk. Conflicting files and folders wait their turn; pause, resume and cancel each task independently.
-· Show separate comparison and transfer speeds after resuming, with a clear summary of existing data reused.
-· Improve source and destination selection by reducing two-step window transition delays and remembering the source folder separately.
-· Strengthen task protection during cancellation, disconnection and reconnection so one task cannot remove another task's partial files.
+· Export selected photos and videos from the disk detail page as unmodified originals. Live Photos retain both their image and paired video.
+· Download iCloud originals on demand, with preparation progress and cancellation, then use the existing copy queue with write confirmation and reconnect recovery.
+· Add compatibility with Windows 7 BitLocker AES-128 and AES-256 Elephant Diffuser encryption, validated with physical encrypted partitions and bidirectional Windows/Mac file checks.
+· Fix disk paths becoming unavailable to some applications after enabling NTFS write access by restoring normal volume-name paths.
+· See the website for compatibility limits. Try a small set of backed-up data with your own disk and library first.
 
-Source code: https://qisw.top/volisle/updates/Volisle-0.9.10-85-source.tar.gz</description><sparkle:version>85</sparkle:version><sparkle:shortVersionString>0.9.10</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.9.10-85-universal.zip" length="11035938" type="application/octet-stream" sparkle:edSignature="siKSVFMgQaLBH8DMgM1zcX+dH/UvkGG7v8SDr5nrdTuLMqclT/bpTXc8P0oT1UOc1Y7Qc+KKHxo6ZJgmRrxYCw==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
-edSignature: UBz35/uRc8E0i4tPN4LwJeZJgFh4QwHGe9nlLVA3FI209O+zVbzA5Z7wXYw4pJ/EDHu3KVcuhGnrEjlILH0dCQ==
-length: 2338
+Source code: https://qisw.top/volisle/updates/Volisle-0.9.11-93-source.tar.gz</description><sparkle:version>93</sparkle:version><sparkle:shortVersionString>0.9.11</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.4</sparkle:minimumSystemVersion><enclosure url="https://qisw.top/volisle/updates/Volisle-0.9.11-93-universal.zip" length="11463037" type="application/octet-stream" sparkle:edSignature="UapEnnAYffSLUHoprx31kh536X8YZ/995nAhovFKn6KrKjAbhLZRucb4fbNwmpVz5EbD+j8FBmZ1lnlxlGyqAg==" sparkle:os="macos"></enclosure></item></channel></rss><!-- sparkle-signatures:
+edSignature: BSGK8E/TlCUpmUDPhaCgKaztiCMBhaIDHEDc6fChpJfxKdbzIoW3/jZ+xWWRKULBs79YrD6EtcWkvvXHK1rxBg==
+length: 2736
 -->
