@@ -179,6 +179,17 @@ html[lang="en"] .brand { letter-spacing: -.015em; }
 .release-panel h2 { margin: 0 0 6px; font-size: 26px; }
 .release-panel p { margin: 0; font-size: 14px; }
 .release-button { flex-shrink: 0; }
+.brew-install { margin-top: 14px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 14px; }
+.brew-install summary { width: fit-content; cursor: pointer; font-weight: 600; }
+.brew-install summary:hover { color: var(--blue); }
+.article-body .brew-install p { margin: 10px 0; font-size: 14px; }
+.article-body .brew-install h3 { margin: 16px 0 6px; font-size: 15px; }
+.brew-command { display: flex; align-items: center; gap: 8px; }
+.article-body .brew-command code { flex: 1; min-width: 0; padding: 8px 10px; overflow-wrap: anywhere; user-select: all; font-size: 14px; }
+.brew-command button { min-height: 44px; padding: 0 10px; flex-shrink: 0; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--paper); font: inherit; font-size: 14px; cursor: pointer; }
+.brew-command button:hover { color: var(--blue); }
+.brew-status { display: block; color: var(--muted); font-size: 13px; }
+.brew-status:not(:empty) { margin-top: 4px; }
 .checksums { margin: 20px 0 0; }
 .checksums dt { font-size: 14px; font-weight: 600; color: var(--ink); margin-top: 16px; }
 .checksums dd { margin: 6px 0 0; color: var(--muted); }

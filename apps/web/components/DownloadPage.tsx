@@ -2,6 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { ArticlePage } from './ArticlePage';
 import { Icon } from './Icon';
+import { HomebrewInstall } from './HomebrewInstall';
 import { release } from '@/lib/release';
 import { history } from '@/lib/history';
 import { localePath, type Locale } from '@/lib/i18n';
@@ -47,6 +48,7 @@ export function DownloadPage({ locale }: { locale: Locale }) {
     <p>{release.published ? c.meta : c.pending}</p>
   </div>{release.published && <a className="button primary release-button" href={`${base}${release.dmg}`} download>{c.button} <Icon name="arrow" size={17}/></a>}</div>
   {release.published ? <>
+    <HomebrewInstall locale={locale}/>
     <h2>{c.stepsTitle}</h2>
     <ol className="install-steps">{c.steps.map(([title, text], i) => <li key={title}><span className="step-number">0{i + 1}</span><h3>{title}</h3><p>{text}</p></li>)}</ol>
     <p>{c.notarized}</p>

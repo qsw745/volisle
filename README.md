@@ -4,6 +4,14 @@
 
 官网与下载：<https://qisw.top/volisle/> · English: <https://qisw.top/volisle/en/>
 
+已安装 Homebrew？在终端运行：
+
+```sh
+brew install qsw745/volisle/volisle
+```
+
+日常可在盘屿里选择“检查更新”。如需通过 Homebrew 更新，先推出盘屿挂载的磁盘，再运行 `brew upgrade -g volisle`；若未找到新版，先运行 `brew update`。详见[官网下载页](https://qisw.top/volisle/download/)。
+
 ![盘屿主界面](apps/web/public/screenshots/app-light.webp)
 
 ## 功能
