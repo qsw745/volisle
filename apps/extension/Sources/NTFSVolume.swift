@@ -839,7 +839,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         attrs.parentID = try path == "/" ? .parentOfRoot : parentID ?? id(for: (path as NSString).deletingLastPathComponent)
         attrs.uid = getuid()
         attrs.gid = getgid()
-        attrs.flags = Self.flags(st)
+        attrs.flags = Self.flags(st, path: path)
         // All I/O stays in the serialized callback bridge; no kernel-offloaded
         // mappings are advertised by this implementation.
         attrs.inhibitKernelOffloadedIO = true
@@ -850,9 +850,10 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         return attrs
     }
 
-    /// NTFS HIDDEN → UF_HIDDEN, so Finder hides e.g. $RECYCLE.BIN like Windows.
-    private static func flags(_ st: nk_stat) -> UInt32 {
-        st.file_flags & 0x2 != 0 ? UInt32(UF_HIDDEN) : 0
+    /// Keep NTFS hidden children hidden in Finder. The root describes the
+    /// entire mounted volume, so exposing its on-disk HIDDEN bit hides the disk.
+    private static func flags(_ st: nk_stat, path: String) -> UInt32 {
+        path != "/" && st.file_flags & 0x2 != 0 ? UInt32(UF_HIDDEN) : 0
     }
 
     func attributes(_ request: FSItem.GetAttributesRequest, of item: FSItem) async throws -> FSItem.Attributes {
@@ -878,7 +879,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         guard found == 0 else { throw posix(ENOENT) }
         let kind: FSItem.ItemType = current.is_dir != 0 ? .directory : (current.is_symlink != 0 ? .symlink : .file)
         let update = try AttributeUpdate(request, kind: kind, privateModes: privateModesEnabled,
-                                         currentFlags: Self.flags(current))
+                                         currentFlags: Self.flags(current, path: item.path))
         try requirePhysicalTestPath(item.path)
         try requireWritableEngine()
         try withReplacementWrite(item, maximumSize: request.isValid(.size) ? request.size : nil) {
