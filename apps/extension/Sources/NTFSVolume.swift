@@ -34,6 +34,8 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
     private var engineWritable = false          // guarded by engineQueue
     private var writeActivationFailed = false   // guarded by operationLock
     private var closeFailed = false             // guarded by engineQueue
+    /// A failed session reports its sync error once, then permits normal unmount.
+    private var syncFailureReported = false
     /// This activation rolled back a cleanly ended session (unplugged before the
     /// drive wrote its cache out). Guarded by operationLock.
     private var rolledBackAfterEnd = false
@@ -669,6 +671,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
 
     private func activateVolume(options: FSTaskOptions) throws -> FSItem {
         return try operationLock.withLock {
+        syncFailureReported = false
         #if VOLISLE_STORE
         storeMountID = UUID().uuidString
         storeMountedAt = Date()
@@ -809,7 +812,11 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
             vol == nil ? (closeFailed ? Int32(-1) : Int32(0))
                 : checkpointJournal(force: journal.session.map { $0.checkpointSeconds >= 1 } ?? true)
         }
-        guard rc == 0 else { throw posix(EIO) }
+        guard rc != 0 else { return }
+        guard !syncFailureReported else { return }
+        syncFailureReported = true
+        log.error("写入会话已失败：本次同步报错；之后的同步放行以便卸载，最近的写入在下次连接时退回")
+        throw posix(EIO)
     
         }
     }
@@ -836,7 +843,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         attrs.parentID = try path == "/" ? .parentOfRoot : parentID ?? id(for: (path as NSString).deletingLastPathComponent)
         attrs.uid = getuid()
         attrs.gid = getgid()
-        attrs.flags = Self.flags(st)
+        attrs.flags = Self.flags(st, path: path)
         // All I/O stays in the serialized callback bridge; no kernel-offloaded
         // mappings are advertised by this implementation.
         attrs.inhibitKernelOffloadedIO = true
@@ -847,9 +854,10 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         return attrs
     }
 
-    /// NTFS HIDDEN → UF_HIDDEN, so Finder hides e.g. $RECYCLE.BIN like Windows.
-    private static func flags(_ st: nk_stat) -> UInt32 {
-        st.file_flags & 0x2 != 0 ? UInt32(UF_HIDDEN) : 0
+    /// The root describes the mounted volume. Preserve hidden child attributes
+    /// while keeping the volume itself visible in Finder.
+    private static func flags(_ st: nk_stat, path: String) -> UInt32 {
+        path != "/" && st.file_flags & 0x2 != 0 ? UInt32(UF_HIDDEN) : 0
     }
 
     func attributes(_ request: FSItem.GetAttributesRequest, of item: FSItem) async throws -> FSItem.Attributes {
@@ -875,7 +883,7 @@ final class NTFSVolume: FSVolume, FSVolume.Operations, FSVolume.ReadWriteOperati
         guard found == 0 else { throw posix(ENOENT) }
         let kind: FSItem.ItemType = current.is_dir != 0 ? .directory : (current.is_symlink != 0 ? .symlink : .file)
         let update = try AttributeUpdate(request, kind: kind, privateModes: privateModesEnabled,
-                                         currentFlags: Self.flags(current))
+                                         currentFlags: Self.flags(current, path: item.path))
         try requirePhysicalTestPath(item.path)
         try requireWritableEngine()
         try withReplacementWrite(item, maximumSize: request.isValid(.size) ? request.size : nil) {
@@ -1345,8 +1353,8 @@ extension NTFSVolume: FSVolume.XattrOperations {
     /// Answered by the volume itself on its root, never stored on the disk and
     /// never listed: "stopped" once this mount can no longer write (a device
     /// error locked the session; its records wait for the next connection).
-    /// The app reads it to explain why writes fail; the helper, to know that
-    /// only a forced unmount can end such a mount.
+    /// The app reads it to explain why writes fail. Synchronization reports
+    /// the failure once so a later normal unmount can finish the session.
     static let writeStateAttribute = "top.qisw.volisle.write-state"
     /// The actual module mode, including read-only fallback that old FSKit
     /// kernels do not expose in statfs. It is virtual and cannot be overwritten.
@@ -1533,11 +1541,32 @@ extension NTFSVolume: JournalBlockDevice {
 
     private var journalSerial: String { volumeSerial.map { String(format: "%02x", $0) }.joined() }
 
+    private static let writeJournalFolder = "VolisleWriteJournal"
+
+    /// Only OS-provided bases, never a path from the disk or options.
     private func writeJournalStore() throws -> WriteJournalStore {
-        // Only the OS-provided sandbox base, never a path from the disk or options.
+        #if VOLISLE_STORE
+        // The app group container, not the extension's own: a cleaner removing an
+        // uninstalled copy's leftovers deleted the extension container while a
+        // session was writing (2026-10-15, Tencent Lemon), every record with it,
+        // and a sandboxed extension cannot make its container again. The group
+        // container stayed.
+        guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: StoreMountStatus.group) else {
+            throw posix(EACCES)
+        }
+        return try WriteJournalStore(directory: group.resolvingSymlinksInPath()
+            .appendingPathComponent(Self.writeJournalFolder, isDirectory: true))
+        #else
+        return try WriteJournalStore(directory: containerWriteJournalURL())
+        #endif
+    }
+
+    /// The extension's own container: where the official build keeps its
+    /// records, and where earlier store versions kept theirs.
+    private func containerWriteJournalURL() throws -> URL {
         let base = try FileManager.default.url(for: .applicationSupportDirectory,
             in: .userDomainMask, appropriateFor: nil, create: true).resolvingSymlinksInPath()
-        return try WriteJournalStore(directory: base.appendingPathComponent("VolisleWriteJournal", isDirectory: true))
+        return base.appendingPathComponent(Self.writeJournalFolder, isDirectory: true)
     }
 
     /// Activation, before the writable inspection: roll an interrupted session
@@ -1548,31 +1577,47 @@ extension NTFSVolume: JournalBlockDevice {
             #if VOLISLE_STORE
             storeRecovery = nil
             #endif
-            let outcome: WriteJournalCoordinator.Outcome
-            do { outcome = WriteJournalCoordinator.recover(store: try writeJournalStore(), serial: journalSerial, io: journal) }
-            catch { outcome = .refused(.unavailable) }
-            switch outcome {
-            case .none: return nil
-            case .superseded:
-                log.notice("这块盘中断后在其他系统上用过：旧的恢复记录已作废并归档，按磁盘当前状态检查")
-                return nil
-            case .recovered:
-                log.notice("上次写入中断已回滚到最后一致点并释放本机脏标记")
-                #if VOLISLE_STORE
-                storeRecovery = .interrupted
-                #endif
-                return nil
-            case .recoveredAfterEnd:
-                log.notice("上次正常结束后过早断开，最近的改动没有写到盘上：已回到之前的一致状态并释放本机脏标记")
-                rolledBackAfterEnd = true
-                #if VOLISLE_STORE
-                storeRecovery = .afterEnd
-                #endif
-                return nil
-            case .refused(let reason):
-                log.error("上次写入中断无法安全恢复（\(String(describing: reason), privacy: .public)）；保持只读，记录保留")
-                return reason
+            var stores: [() throws -> WriteJournalStore] = []
+            #if VOLISLE_STORE
+            // Records an earlier version left in the extension's own container
+            // first: a session there predates any in the group container. Never
+            // made where there is none.
+            if let legacy = try? containerWriteJournalURL(), FileManager.default.fileExists(atPath: legacy.path) {
+                stores.append { try WriteJournalStore(directory: legacy) }
             }
+            #endif
+            stores.append { try self.writeJournalStore() }
+            for outcome in WriteJournalCoordinator.recover(stores: stores, serial: journalSerial, io: journal) {
+                if let refused = reportRecovery(outcome) { return refused }
+            }
+            return nil
+        }
+    }
+
+    /// Engine queue. Logs what recovery did; returns why writes must stay off, or nil.
+    private func reportRecovery(_ outcome: WriteJournalCoordinator.Outcome) -> WriteJournalError? {
+        dispatchPrecondition(condition: .onQueue(engineQueue))
+        switch outcome {
+        case .none: return nil
+        case .superseded:
+            log.notice("这块盘中断后在其他系统上用过：旧的恢复记录已作废并归档，按磁盘当前状态检查")
+            return nil
+        case .recovered:
+            log.notice("上次写入中断已回滚到最后一致点并释放本机脏标记")
+            #if VOLISLE_STORE
+            storeRecovery = .interrupted
+            #endif
+            return nil
+        case .recoveredAfterEnd:
+            log.notice("上次正常结束后过早断开，最近的改动没有写到盘上：已回到之前的一致状态并释放本机脏标记")
+            rolledBackAfterEnd = true
+            #if VOLISLE_STORE
+            storeRecovery = .afterEnd
+            #endif
+            return nil
+        case .refused(let reason):
+            log.error("上次写入中断无法安全恢复（\(String(describing: reason), privacy: .public)）；保持只读，记录保留")
+            return reason
         }
     }
 
@@ -1580,6 +1625,11 @@ extension NTFSVolume: JournalBlockDevice {
         try engineQueue.sync {
             guard journal.session == nil else { throw posix(EBUSY) }
             do {
+                #if VOLISLE_STORE
+                if let legacy = try? containerWriteJournalURL(), FileManager.default.fileExists(atPath: legacy.path) {
+                    try WriteJournalCoordinator.retire(store: WriteJournalStore(directory: legacy), serial: journalSerial, io: journal)
+                }
+                #endif
                 (_, journalLock) = try WriteJournalCoordinator.begin(store: try writeJournalStore(),
                                                                        serial: journalSerial, io: journal)
                 log.notice("写入日志会话开始：卷=\(self.journalSerial, privacy: .public)")
@@ -1605,7 +1655,7 @@ extension NTFSVolume: JournalBlockDevice {
         guard journal.session != nil, journalLock >= 0 else { return -1 }
         defer { journalLock = -1 }
         do {
-            try WriteJournalCoordinator.finish(store: try writeJournalStore(), io: journal, lock: journalLock)
+            try WriteJournalCoordinator.finish(io: journal, lock: journalLock)
             log.notice("写入日志会话正常结束：记录保留到确认写入")
             return 0
         } catch {
@@ -1642,7 +1692,8 @@ extension NTFSVolume: JournalBlockDevice {
         // unplug minutes later undo writes long since on the disk.
         session.pruneRetained()
         guard force || session.checkpointDue ||
-              (session.hasUncheckpointedWrites && (session.idleSeconds >= 1 || session.epochSeconds >= 5)) else { return 0 }
+              (session.hasUncheckpointedWrites && (session.idleSeconds >= 1 || session.epochSeconds >= 5)) ||
+              session.recordsMissing else { return 0 }
         #if VOLISLE_TEST_CHECKPOINT_FAIL
         if testFailNextCheckpoint {
             testFailNextCheckpoint = false

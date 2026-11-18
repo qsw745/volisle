@@ -90,6 +90,8 @@ final class WriteJournalStore {
     private enum FrameType: UInt8 { case header = 1, group = 2, checkpoint = 3, sectorGroup = 4 }
     let url: URL
     private let directory: Int32
+    /// The directory this store opened, to notice it is no longer at `url`.
+    private let identity: (device: dev_t, inode: ino_t)
     private let key: SymmetricKey
 
     init(directory url: URL) throws {
@@ -102,10 +104,21 @@ final class WriteJournalStore {
             Darwin.close(fd); throw WriteJournalError.unavailable
         }
         directory = fd
+        identity = (info.st_dev, info.st_ino)
         do { key = SymmetricKey(data: try Self.loadKey(fd)) }
         catch { Darwin.close(fd); throw error }
     }
     deinit { Darwin.close(directory) }
+
+    /// False once the directory was deleted or moved away while held open. The
+    /// system deletes an app's containers, the extension's with them, when a copy
+    /// with the same identifier is deleted (seen 2026-10-15: emptying the Trash).
+    /// Records created after that land nowhere, or in the Trash. Not the link
+    /// count: an APFS directory deleted while open still reports 2.
+    var isInPlace: Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && info.st_dev == identity.device && info.st_ino == identity.inode
+    }
 
     private static func loadKey(_ directory: Int32) throws -> Data {
         for _ in 0..<2 {

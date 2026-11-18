@@ -2,6 +2,7 @@
 import Foundation
 import CryptoKit
 import Darwin
+import os
 
 /// Fixed cache-block device. A write may stay in the system cache until
 /// `journalFlush`, the barrier (unavailable before a kernel mount, where
@@ -93,7 +94,12 @@ struct FreeSpaceMap {
 /// one, returning the device to the oldest retained checkpoint; checkpoints
 /// are always taken at an operation boundary after nk_sync.
 final class WriteJournalSession {
-    let store: WriteJournalStore
+    private static let log = Logger(subsystem: "Volisle.NTFSModule", category: "journal")
+    /// Replaced when the records directory has to be made again (see `rehome`).
+    private(set) var store: WriteJournalStore
+    /// The lock taken in a remade records directory; the one `begin` returned
+    /// stays with the old directory.
+    private var rehomedLock: Int32 = -1
     let record: WriteJournalSessionRecord
     private let device: JournalBlockDevice
     private let kind: WriteJournalEpoch.Kind
@@ -118,6 +124,9 @@ final class WriteJournalSession {
     private struct RetainedEpoch { let epoch: UInt64; let name: String; let at: TimeInterval; let bitmap: [Int64: Data]; let bitmapKnown: Bool; let bytes: Int }
     /// Checkpointed epochs still on record, oldest first.
     private var retained: [RetainedEpoch] = []
+    /// Retained epochs that went with an old records directory (see `rehome`):
+    /// the oldest of them, and when the newest would have left the window.
+    private var lostRetained: (first: UInt64, until: TimeInterval)?
     var retention = WriteJournalLimits.retentionSeconds
     /// Uptime, not wall time: a clock set back would otherwise keep epochs (and
     /// roll back writes) far beyond the window; sleep does not count either.
@@ -143,7 +152,18 @@ final class WriteJournalSession {
          epoch: UInt64, kind: WriteJournalEpoch.Kind = .normal) {
         self.store = store; self.record = record; self.device = device; self.epoch = epoch; self.kind = kind
     }
-    deinit { if file >= 0 { Darwin.close(file) } }
+    deinit {
+        if file >= 0 { Darwin.close(file) }
+        closeRehomedLock()
+    }
+
+    func closeRehomedLock() {
+        if rehomedLock >= 0 { Darwin.close(rehomedLock); rehomedLock = -1 }
+    }
+
+    /// The records directory is no longer where it was: the next checkpoint
+    /// makes it again (`rehome`), so it is due now.
+    var recordsMissing: Bool { !failed && !store.isInPlace }
 
     var hasUncheckpointedWrites: Bool { file >= 0 || !overlay.isEmpty }
     /// What an unplug can no longer undo, so the app can confirm a finished copy
@@ -151,9 +171,13 @@ final class WriteJournalSession {
     /// to the journal so far lies in epochs below `writtenBelow`; epochs below
     /// `durableBelow` are no longer on record, and recovery rolls back only what
     /// is. Only a normal session's epochs are pruned this way; nil otherwise.
+    /// Epochs dropped with an old records directory count as not yet durable
+    /// until their window would have ended: the drive may still lose them.
     var durability: (writtenBelow: UInt64, durableBelow: UInt64)? {
         guard kind == .normal, !failed else { return nil }
-        return (hasUncheckpointedWrites ? epoch + 1 : epoch, retained.first?.epoch ?? epoch)
+        var durable = retained.first?.epoch ?? epoch
+        if let lost = lostRetained, clock() < lost.until { durable = min(durable, lost.first) }
+        return (hasUncheckpointedWrites ? epoch + 1 : epoch, durable)
     }
     /// Not written by this journal since the last checkpoint's device flush: the
     /// device holds exactly what the cache would return.
@@ -210,7 +234,10 @@ final class WriteJournalSession {
         do {
             guard !failed else { throw WriteJournalError.failed }
             try flushGroup()
-            guard file >= 0 else { return }
+            guard file >= 0 else {
+                if !store.isInPlace { try rehome() }
+                return
+            }
             try device.journalFlush()
             try hook("checkpoint-before-record")
             try store.appendCheckpoint(file, epoch: epoch, previous: previous)
@@ -225,6 +252,10 @@ final class WriteJournalSession {
             logged.removeAll(); checkpointBitmap.removeAll(); epochBitmapBefore.removeAll(); epochBitmapKnown = true
             epochBytes = 0; writtenBytes = 0; epoch += 1
             lastCheckpoint = clock()
+            // This epoch was recorded where the old directory went; the device
+            // barrier above made what it protected durable as far as a
+            // checkpoint ever does.
+            if !store.isInPlace { try rehome() }
             pruneRetained()
         } catch { stop(); throw error }
     }
@@ -264,6 +295,36 @@ final class WriteJournalSession {
         }
     }
 
+    /// Makes the records directory again where it was and records this session
+    /// in it, so an interruption is still recovered and this host's dirty
+    /// marker still released. Only between epochs, with no epoch file open.
+    /// The retained epochs went with the old directory: an unplug now rolls
+    /// back to the last checkpoint, no further. A continued session's records
+    /// went too, so there is nothing left to take over.
+    private func rehome() throws {
+        // The whole container may have gone, not only this directory. Whether the
+        // system then accepts the folders made here is for the FSKit test to show;
+        // without them nothing could be recorded at all.
+        try? FileManager.default.createDirectory(at: store.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fresh = try WriteJournalStore(directory: store.url)
+        let lock = try fresh.lock(serial: record.serial)
+        do { try fresh.saveSessionRecord(record) } catch { Darwin.close(lock); throw error }
+        closeRehomedLock()
+        rehomedLock = lock
+        store = fresh
+        let lost = retained.count
+        if let first = retained.first, let last = retained.last {
+            let until = max(last.at + retention, lostRetained.map(\.until) ?? -.infinity)
+            lostRetained = (min(first.epoch, lostRetained?.first ?? first.epoch), until)
+        }
+        retained.removeAll()
+        beforeFirstGroup = nil
+        Self.log.error("""
+            写入记录目录不在原处了（被删除或移走；删除同标识符的应用副本会连带删掉扩展的容器）：\
+            已在原位置重建并继续记录；保留窗口内 \(lost, privacy: .public) 批已检查点写入的拔线保护随旧目录丢失
+            """)
+    }
+
     /// Permanent: the records stay for the next connection's recovery.
     func stop() {
         failed = true
@@ -272,6 +333,7 @@ final class WriteJournalSession {
 
     private func flushGroup() throws {
         guard !overlay.isEmpty else { return }
+        if file < 0 && !store.isInPlace { try rehome() }
         if let takeOver = beforeFirstGroup {
             try takeOver()
             beforeFirstGroup = nil
